@@ -1,0 +1,26 @@
+{
+  "name": "SnapFit v2 — Gym Buddy",
+  "short_name": "SnapFit",
+  "description": "A coaching app that plans your training block, teaches you how to lift, and tracks the numbers.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e0e0e",
+  "theme_color": "#0e0e0e",
+  "categories": ["health", "fitness", "lifestyle"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192'%3E%3Crect width='192' height='192' rx='40' fill='%23e31837'/%3E%3Ctext x='20' y='92' font-family='Arial Black,Arial' font-weight='900' font-size='58' fill='white'%3Esnap%3C/text%3E%3Ctext x='9' y='160' font-family='Arial Black,Arial' font-weight='900' font-size='53' fill='white'%3Efitness%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='512' height='512'%3E%3Crect width='512' height='512' rx='108' fill='%23e31837'/%3E%3Ctext x='54' y='245' font-family='Arial Black,Arial' font-weight='900' font-size='155' fill='white'%3Esnap%3C/text%3E%3Ctext x='24' y='426' font-family='Arial Black,Arial' font-weight='900' font-size='141' fill='white'%3Efitness%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

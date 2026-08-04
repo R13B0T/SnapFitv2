@@ -1,0 +1,19 @@
+{
+  "name": "snapfit-v2",
+  "version": "2.0.0",
+  "private": true,
+  "description": "SnapFit v2 — a training coach that plans, teaches and tracks. No build step; npm is only here for the test harness.",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "test": "node test/app.test.js && node test/coach.test.js && node test/block.test.js",
+    "test:app": "node test/app.test.js",
+    "test:coach": "node test/coach.test.js",
+    "test:block": "node test/block.test.js"
+  },
+  "devDependencies": {
+    "@babel/standalone": "^8.0.4",
+    "playwright": "^1.62.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}
