@@ -22,6 +22,25 @@ const errors = [];
 const logs = [];
 let failures = 0;
 
+/* WCAG relative luminance and contrast ratio, for the theme checks. Takes
+   either "#rrggbb" or the "rgb(r, g, b)" that getComputedStyle returns. */
+function luminance(c){
+  let r,g,b;
+  const m = String(c).match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/);
+  if(m){ [r,g,b] = m.slice(1,4).map(Number); }
+  else {
+    const h = String(c).trim().replace("#","");
+    const f = h.length===3 ? h.split("").map(x=>x+x).join("") : h;
+    [r,g,b] = [0,2,4].map(i=>parseInt(f.slice(i,i+2),16));
+  }
+  const lin = [r,g,b].map(v=>{ v/=255; return v<=0.03928 ? v/12.92 : ((v+0.055)/1.055)**2.4; });
+  return 0.2126*lin[0] + 0.7152*lin[1] + 0.0722*lin[2];
+}
+function contrast(a,b){
+  const x = luminance(a), y = luminance(b);
+  return (Math.max(x,y)+0.05) / (Math.min(x,y)+0.05);
+}
+
 function check(name, ok, detail){
   console.log(`${ok?"  PASS":"  FAIL"}  ${name}${detail&&!ok?` — ${detail}`:""}`);
   if(!ok) failures++;
@@ -382,6 +401,195 @@ function check(name, ok, detail){
   check("sound toggle present", /Rest timer sounds/.test(st));
   check("wake lock toggle present", /Keep the screen awake/.test(st));
   check("test cues button present", /Test the cues/.test(st));
+
+  console.log("\n── THEME ────────────────────────────────────────");
+
+  /* Read the palette that's actually in force, plus real computed colours off
+     real elements, so a token defined but never applied still fails. */
+  const readTheme = () => page.evaluate(()=>{
+    const cs = getComputedStyle(document.documentElement);
+    const v = n => cs.getPropertyValue(n).trim();
+    const tokens = {};
+    for(const n of ["bg","surface","card","raised","line","lineSoft","text","dim","faint","ghost",
+                    "red","redSoft","green","blue","yellow","orange","purple","greenDeep","onGreen"]){
+      tokens[n] = v("--c-"+n);
+    }
+    // Does color-mix actually resolve? An unsupported value would compute to
+    // nothing and every tinted border in the app would silently vanish.
+    const probe = document.createElement("div");
+    probe.style.background = `color-mix(in srgb, ${v("--c-red")} 33.3%, transparent)`;
+    document.body.appendChild(probe);
+    const mixed = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    const h2 = document.querySelector("h2");
+    return {
+      attr: document.documentElement.dataset.theme,
+      tokens,
+      mixed,
+      bodyBg: getComputedStyle(document.body).backgroundColor,
+      headingColor: h2 ? getComputedStyle(h2).color : null,
+      meta: document.querySelector('meta[name="theme-color"]')?.getAttribute("content"),
+      bar: document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.getAttribute("content"),
+    };
+  });
+
+  /* Every colour the app draws with, checked against the surface it sits on.
+     Accents are held to 3:1 (WCAG 1.4.11 — they're chips, borders, big display
+     numbers and labels, not body copy); text and dim to the body-copy bar. */
+  function auditTheme(t, label){
+    const { tokens } = t;
+    const ACCENTS = ["red","green","blue","yellow","orange","purple"];
+    const textR = contrast(tokens.text, tokens.card);
+    const dimR  = contrast(tokens.dim,  tokens.card);
+    const accR  = ACCENTS.map(k=>[k, contrast(tokens[k], tokens.card)]);
+    const worst = Math.min(...accR.map(([,r])=>r));
+    check(`${label}: colour-mix resolves to a real colour`,
+      /^(rgba?|color)\(/.test(t.mixed) && !/^rgba\(0, 0, 0, 0\)$/.test(t.mixed), t.mixed);
+    check(`${label}: body background uses the theme's bg`,
+      contrast(t.bodyBg, tokens.bg) < 1.02, `${t.bodyBg} vs ${tokens.bg}`);
+    check(`${label}: body text ≥ 7:1`, textR >= 7, `${textR.toFixed(2)}:1`);
+    check(`${label}: secondary text ≥ 4.5:1`, dimR >= 4.5, `${dimR.toFixed(2)}:1`);
+    for(const [k,r] of accR) check(`${label}: ${k} ≥ 3:1 on card`, r >= 3, `${r.toFixed(2)}:1`);
+    console.log(`     ${label}: text ${textR.toFixed(1)}:1 · dim ${dimR.toFixed(1)}:1 · ` +
+      accR.map(([k,r])=>`${k} ${r.toFixed(1)}`).join(" · "));
+    return { worst, textR };
+  }
+
+  // Start from an explicit choice so this doesn't depend on the runner's OS.
+  const themeBtns = page.locator("text=Theme").locator("..").locator("button");
+  await themeBtns.nth(2).click();                       // Dark
+  await page.waitForTimeout(400);
+  const darkT = await readTheme();
+  check("dark applies", darkT.attr === "dark", darkT.attr);
+  check("dark meta theme-color", darkT.meta === "#0e0e0e", String(darkT.meta));
+  check("dark iOS status bar style", darkT.bar === "black", String(darkT.bar));
+  const darkAudit = auditTheme(darkT, "dark ");
+
+  await themeBtns.nth(1).click();                       // Light
+  await page.waitForTimeout(400);
+  const lightT = await readTheme();
+  check("light applies", lightT.attr === "light", lightT.attr);
+  check("light actually repaints the page", lightT.bodyBg !== darkT.bodyBg,
+    `${darkT.bodyBg} → ${lightT.bodyBg}`);
+  check("light meta theme-color", lightT.meta === "#edeae5", String(lightT.meta));
+  check("light iOS status bar style", lightT.bar === "default", String(lightT.bar));
+  check("light inverts the text", luminance(lightT.tokens.text) < luminance(darkT.tokens.text),
+    `${lightT.tokens.text} vs ${darkT.tokens.text}`);
+  check("light darkens every accent", ["red","green","blue","yellow","orange","purple"]
+    .every(k=>luminance(lightT.tokens[k]) < luminance(darkT.tokens[k])),
+    ["red","green","blue","yellow","orange","purple"].map(k=>`${k}:${lightT.tokens[k]}`).join(" "));
+  check("light flips onGreen so button text stays legible",
+    luminance(lightT.tokens.onGreen) > luminance(darkT.tokens.onGreen),
+    `${darkT.tokens.onGreen} → ${lightT.tokens.onGreen}`);
+  const lightAudit = auditTheme(lightT, "light");
+
+  /* The check that matters: light must not be the weaker theme. Dark's bright
+     accents on near-black run very high, so per-token parity is the wrong bar —
+     what counts is that light's worst point beats dark's worst point. */
+  check("light's weakest accent beats dark's weakest",
+    lightAudit.worst >= darkAudit.worst,
+    `light ${lightAudit.worst.toFixed(2)}:1 vs dark ${darkAudit.worst.toFixed(2)}:1`);
+
+  /* faint and ghost carry hints and warnings — including the API-key one — and
+     neither theme gets them to 4.5:1. Hold light to beating dark instead, which
+     is the guarantee that actually matters: the new theme is never the weaker
+     one for the text that's already hardest to read. */
+  for(const k of ["faint","ghost","dim"]){
+    const d = contrast(darkT.tokens[k],  darkT.tokens.card);
+    const l = contrast(lightT.tokens[k], lightT.tokens.card);
+    check(`light's ${k} text is no weaker than dark's`, l >= d,
+      `light ${l.toFixed(2)}:1 vs dark ${d.toFixed(2)}:1`);
+  }
+
+  // Headings are Bebas display type and must stay readable in both.
+  check("headings are readable in light",
+    contrast(lightT.headingColor, lightT.tokens.bg) >= 4.5,
+    `${contrast(lightT.headingColor, lightT.tokens.bg).toFixed(2)}:1`);
+
+  check("choice persisted to storage",
+    (await page.evaluate(()=>localStorage.getItem("snapfit_v2_theme"))) === "light");
+  await page.reload({waitUntil:"networkidle"});
+  await page.waitForTimeout(1800);
+  check("theme survives a reload",
+    (await page.evaluate(()=>document.documentElement.dataset.theme)) === "light");
+
+  /* System has to mean system continuously, not "system as of app start". */
+  console.log("\n── SYSTEM THEME FOLLOWS THE PHONE ───────────────");
+  await page.evaluate(()=>localStorage.setItem("snapfit_v2_theme","system"));
+  await page.emulateMedia({colorScheme:"dark"});
+  await page.reload({waitUntil:"networkidle"});
+  await page.waitForTimeout(1800);
+  check("system resolves to dark on a dark phone",
+    (await page.evaluate(()=>document.documentElement.dataset.theme)) === "dark");
+  await page.emulateMedia({colorScheme:"light"});
+  await page.waitForTimeout(500);
+  check("and follows the phone flipping, with no reload",
+    (await page.evaluate(()=>document.documentElement.dataset.theme)) === "light");
+  await page.emulateMedia({colorScheme:"dark"});
+  await page.waitForTimeout(500);
+  check("and back again",
+    (await page.evaluate(()=>document.documentElement.dataset.theme)) === "dark");
+
+  // An explicit choice must NOT be overridden by the phone switching at sunset.
+  await page.evaluate(()=>localStorage.setItem("snapfit_v2_theme","light"));
+  await page.reload({waitUntil:"networkidle"});
+  await page.waitForTimeout(1800);
+  await page.emulateMedia({colorScheme:"dark"});
+  await page.waitForTimeout(500);
+  check("an explicit choice ignores the phone",
+    (await page.evaluate(()=>document.documentElement.dataset.theme)) === "light");
+  await page.emulateMedia({colorScheme:null});
+
+  /* The no-flash path: the theme must be settled by the inline <head> script,
+     before React exists. Block the libraries and check it still resolves. */
+  console.log("\n── THEME BEFORE FIRST PAINT ─────────────────────");
+  const bare = await ctx.newPage();
+  await bare.route("**/unpkg.com/**", r=>r.abort());
+  await bare.addInitScript(()=>localStorage.setItem("snapfit_v2_theme","light"));
+  await bare.emulateMedia({colorScheme:"dark"});
+  await bare.goto(`http://127.0.0.1:${PORT}/index.html`, {waitUntil:"domcontentloaded"});
+  const bareState = await bare.evaluate(()=>({
+    theme: document.documentElement.dataset.theme,
+    react: typeof window.React,
+    bg: getComputedStyle(document.body).backgroundColor,
+  }));
+  check("theme resolves with React blocked entirely", bareState.theme === "light",
+    JSON.stringify(bareState));
+  check("no React on that page, so it really was the head script",
+    bareState.react === "undefined", bareState.react);
+  check("and the background is already painted light",
+    luminance(bareState.bg) > 0.5, bareState.bg);
+  await bare.close();
+
+  /* Both settings write to documentElement — easy for one to clobber the other. */
+  console.log("\n── TEXT SCALE SURVIVES A THEME CHANGE ───────────");
+  await page.evaluate(()=>{
+    localStorage.setItem("snapfit_v2_theme","dark");
+    localStorage.setItem("snapfit_v2_textscale","largest");
+  });
+  await page.reload({waitUntil:"networkidle"});
+  await page.waitForTimeout(1800);
+  const both = await page.evaluate(()=>({
+    ts: getComputedStyle(document.documentElement).getPropertyValue("--ts").trim(),
+    theme: document.documentElement.dataset.theme,
+  }));
+  check("theme and text scale coexist", both.ts === "1.35" && both.theme === "dark",
+    JSON.stringify(both));
+  await page.evaluate(()=>localStorage.setItem("snapfit_v2_textscale","comfortable"));
+  await page.reload({waitUntil:"networkidle"});
+  await page.waitForTimeout(1800);
+  await page.locator("text=⚙").click();
+  await page.waitForTimeout(600);
+
+  /* A silently invalid style is the failure mode here: `${C.red}55` on a var()
+     produces no border and no error. Guard the source itself. */
+  console.log("\n── NO HEX-ALPHA CONCATENATION LEFT ──────────────");
+  const appSrc = fs.readFileSync(path.join(ROOT,"index.html"),"utf8");
+  const leftovers = (appSrc.match(/\$\{[^{}]*\}[0-9a-fA-F]{2}\b/g) || [])
+    .filter(s=>!/\}(px|rem|em|vh|vw)/.test(s));
+  check("no colour is built by appending hex alpha", leftovers.length===0,
+    leftovers.slice(0,4).join(" | "));
+  check("tint() is used instead", /function tint\(/.test(appSrc) && /tint\(C\./.test(appSrc));
 
   console.log("\n── TEXT SIZE ────────────────────────────────────");
   // Body text scales; the big headings deliberately do not.

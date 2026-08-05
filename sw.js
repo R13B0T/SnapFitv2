@@ -3,7 +3,11 @@
    Anything that talks to the coach is network-only — a stale answer is worse
    than an honest failure, and the app falls back to its built-in coach anyway. */
 
-const CACHE = "snapfit-v2-1";
+/* Bump this on any shell change. The fetch handler below is
+   stale-while-revalidate, so without a bump an installed app serves the old
+   index.html on first open and only picks up the new one on the launch after
+   that — which looks exactly like the update having failed. */
+const CACHE = "snapfit-v2-2";
 
 const SHELL = [
   "./",

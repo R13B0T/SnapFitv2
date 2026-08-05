@@ -13,10 +13,63 @@
   <link rel="manifest" href="manifest.json"/>
   <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='180' height='180' rx='38' fill='%23e31837'/%3E%3Ctext x='18' y='85' font-family='Arial Black,Arial' font-weight='900' font-size='54' fill='white'%3Esnap%3C/text%3E%3Ctext x='8' y='150' font-family='Arial Black,Arial' font-weight='900' font-size='50' fill='white'%3Efitness%3C/text%3E%3C/svg%3E"/>
   <script>if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(()=>{});});}</script>
+
+  <!-- Resolve the theme BEFORE the stylesheet below paints. The app source is
+       compiled in the browser by Babel, which takes a beat on ~5,000 lines, so
+       leaving this to the app means a black flash on a light phone or a white one
+       on a dark phone. Six lines here removes it entirely. -->
+  <script>
+    try{
+      var t = localStorage.getItem("snapfit_v2_theme") || "system";
+      var dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+    }catch(e){ document.documentElement.dataset.theme = "dark"; }
+  </script>
+
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <style>html,body{margin:0;padding:0;background:#0e0e0e;height:100%;}body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);}</style>
+
+  <!-- The palette. Lives here rather than in the app's stylesheet for the same
+       reason as the script above: these have to be resolved at first paint.
+       Dark is the base; light overrides. Every colour in the app is one of these
+       via var(), so switching theme is one attribute on <html> and no re-render.
+
+       Accents darken considerably in light mode because they have to: the dark
+       theme's mint green measures 1.34:1 on off-white and the yellow 1.31:1 —
+       invisible, not merely weak. The light values are all 5:1 or better. -->
+  <style>
+    :root{
+      --c-bg:#0e0e0e; --c-surface:#141414; --c-card:#181818; --c-raised:#1e1e1e;
+      --c-line:#262626; --c-lineSoft:#1c1c1c;
+      --c-text:#f0f0f0; --c-dim:#8a8a8a; --c-faint:#5a5a5a; --c-ghost:#3a3a3a;
+      --c-red:#e31837; --c-redSoft:#ff4d6a;
+      --c-green:#69f0ae; --c-blue:#4fc3f7; --c-yellow:#ffd740; --c-orange:#ffa040; --c-purple:#a78bfa;
+      --c-greenDeep:#2e8b57; --c-onGreen:#06210f;
+      --c-scrim:rgba(0,0,0,.9); --c-scrimDeep:rgba(0,0,0,.92);
+      /* Also gets form controls, scrollbars and native UI rendered for the right
+         mode. Declaring it turned out to fix the ⚡ and 📋 nav icons too: without
+         it Chromium rendered them as monochrome text glyphs in the nav's own dim
+         grey — near-invisible on a dark bar — instead of as colour emoji. */
+      color-scheme: dark;
+    }
+    :root[data-theme="light"]{
+      --c-bg:#edeae5; --c-surface:#f4f2ee; --c-card:#f9f7f4; --c-raised:#e8e4dd;
+      --c-line:#d5d0c8; --c-lineSoft:#e2ded7;
+      /* faint and ghost are darker here than a straight inversion suggests.
+         Measured, light's originals beat dark's for the same roles — but on a
+         light background weak grey reads as *disabled* rather than as dim, and
+         faint carries text people need, like the API-key warning. */
+      --c-text:#2a2a28; --c-dim:#5f5c57; --c-faint:#6f6b64; --c-ghost:#8a867f;
+      --c-red:#c2102b; --c-redSoft:#d92642;
+      --c-green:#0f7a45; --c-blue:#0369a1; --c-yellow:#8a5a00; --c-orange:#a34e00; --c-purple:#6d28d9;
+      --c-greenDeep:#0b5c34; --c-onGreen:#ffffff;
+      --c-scrim:rgba(0,0,0,.5); --c-scrimDeep:rgba(0,0,0,.55);
+      color-scheme: light;
+    }
+    html,body{margin:0;padding:0;background:var(--c-bg);height:100%;}
+    body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);}
+  </style>
 </head>
 <body>
 <div id="root"></div>
@@ -29,13 +82,37 @@ const {useState,useEffect,useRef,useMemo,useCallback} = React;
    THEME
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* Every colour is a CSS custom property, defined for both themes in the <head>.
+
+   These are strings that happen to be `var()` references, so all ~620 places
+   that interpolate them into an inline style keep working untouched, and a theme
+   change is one attribute on <html> with no React re-render at all — the same
+   trick the text-size setting uses for --ts.
+
+   It also means module-level constants that capture a colour (EFFORT,
+   inputStyle, CONF_STYLE, APP_CSS) hold a live reference rather than whichever
+   theme happened to be active when the file loaded. */
 const C = {
-  bg:"#0e0e0e", surface:"#141414", card:"#181818", raised:"#1e1e1e",
-  line:"#262626", lineSoft:"#1c1c1c",
-  text:"#f0f0f0", dim:"#8a8a8a", faint:"#5a5a5a", ghost:"#3a3a3a",
-  red:"#e31837", redSoft:"#ff4d6a",
-  green:"#69f0ae", blue:"#4fc3f7", yellow:"#ffd740", orange:"#ffa040", purple:"#a78bfa",
+  bg:"var(--c-bg)", surface:"var(--c-surface)", card:"var(--c-card)", raised:"var(--c-raised)",
+  line:"var(--c-line)", lineSoft:"var(--c-lineSoft)",
+  text:"var(--c-text)", dim:"var(--c-dim)", faint:"var(--c-faint)", ghost:"var(--c-ghost)",
+  red:"var(--c-red)", redSoft:"var(--c-redSoft)",
+  green:"var(--c-green)", blue:"var(--c-blue)", yellow:"var(--c-yellow)",
+  orange:"var(--c-orange)", purple:"var(--c-purple)",
+  greenDeep:"var(--c-greenDeep)", onGreen:"var(--c-onGreen)",
+  scrim:"var(--c-scrim)", scrimDeep:"var(--c-scrimDeep)",
 };
+
+/* Hex alpha used to be concatenated onto a colour — `${tint(C.red,0x55)}` for a 33% red.
+   That can't work on a var(), so this does the same job with color-mix. It takes
+   the same byte the old code appended, which makes every converted site exact
+   rather than approximately right: dark mode is unchanged by the conversion.
+
+   color-mix needs Safari 16.2 / Chrome 111 / Firefox 113. The wake lock already
+   requires Safari 16.4, so this doesn't move the floor. */
+function tint(c, byte){
+  return `color-mix(in srgb, ${c} ${(byte/255*100).toFixed(1)}%, transparent)`;
+}
 
 const APP_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700&display=swap');
@@ -1903,6 +1980,7 @@ How to do this well:
 const SOUND_KEY = "snapfit_v2_sound";
 const WAKE_KEY  = "snapfit_v2_wake";
 const SCALE_KEY = "snapfit_v2_textscale";
+const THEME_KEY = "snapfit_v2_theme";
 const REST_KEY  = "snapfit_v2_rest";
 
 function prefOn(key){ try{ return localStorage.getItem(key) !== "off"; }catch{ return true; } }
@@ -1935,6 +2013,60 @@ function applyScale(id){
 }
 function saveScaleId(id){ try{ localStorage.setItem(SCALE_KEY,id); }catch{} applyScale(id); }
 applyScale(loadScaleId());   // before first paint, so there's no visible reflow
+
+/* ── Theme ────────────────────────────────────────────────────────────────
+   The palette itself is CSS custom properties in the <head>, so all this has to
+   do is decide which set is in force. The inline script up there has already
+   stamped data-theme before first paint; this agrees with it, and takes over
+   when the user changes the setting.
+
+   "System" means system, continuously — the media-query listener below is what
+   makes it follow your phone's own day/night schedule rather than meaning
+   "whatever the phone said when the app started".                            */
+
+const THEMES = [
+  {id:"system", label:"System", note:"Follows your phone"},
+  {id:"light",  label:"Light",  note:"Soft off-white"},
+  {id:"dark",   label:"Dark",   note:"The original"},
+];
+const DEFAULT_THEME = "system";
+
+function loadThemeId(){
+  try{
+    const v = localStorage.getItem(THEME_KEY);
+    return THEMES.some(t=>t.id===v) ? v : DEFAULT_THEME;
+  }catch{ return DEFAULT_THEME; }
+}
+function systemPrefersDark(){
+  try{ return window.matchMedia("(prefers-color-scheme: dark)").matches; }catch{ return true; }
+}
+/* The resolved theme is always an explicit "light" or "dark" — never "system".
+   One source of truth beats a data attribute and a media query disagreeing. */
+function resolveTheme(id){
+  return id === "system" ? (systemPrefersDark() ? "dark" : "light") : id;
+}
+function applyTheme(id){
+  const resolved = resolveTheme(id);
+  document.documentElement.dataset.theme = resolved;
+  // Keep the browser/OS chrome in step, including when the user has overridden
+  // their phone's own preference — which a media-query <meta> couldn't do.
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.setAttribute("content", resolved==="dark" ? "#0e0e0e" : "#edeae5");
+  const bar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+  if(bar) bar.setAttribute("content", resolved==="dark" ? "black" : "default");
+  return resolved;
+}
+function saveThemeId(id){ try{ localStorage.setItem(THEME_KEY,id); }catch{} return applyTheme(id); }
+applyTheme(loadThemeId());
+
+/* Live-follow the OS. Only acts while the setting is on "system", so an explicit
+   Light or Dark choice isn't overridden by the phone switching at sunset. */
+try{
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  const onSystemChange = ()=>{ if(loadThemeId()==="system") applyTheme("system"); };
+  mq.addEventListener ? mq.addEventListener("change", onSystemChange)
+                      : mq.addListener(onSystemChange);
+}catch{}
 
 /* ── Audio cues ───────────────────────────────────────────────────────────
    The whole sequence is scheduled against the AudioContext clock the moment
@@ -2122,10 +2254,15 @@ const wakeLock = (()=>{
    UI PRIMITIVES
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* The badge is fixed brand red, not the theme's red. A trademark doesn't change
+   colour because you turned on light mode, and the app icons in the manifest
+   hardcode this same value — a logo that didn't match them would look wrong. */
+const BRAND_RED = "#e31837";
+
 function Logo({h=26}){
   const w = Math.round(h*3.3);
   return (<svg width={w} height={h} viewBox="0 0 86 26" fill="none" style={{flexShrink:0}}>
-    <rect width="86" height="26" rx="3" fill={C.red}/>
+    <rect width="86" height="26" rx="3" fill={BRAND_RED}/>
     <text x="5" y="11.5" fontFamily="'Arial Black',Arial" fontWeight="900" fontSize="8.5" fill="#fff" letterSpacing="-0.2">snap</text>
     <text x="5" y="22"   fontFamily="'Arial Black',Arial" fontWeight="900" fontSize="8.5" fill="#fff" letterSpacing="-0.2">fitness</text>
     <rect x="60" y="3" width="22" height="10" rx="1.5" fill="rgba(0,0,0,0.25)"/>
@@ -2140,8 +2277,8 @@ function Btn({children, onClick, kind="primary", size="md", disabled, full, styl
     primary:{background:`linear-gradient(135deg,${C.red},${C.redSoft})`, color:"#fff", border:"none"},
     ghost:{background:"transparent", color:C.dim, border:`1px solid ${C.line}`},
     solid:{background:C.raised, color:C.text, border:`1px solid ${C.line}`},
-    danger:{background:"transparent", color:C.red, border:`1px solid ${C.red}55`},
-    green:{background:`linear-gradient(135deg,#2e8b57,${C.green})`, color:"#06210f", border:"none"},
+    danger:{background:"transparent", color:C.red, border:`1px solid ${tint(C.red,0x55)}`},
+    green:{background:`linear-gradient(135deg,${C.greenDeep},${C.green})`, color:C.onGreen, border:"none"},
   };
   return (<button onClick={onClick} disabled={disabled} style={{
     height:s.h, padding:`0 ${s.px}px`, borderRadius:12, cursor:disabled?"not-allowed":"pointer",
@@ -2161,7 +2298,7 @@ function Card({children, style, onClick, accent}){
 function Chip({children, color=C.faint, bg, onClick, style}){
   return (<span onClick={onClick} style={{
     fontSize:"calc(.58rem * var(--ts, 1))", fontWeight:700, letterSpacing:".05em", color,
-    background: bg || `${color}15`, border:`1px solid ${color}40`,
+    background: bg || `${tint(color,0x15)}`, border:`1px solid ${tint(color,0x40)}`,
     padding:"3px 8px", borderRadius:20, whiteSpace:"nowrap",
     cursor:onClick?"pointer":undefined, display:"inline-block", ...style}}>{children}</span>);
 }
@@ -2198,7 +2335,7 @@ function Choice({options, value, onChange, cols=2}){
       const on = value===o.value;
       return (<button key={o.value} onClick={()=>onChange(o.value)} style={{
         padding:"11px 10px", borderRadius:11, cursor:"pointer", textAlign:"left",
-        border:`1.5px solid ${on?C.red:C.line}`, background:on?`${C.red}12`:C.raised,
+        border:`1.5px solid ${on?C.red:C.line}`, background:on?`${tint(C.red,0x12)}`:C.raised,
         color:on?C.text:C.dim, fontSize:"calc(.78rem * var(--ts, 1))", fontWeight:on?600:400}}>
         {o.icon && <span style={{marginRight:6}}>{o.icon}</span>}{o.label}
         {o.sub && <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.faint,marginTop:3,fontWeight:400}}>{o.sub}</div>}
@@ -2210,7 +2347,7 @@ function Choice({options, value, onChange, cols=2}){
 function Toggle({on, onChange, label, sub}){
   return (<button onClick={()=>onChange(!on)} style={{
     width:"100%", display:"flex", alignItems:"center", gap:12, padding:"12px 14px",
-    borderRadius:12, border:`1px solid ${on?`${C.red}55`:C.line}`, background:on?`${C.red}0d`:C.raised,
+    borderRadius:12, border:`1px solid ${on?tint(C.red,0x55):C.line}`, background:on?`${tint(C.red,0x0d)}`:C.raised,
     cursor:"pointer", textAlign:"left"}}>
     <div style={{width:40,height:23,borderRadius:20,background:on?C.red:C.line,flexShrink:0,position:"relative",transition:"background .2s"}}>
       <div style={{position:"absolute",top:2.5,left:on?20:2.5,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
@@ -2239,7 +2376,7 @@ function Sheet({children, onClose, title, sub}){
     window.addEventListener("keydown", onKey);
     return ()=>window.removeEventListener("keydown", onKey);
   },[onClose]);
-  return (<div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.9)",zIndex:200,
+  return (<div onClick={onClose} style={{position:"fixed",inset:0,background:C.scrim,zIndex:200,
       display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
     <div className="pop" onClick={e=>e.stopPropagation()} style={{
       background:C.surface, border:`1px solid ${C.line}`, borderRadius:"20px 20px 0 0",
@@ -2259,7 +2396,7 @@ function Sheet({children, onClose, title, sub}){
 }
 
 function Confirm({message, sub, confirmLabel="Confirm", danger, onConfirm, onCancel}){
-  return (<div onClick={onCancel} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.9)",zIndex:250,
+  return (<div onClick={onCancel} style={{position:"fixed",inset:0,background:C.scrim,zIndex:250,
       display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
     <div className="pop" onClick={e=>e.stopPropagation()} style={{background:C.surface,border:`1px solid ${C.line}`,
       borderRadius:18,padding:22,maxWidth:360,width:"100%"}}>
@@ -2274,7 +2411,7 @@ function Confirm({message, sub, confirmLabel="Confirm", danger, onConfirm, onCan
 }
 
 function Spinner({size=16, color=C.red}){
-  return <div style={{width:size,height:size,border:`2px solid ${color}33`,borderTopColor:color,
+  return <div style={{width:size,height:size,border:`2px solid ${tint(color,0x33)}`,borderTopColor:color,
     borderRadius:"50%",animation:"spin .7s linear infinite",flexShrink:0}}/>;
 }
 
@@ -2393,7 +2530,7 @@ function RepPicker({exercise, setIndex, initial, lastWeight, onSave, onClose}){
     return null;
   },[effort,reps,weight,target,exercise.inc]);
 
-  return (<div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:220,
+  return (<div onClick={onClose} style={{position:"fixed",inset:0,background:C.scrimDeep,zIndex:220,
       display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div className="pop" onClick={e=>e.stopPropagation()} style={{background:C.surface,border:`1px solid ${C.line}`,
       borderRadius:20,padding:"22px 20px 18px",width:"100%",maxWidth:320,textAlign:"center"}}>
@@ -2442,7 +2579,7 @@ function RepPicker({exercise, setIndex, initial, lastWeight, onSave, onClose}){
           {EFFORT.map(e=>(<button key={e.key} onClick={()=>setEffort(e.key)} style={{
             width:"100%",padding:"10px 13px",borderRadius:12,cursor:"pointer",display:"flex",
             alignItems:"center",gap:11,textAlign:"left",
-            border:`1.5px solid ${effort===e.key?e.color:C.line}`, background:effort===e.key?`${e.color}12`:C.raised}}>
+            border:`1.5px solid ${effort===e.key?e.color:C.line}`, background:effort===e.key?`${tint(e.color,0x12)}`:C.raised}}>
             <span style={{fontSize:"calc(1.3rem * var(--ts, 1))",flexShrink:0}}>{e.emoji}</span>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:"calc(.76rem * var(--ts, 1))",fontWeight:700,color:effort===e.key?e.color:C.dim}}>{e.label}</div>
@@ -2451,8 +2588,8 @@ function RepPicker({exercise, setIndex, initial, lastWeight, onSave, onClose}){
           </button>))}
         </div>
 
-        {suggestion && <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:suggestion.color,background:`${suggestion.color}10`,
-          border:`1px solid ${suggestion.color}30`,borderRadius:9,padding:"8px 10px",marginBottom:14,lineHeight:1.5}}>
+        {suggestion && <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:suggestion.color,background:`${tint(suggestion.color,0x10)}`,
+          border:`1px solid ${tint(suggestion.color,0x30)}`,borderRadius:9,padding:"8px 10px",marginBottom:14,lineHeight:1.5}}>
           {suggestion.msg}</div>}
 
         <div style={{display:"flex",gap:8}}>
@@ -2642,12 +2779,12 @@ function GymSheet({state, coach, apiKey, onApply, onClear, onForget, onClose}){
               return (<button key={s.num} onClick={()=>setTicked(x=>{
                   const n = new Set(x); n.has(s.num) ? n.delete(s.num) : n.add(s.num); return n; })}
                 style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:11,
-                  border:`1px solid ${on?`${C.green}55`:C.line}`, background:on?`${C.green}0d`:C.raised,
+                  border:`1px solid ${on?tint(C.green,0x55):C.line}`, background:on?`${tint(C.green,0x0d)}`:C.raised,
                   cursor:"pointer",textAlign:"left",width:"100%"}}>
                 <span style={{width:20,height:20,borderRadius:6,flexShrink:0,display:"inline-flex",
                   alignItems:"center",justifyContent:"center",fontSize:"calc(.7rem * var(--ts, 1))",
                   border:`1.5px solid ${on?C.green:C.line}`,background:on?C.green:"transparent",
-                  color:"#06210f",fontWeight:900}}>{on?"✓":""}</span>
+                  color:C.onGreen,fontWeight:900}}>{on?"✓":""}</span>
                 <span style={{flex:1,minWidth:0}}>
                   <span style={{display:"block",fontSize:"calc(.78rem * var(--ts, 1))",
                     color:on?C.text:C.dim,fontWeight:on?600:400}}>{s.name}</span>
@@ -2756,7 +2893,7 @@ function GymSheet({state, coach, apiKey, onApply, onClear, onForget, onClose}){
           return (<button key={s.num} onClick={()=>setTicked(x=>{
               const n = new Set(x); n.has(s.num) ? n.delete(s.num) : n.add(s.num); return n; })}
             style={{padding:"9px 10px",borderRadius:10,cursor:"pointer",textAlign:"left",
-              border:`1px solid ${on?`${C.green}55`:C.line}`, background:on?`${C.green}0d`:C.raised,
+              border:`1px solid ${on?tint(C.green,0x55):C.line}`, background:on?`${tint(C.green,0x0d)}`:C.raised,
               color:on?C.text:C.ghost, fontSize:"calc(.68rem * var(--ts, 1))", fontWeight:on?600:400}}>
             {on?"✓ ":""}{s.name}
           </button>);
@@ -2796,7 +2933,7 @@ function GymSheet({state, coach, apiKey, onApply, onClear, onForget, onClose}){
 
     <button onClick={()=>setMode("photo")} disabled={!apiKey}
       style={{width:"100%",padding:"15px 15px",borderRadius:14,textAlign:"left",marginBottom:8,
-        border:`1px solid ${apiKey?`${C.red}55`:C.line}`, background:apiKey?`${C.red}0d`:C.raised,
+        border:`1px solid ${apiKey?tint(C.red,0x55):C.line}`, background:apiKey?`${tint(C.red,0x0d)}`:C.raised,
         cursor:apiKey?"pointer":"not-allowed", opacity:apiKey?1:.55}}>
       <div style={{fontSize:"calc(.86rem * var(--ts, 1))",color:C.text,fontWeight:700,marginBottom:3}}>
         📷 Photograph it</div>
@@ -2842,8 +2979,8 @@ function CoverageNote({cov}){
 }
 
 function ErrLine({text}){
-  return (<div style={{marginTop:10,padding:"10px 12px",borderRadius:10,background:`${C.red}12`,
-    border:`1px solid ${C.red}40`,color:C.red,fontSize:"calc(.7rem * var(--ts, 1))",lineHeight:1.55}}>{text}</div>);
+  return (<div style={{marginTop:10,padding:"10px 12px",borderRadius:10,background:`${tint(C.red,0x12)}`,
+    border:`1px solid ${tint(C.red,0x40)}`,color:C.red,fontSize:"calc(.7rem * var(--ts, 1))",lineHeight:1.55}}>{text}</div>);
 }
 
 /* The row on the Today screen. Deliberately quiet when you're at your usual
@@ -2854,7 +2991,7 @@ function VenueRow({state, onOpen}){
   const t = state.travel;
   return (<button onClick={onOpen} style={{width:"100%",display:"flex",alignItems:"center",gap:10,
     padding:"11px 13px",borderRadius:12,marginBottom:12,cursor:"pointer",textAlign:"left",
-    border:`1px solid ${away?`${C.orange}55`:C.line}`, background:away?`${C.orange}0d`:C.raised}}>
+    border:`1px solid ${away?tint(C.orange,0x55):C.line}`, background:away?`${tint(C.orange,0x0d)}`:C.raised}}>
     <span style={{fontSize:"calc(.9rem * var(--ts, 1))"}}>{away?"📍":"🏠"}</span>
     <span style={{flex:1,minWidth:0}}>
       <span style={{display:"block",fontSize:"calc(.76rem * var(--ts, 1))",
@@ -3022,7 +3159,7 @@ function Onboarding({state, setState, onDone, coach}){
         const on = goal.type===gt.id;
         return (<button key={gt.id} onClick={()=>setGoal(x=>({...x,type:gt.id}))} style={{
           padding:"14px 15px",borderRadius:13,cursor:"pointer",textAlign:"left",
-          border:`1.5px solid ${on?C.red:C.line}`, background:on?`${C.red}0f`:C.card}}>
+          border:`1.5px solid ${on?C.red:C.line}`, background:on?`${tint(C.red,0x0f)}`:C.card}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
             <span style={{fontSize:"calc(1.1rem * var(--ts, 1))"}}>{gt.icon}</span>
             <span style={{fontSize:"calc(.92rem * var(--ts, 1))",fontWeight:700,color:on?C.text:C.dim}}>{gt.label}</span>
@@ -3136,7 +3273,7 @@ function Onboarding({state, setState, onDone, coach}){
           const active = on.has(s.num);
           return (<button key={s.num} onClick={()=>toggle(s.num)} style={{
             padding:"9px 10px",borderRadius:9,cursor:"pointer",textAlign:"left",display:"flex",gap:7,alignItems:"center",
-            border:`1px solid ${active?`${C.red}55`:C.line}`, background:active?`${C.red}0d`:C.raised}}>
+            border:`1px solid ${active?tint(C.red,0x55):C.line}`, background:active?`${tint(C.red,0x0d)}`:C.raised}}>
             <div style={{width:14,height:14,borderRadius:4,flexShrink:0,
               background:active?C.red:"transparent",border:`1.5px solid ${active?C.red:C.ghost}`,
               display:"flex",alignItems:"center",justifyContent:"center",fontSize:"calc(.55rem * var(--ts, 1))",color:"#fff"}}>{active?"✓":""}</div>
@@ -3234,7 +3371,7 @@ function CheckIn({onSubmit, onSkip}){
               const col  = on ? (good?C.green:bad?C.orange:C.yellow) : C.line;
               return (<button key={n} onClick={()=>setV(x=>({...x,[k]:n}))} style={{
                 flex:1, height:38, borderRadius:9, cursor:"pointer",
-                border:`1.5px solid ${col}`, background:on?`${col}1a`:C.raised,
+                border:`1.5px solid ${col}`, background:on?`${tint(col,0x1a)}`:C.raised,
                 color:on?col:C.ghost, fontSize:"calc(.8rem * var(--ts, 1))", fontWeight:700}}>{n}</button>);
             })}
           </div>
@@ -3275,7 +3412,7 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
   const shownWeight = loggedSets.length ? loggedSets[loggedSets.length-1].weight : ex.weight;
   const offPlan     = shownWeight !== ex.weight;
 
-  return (<Card style={{marginBottom:10, borderColor: all?`${C.green}44`:C.lineSoft}}
+  return (<Card style={{marginBottom:10, borderColor: all?`${tint(C.green,0x44)}`:C.lineSoft}}
     accent={all?C.green:undefined}>
 
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:10}}>
@@ -3324,7 +3461,7 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
         const col = filled ? (eff?.color||C.green) : C.line;
         return (<button key={i} onClick={()=>onLogSet(i)} style={{
           flex:"1 1 60px", minWidth:58, height:52, borderRadius:11, cursor:"pointer",
-          border:`1.5px solid ${col}`, background:filled?`${col}14`:C.raised,
+          border:`1.5px solid ${col}`, background:filled?`${tint(col,0x14)}`:C.raised,
           display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:1}}>
           {filled ? (<>
             <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.15rem",color:col,lineHeight:1}}>{l.reps}</div>
@@ -3345,14 +3482,14 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
     <div style={{display:"flex",gap:6,borderTop:`1px solid ${C.lineSoft}`,paddingTop:10}}>
       <button onClick={()=>setOpen(o=>o==="why"?null:"why")} style={{
         flex:1,padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
-        border:`1px solid ${open==="why"?`${C.yellow}55`:C.line}`,
-        background:open==="why"?`${C.yellow}0d`:"transparent", color:open==="why"?C.yellow:C.dim}}>
+        border:`1px solid ${open==="why"?tint(C.yellow,0x55):C.line}`,
+        background:open==="why"?`${tint(C.yellow,0x0d)}`:"transparent", color:open==="why"?C.yellow:C.dim}}>
         Why this? {open==="why"?"▴":"▾"}
       </button>
       <button onClick={()=>{ setOpen(o=>o==="how"?null:"how"); if(!explanation) onExplain(); }} style={{
         flex:1,padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
-        border:`1px solid ${open==="how"?`${C.blue}55`:C.line}`,
-        background:open==="how"?`${C.blue}0d`:"transparent", color:open==="how"?C.blue:C.dim}}>
+        border:`1px solid ${open==="how"?tint(C.blue,0x55):C.line}`,
+        background:open==="how"?`${tint(C.blue,0x0d)}`:"transparent", color:open==="how"?C.blue:C.dim}}>
         How to do it {open==="how"?"▴":"▾"}
       </button>
     </div>
@@ -3524,8 +3661,8 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     </Card>)}
 
     {/* If there's no brief to fold it into, the cue still gets its own card. */}
-    {session.focusTip && !session.brief && (<div style={{background:`${C.yellow}0d`,
-      border:`1px solid ${C.yellow}30`,borderRadius:11,
+    {session.focusTip && !session.brief && (<div style={{background:`${tint(C.yellow,0x0d)}`,
+      border:`1px solid ${tint(C.yellow,0x30)}`,borderRadius:11,
       padding:"10px 13px",marginBottom:14,display:"flex",gap:9,alignItems:"flex-start"}}>
       <span style={{fontSize:"calc(.85rem * var(--ts, 1))",flexShrink:0}}>💡</span>
       <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.yellow,lineHeight:1.55}}>{session.focusTip}</div>
@@ -3700,7 +3837,7 @@ function PlanView({state, onReplan, replanning, aiOn}){
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0,width:20}}>
             <div style={{width:11,height:11,borderRadius:"50%",marginTop:4,
               background: current?C.red : past?C.green : C.line,
-              border: current?`3px solid ${C.red}33`:"none", boxSizing:"content-box"}}/>
+              border: current?`3px solid ${tint(C.red,0x33)}`:"none", boxSizing:"content-box"}}/>
             {i<b.phases.length-1 && <div style={{flex:1,width:2,background:past?C.green:C.line,minHeight:34}}/>}
           </div>
           <div style={{flex:1,minWidth:0,paddingBottom:16,opacity:past?.55:1}}>
@@ -3709,7 +3846,7 @@ function PlanView({state, onReplan, replanning, aiOn}){
               <Chip color={isDeload?C.blue:current?C.red:C.faint}>
                 {p.weeks===1?`Week ${from}`:`Weeks ${from}–${to}`}
               </Chip>
-              {current && <Chip color={C.red} bg={`${C.red}22`}>YOU ARE HERE</Chip>}
+              {current && <Chip color={C.red} bg={`${tint(C.red,0x22)}`}>YOU ARE HERE</Chip>}
             </div>
             <div style={{fontSize:"calc(.71rem * var(--ts, 1))",color:C.faint,lineHeight:1.65,marginBottom:5}}>{p.intent}</div>
             <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost}}>
@@ -3724,7 +3861,7 @@ function PlanView({state, onReplan, replanning, aiOn}){
     <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:18}}>
       {split.map((d,i)=>{
         const isNext = i===prog.dayIdx;
-        return (<Card key={i} style={{padding:"11px 13px",borderColor:isNext?`${C.red}44`:C.lineSoft}}>
+        return (<Card key={i} style={{padding:"11px 13px",borderColor:isNext?`${tint(C.red,0x44)}`:C.lineSoft}}>
           <div style={{display:"flex",alignItems:"center",gap:9}}>
             <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1rem",color:isNext?C.red:C.ghost,
               width:20,flexShrink:0}}>{i+1}</div>
@@ -3770,7 +3907,7 @@ function Sparkline({points, color=C.red, height=48}){
     return `${i?"L":"M"}${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(" ");
   return (<svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{width:"100%",height,display:"block"}}>
-    <path d={`${d} L${W},${H} L0,${H} Z`} fill={`${color}18`}/>
+    <path d={`${d} L${W},${H} L0,${H} Z`} fill={`${tint(color,0x18)}`}/>
     <path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
   </svg>);
 }
@@ -3962,10 +4099,10 @@ function LearnView({state, setState}){
           {LEARN.filter(t=>t.tag===tag).map(t=>{
             const isRead = read.has(t.id);
             return (<Card key={t.id} onClick={()=>{setOpen(t.id); setAnswer(null);}}
-              style={{padding:"13px 14px",borderColor:isRead?`${C.green}30`:C.lineSoft}}>
+              style={{padding:"13px 14px",borderColor:isRead?`${tint(C.green,0x30)}`:C.lineSoft}}>
               <div style={{display:"flex",gap:11,alignItems:"flex-start"}}>
                 <div style={{width:20,height:20,borderRadius:"50%",flexShrink:0,marginTop:2,
-                  border:`1.5px solid ${isRead?C.green:C.ghost}`, background:isRead?`${C.green}22`:"transparent",
+                  border:`1.5px solid ${isRead?C.green:C.ghost}`, background:isRead?`${tint(C.green,0x22)}`:"transparent",
                   display:"flex",alignItems:"center",justifyContent:"center",fontSize:"calc(.6rem * var(--ts, 1))",color:C.green}}>
                   {isRead?"✓":""}</div>
                 <div style={{flex:1,minWidth:0}}>
@@ -3993,7 +4130,7 @@ function LearnView({state, setState}){
             const col = show ? (right?C.green : picked?C.red : C.line) : C.line;
             return (<button key={i} disabled={show} onClick={()=>{setAnswer(i); recordQuiz(topic.id, right);}} style={{
               padding:"11px 13px",borderRadius:11,textAlign:"left",cursor:show?"default":"pointer",
-              border:`1.5px solid ${col}`, background: show&&right ? `${C.green}12` : picked ? `${C.red}12` : C.raised,
+              border:`1.5px solid ${col}`, background: show&&right ? `${tint(C.green,0x12)}` : picked ? `${tint(C.red,0x12)}` : C.raised,
               color: show&&(right||picked) ? C.text : C.dim, fontSize:"calc(.76rem * var(--ts, 1))",lineHeight:1.5}}>
               {show && right && <span style={{color:C.green,marginRight:6}}>✓</span>}
               {show && picked && !right && <span style={{color:C.red,marginRight:6}}>✕</span>}
@@ -4103,8 +4240,8 @@ function ChatView({state, setState, coach, aiOn, onGoSettings}){
         <div key={i} style={{marginBottom:14,display:"flex",
           justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
           <div style={{maxWidth:"88%",
-            background: m.role==="user" ? `${C.red}18` : C.card,
-            border:`1px solid ${m.role==="user"?`${C.red}35`:C.lineSoft}`,
+            background: m.role==="user" ? `${tint(C.red,0x18)}` : C.card,
+            border:`1px solid ${m.role==="user"?tint(C.red,0x35):C.lineSoft}`,
             borderRadius: m.role==="user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
             padding:"11px 13px"}}>
             {m.role==="user"
@@ -4319,7 +4456,7 @@ function LogView({state, setState, onRestore}){
     <div style={{display:"flex",gap:6,marginBottom:14}}>
       {[["sessions","Sessions"],["exercises","Exercises"],["data","Data"]].map(([k,l])=>(
         <button key={k} onClick={()=>setTab(k)} style={{flex:1,padding:"9px 8px",borderRadius:10,cursor:"pointer",
-          border:`1px solid ${tab===k?`${C.red}55`:C.line}`, background:tab===k?`${C.red}0f`:C.raised,
+          border:`1px solid ${tab===k?tint(C.red,0x55):C.line}`, background:tab===k?`${tint(C.red,0x0f)}`:C.raised,
           color:tab===k?C.text:C.dim, fontSize:"calc(.72rem * var(--ts, 1))", fontWeight:tab===k?700:400}}>{l}</button>))}
     </div>
 
@@ -4513,6 +4650,18 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
   const [confirmReset,setConfirmReset] = useState(false);
   const [newStation,setNewStation] = useState({num:"",name:""});
   const [scaleId,setScaleId]   = useState(loadScaleId);
+  const [themeId,setThemeId]   = useState(loadThemeId);
+  const [resolved,setResolved] = useState(()=>resolveTheme(loadThemeId()));
+
+  /* On "System" the hint names which way the phone is currently set, so keep it
+     honest if the phone flips while this screen is open. */
+  useEffect(()=>{
+    let mq;
+    try{ mq = window.matchMedia("(prefers-color-scheme: dark)"); }catch{ return; }
+    const sync = ()=>setResolved(resolveTheme(loadThemeId()));
+    mq.addEventListener ? mq.addEventListener("change", sync) : mq.addListener(sync);
+    return ()=>{ mq.removeEventListener ? mq.removeEventListener("change", sync) : mq.removeListener(sync); };
+  },[]);
   const [sound,setSound]       = useState(()=>cues.enabled());
   const [wake,setWake]         = useState(()=>wakeLock.enabled());
 
@@ -4613,13 +4762,23 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
     {/* ── this device ─────────────────────────────────────────────────── */}
     <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>THIS DEVICE</div>
     <Card style={{marginBottom:14}}>
+      <Field label="Theme"
+        hint={themeId==="system"
+          ? `Following your phone, which is currently set to ${resolved}.`
+          : "Set here, regardless of what your phone is doing."}>
+        <Choice cols={3} value={themeId}
+          onChange={id=>{ setThemeId(id); setResolved(saveThemeId(id)); }}
+          options={THEMES.map(t=>({value:t.id,label:t.label,sub:t.note}))}/>
+      </Field>
+      {/* The preview below serves both settings — the whole card recolours. */}
+      <div style={{height:1,background:C.lineSoft,margin:"4px 0 16px"}}/>
       <Field label="Text size" hint="Applies to everything except the big headings.">
         <div style={{display:"flex",gap:5,marginBottom:12}}>
           {TEXT_STEPS.map(s=>{
             const on = s.id===scaleId;
             return (<button key={s.id} onClick={()=>{ setScaleId(s.id); saveScaleId(s.id); }} style={{
               flex:1,padding:"9px 4px",borderRadius:9,cursor:"pointer",
-              border:`1.5px solid ${on?C.red:C.line}`, background:on?`${C.red}12`:C.raised,
+              border:`1.5px solid ${on?C.red:C.line}`, background:on?`${tint(C.red,0x12)}`:C.raised,
               color:on?C.text:C.faint, fontWeight:on?700:400,
               fontSize:`calc(${0.5 + (s.v-0.92)*0.5}rem)`}}>A</button>);
           })}
@@ -4741,7 +4900,7 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
           return (<div key={s.num} style={{position:"relative"}}>
             <button onClick={()=>toggleStation(s.num)} style={{width:"100%",
               padding:"8px 9px",borderRadius:9,cursor:"pointer",textAlign:"left",display:"flex",gap:6,alignItems:"center",
-              border:`1px solid ${active?`${C.red}55`:C.line}`, background:active?`${C.red}0d`:C.raised}}>
+              border:`1px solid ${active?tint(C.red,0x55):C.line}`, background:active?`${tint(C.red,0x0d)}`:C.raised}}>
               <div style={{width:13,height:13,borderRadius:4,flexShrink:0,
                 background:active?C.red:"transparent",border:`1.5px solid ${active?C.red:C.ghost}`,
                 display:"flex",alignItems:"center",justifyContent:"center",fontSize:"calc(.5rem * var(--ts, 1))",color:"#fff"}}>{active?"✓":""}</div>
@@ -5043,7 +5202,7 @@ function App(){
           <button onClick={()=>setView("settings")} style={{background:"transparent",border:"none",
             color:view==="settings"?C.red:C.faint,fontSize:"calc(1.05rem * var(--ts, 1))",cursor:"pointer",padding:"4px 2px",flexShrink:0}}>⚙</button>
         </div>
-        {offline && (<div className="fade" style={{background:`${C.yellow}12`,borderTop:`1px solid ${C.yellow}30`,
+        {offline && (<div className="fade" style={{background:`${tint(C.yellow,0x12)}`,borderTop:`1px solid ${tint(C.yellow,0x30)}`,
           padding:"6px 16px"}}>
           <div style={{maxWidth:620,margin:"0 auto",fontSize:"calc(.64rem * var(--ts, 1))",color:C.yellow}}>⚠ {offline.msg}</div>
         </div>)}
@@ -5121,10 +5280,12 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
   var el = document.getElementById("app-source");
   function fail(msg, detail){
     document.getElementById("root").innerHTML =
-      '<div style="font-family:system-ui,sans-serif;color:#f0f0f0;padding:32px;max-width:520px;margin:0 auto">' +
+      // The palette lives in the <head>, so even the failure screen follows the
+      // user's theme rather than being dark on a light phone.
+      '<div style="font-family:system-ui,sans-serif;color:var(--c-text);padding:32px;max-width:520px;margin:0 auto">' +
       '<div style="font-size:1.4rem;font-weight:700;margin-bottom:10px">SnapFit couldn\'t start</div>' +
-      '<div style="color:#8a8a8a;line-height:1.7;font-size:.9rem">' + msg + '</div>' +
-      (detail ? '<pre style="color:#e31837;background:#181818;padding:12px;border-radius:8px;margin-top:14px;' +
+      '<div style="color:var(--c-dim);line-height:1.7;font-size:.9rem">' + msg + '</div>' +
+      (detail ? '<pre style="color:var(--c-red);background:var(--c-card);padding:12px;border-radius:8px;margin-top:14px;' +
                 'font-size:.72rem;overflow:auto;white-space:pre-wrap">' + detail + '</pre>' : '') + '</div>';
   }
   if(typeof React === "undefined" || typeof ReactDOM === "undefined" || typeof Babel === "undefined"){

@@ -97,6 +97,14 @@ session still happens.
 
 ## Settings worth knowing about
 
+**Theme.** System, Light or Dark, defaulting to System. *System* means system continuously — it
+follows your phone switching at sunset, not just whatever the phone said when the app started.
+Light is a soft off-white rather than a stark white.
+
+Every accent darkens considerably in light mode, because it has to: the dark theme's mint green
+measures **1.34:1** on off-white and its yellow **1.31:1** — invisible, not merely weak. The
+light values all land at 5:1 or better. Dark mode is byte-for-byte unchanged.
+
 **Text size.** Five steps, defaulting to Comfortable. It scales body text and deliberately
 leaves the big display headings alone. Implemented as a CSS custom property, so the change is
 instant — no re-render.
@@ -180,6 +188,28 @@ React 18 + Babel standalone from unpkg, compiled in the browser. State lives in
 `localStorage` under `snapfit_v2`; the API key sits in its own key so exports never
 include it.
 
+**Colour is CSS custom properties.** The `C` object holds `var(--c-*)` references rather than
+hex, so the ~620 inline styles that use it need no knowledge of the theme and switching one is a
+single attribute on `<html>` with **no React re-render** — the same mechanism as the text-size
+setting's `--ts`. It also means module-level constants that capture a colour hold a live
+reference instead of freezing on whichever theme loaded first.
+
+Two consequences worth knowing:
+
+- Hex alpha can't be concatenated onto a `var()`, so `` `${C.red}55` `` became
+  `tint(C.red, 0x55)`, which does the same job through `color-mix`. It takes the same byte, so
+  the conversion was exact rather than approximate. **Needs Safari 16.2 / Chrome 111 / Firefox
+  113** — the wake lock already required Safari 16.4, so this doesn't move the floor. A test
+  guards against reintroducing the concatenation, because on a `var()` it fails silently: no
+  border, no error.
+- The palette and a six-line resolver live in the static `<head>`, not in the app's stylesheet.
+  Babel takes a beat to compile ~5,000 lines, and leaving the theme to the app means a black
+  flash on a light phone. There's a test that loads the page with React blocked entirely and
+  asserts the theme still resolves.
+
+The PWA install splash stays dark in both themes — `manifest.json` is static JSON and can't
+respond to a preference. It's a one-off screen, and two manifests isn't a worthwhile trade.
+
 **Two coach engines behind one interface.** Every coaching call goes through
 `coach.<method>()`. Each method has an AI path and a rules path returning the same shape,
 so no view ever branches on whether a key exists.
@@ -229,13 +259,16 @@ npm install
 npm test
 ```
 
-264 checks.
+311 checks.
 
 - **`test/app.test.js`** — the no-key path end to end: onboarding, check-in, session
   generation, logging a set, form coaching, finishing, the debrief, every tab, persistence
   across reload, no horizontal scroll at 320px, zero console errors. Plus the away gym on the
   path that needs no key: presets, what gets programmed, the dumbbell ceiling, reusing a
-  remembered venue and forgetting one.
+  remembered venue and forgetting one. Plus both themes, with **WCAG contrast computed from the
+  rendered page** — every accent against the surface it sits on, and an assertion that light is
+  never the weaker theme at its weakest point. That's what stops a future palette tweak shipping
+  an unreadable screen.
 - **`test/coach.test.js`** — progression maths, readiness banding, v1 CSV migration, and
   the AI path against a mocked API: prompt caching, structured output, and the fallthrough
   under 500s, 401s and dead connections. The gym scan is driven through the real review UI
