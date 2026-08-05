@@ -66,6 +66,29 @@ function check(name, ok, detail){
   check("goal step", await page.getByText("WHAT ARE YOU AFTER?").isVisible().catch(()=>false));
   await page.getByText("Build muscle", {exact:false}).first().click();
   await page.waitForTimeout(150);
+
+  /* v2.1 regression: a component defined inside Onboarding was recreated on
+     every render, so React remounted the step and the focused input was
+     destroyed — one character then the keyboard closed. A single-character test
+     cannot see this, which is exactly how it shipped. */
+  console.log("\n── TYPING (the one-character bug) ───────────────");
+  const PHRASE = "keep up with my kids without getting winded";
+  const why = page.locator('textarea[placeholder*="keep up with my kids"]');
+  await why.click();
+  for(const ch of PHRASE){ await why.press(ch === " " ? "Space" : ch); }
+  await page.waitForTimeout(200);
+  check("full phrase survives typing", (await why.inputValue()) === PHRASE,
+    `got ${JSON.stringify(await why.inputValue())}`);
+  check("field still has focus after typing",
+    await page.evaluate(()=>document.activeElement?.tagName?.toLowerCase()) === "textarea");
+
+  const target = page.locator('input[type="number"]').first();
+  await target.click();
+  for(const ch of "84"){ await target.press(ch); }
+  await page.waitForTimeout(150);
+  check("numeric field takes multiple digits", (await target.inputValue()) === "84",
+    `got ${JSON.stringify(await target.inputValue())}`);
+
   await page.getByText("NEXT →").click();
   await page.waitForTimeout(300);
   check("profile step", await page.getByText("ABOUT YOU").isVisible().catch(()=>false));
@@ -97,19 +120,85 @@ function check(name, ok, detail){
   check("Why this? present", /Why this\?/.test(sessText));
   check("How to do it present", /How to do it/.test(sessText));
 
+  console.log("\n── BRIEF & PRESCRIPTION ─────────────────────────");
+  check("today's brief renders", /TODAY'S BRIEF/.test(sessText), sessText.slice(0,300));
+  check("brief says what's required", /What's required/.test(sessText));
+  check("brief sets a standard", /The standard/.test(sessText));
+  check("prescription row present", /COACH SAYS/.test(sessText));
+  const coachRows = await page.getByText("COACH SAYS", {exact:true}).count();
+  check("one prescription per exercise", coachRows === setBtns, `${coachRows} rows vs ${setBtns} exercises`);
+  // The brief must not push the first exercise off the screen entirely.
+  const firstCardTop = await page.locator("text=COACH SAYS").first().evaluate(el=>el.getBoundingClientRect().top);
+  check("first exercise reachable without a long scroll", firstCardTop < 1400, `top at ${Math.round(firstCardTop)}px`);
+
   console.log("\n── LOGGING A SET ────────────────────────────────");
+  const prescribed = Number((sessText.match(/COACH SAYS\s*\n?\s*([\d.]+)kg/) || [])[1]);
   await page.getByText("SET 1", {exact:true}).first().click();
   await page.waitForTimeout(400);
   check("rep picker opens", /REPS COMPLETED/.test(await page.locator("body").innerText()));
+
+  // Free-text weight: type it rather than tapping the stepper eleven times.
+  const wField = page.locator('input[inputmode="decimal"]').first();
+  await wField.click();
+  await wField.fill("");
+  for(const ch of "47.5"){ await wField.press(ch === "." ? "Period" : ch); }
+  await wField.press("Enter");
+  await page.waitForTimeout(250);
+  check("typed weight commits", (await wField.inputValue()) === "47.5",
+    `got ${JSON.stringify(await wField.inputValue())}`);
+
   await page.getByText("HOW DID IT FEEL?").click();
   await page.waitForTimeout(300);
   check("effort step", /LEFT IN THE TANK/.test(await page.locator("body").innerText()));
+  check("effort step shows the typed weight", /47\.5kg/.test(await page.locator("body").innerText()));
   await page.getByText("Solid", {exact:true}).click();
   await page.waitForTimeout(200);
   await page.getByText("LOG IT").click();
   await page.waitForTimeout(600);
-  check("set logged", /1 of \d+ sets logged/.test(await page.locator("body").innerText()));
-  check("rest timer appeared", /REST/.test(await page.locator("body").innerText()));
+  let t2 = await page.locator("body").innerText();
+  check("set logged", /1 of \d+ sets logged/.test(t2));
+  check("rest timer appeared", /REST/.test(t2));
+
+  console.log("\n── PRESCRIPTION VS REALITY ──────────────────────");
+  check("prescription unchanged after an override",
+    new RegExp(`COACH SAYS\\s*\\n?\\s*${prescribed}kg`).test(t2), `expected ${prescribed}kg still shown`);
+  check("gap from the plan is called out", /You're [\d.]+kg (under|over) that/.test(t2), t2.slice(0,400));
+
+  console.log("\n── WEIGHT CARRIES TO THE NEXT SET ───────────────");
+  await page.getByText("SET 2", {exact:true}).first().click();
+  await page.waitForTimeout(400);
+  const w2 = page.locator('input[inputmode="decimal"]').first();
+  check("set 2 offers the weight you actually lifted", (await w2.inputValue()) === "47.5",
+    `got ${JSON.stringify(await w2.inputValue())}`);
+  check("and still names the coach's number",
+    /Coach says [\d.]+kg/.test(await page.locator("body").innerText()));
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  if(await page.getByText("REPS COMPLETED").isVisible().catch(()=>false)){
+    await page.mouse.click(5,5); await page.waitForTimeout(300);
+  }
+
+  console.log("\n── TIMER SURVIVES NAVIGATION ────────────────────");
+  const readRest = () => page.evaluate(()=>{
+    try{ return JSON.parse(localStorage.getItem("snapfit_v2_rest")||"null"); }catch{ return null; }
+  });
+  const restBefore = await readRest();
+  check("rest persisted with a wall-clock end", !!restBefore?.endsAt, JSON.stringify(restBefore));
+  await page.getByText("LEARN", {exact:true}).last().click();
+  await page.waitForTimeout(1200);
+  check("timer still visible on another tab", /REST|GO/.test(await page.locator("body").innerText()));
+  await page.getByText("TODAY", {exact:true}).last().click();
+  await page.waitForTimeout(400);
+  check("same countdown, not restarted", (await readRest())?.endsAt === restBefore.endsAt);
+
+  console.log("\n── TIMER SURVIVES RELOAD ────────────────────────");
+  await page.reload({waitUntil:"networkidle"});
+  await page.waitForTimeout(2000);
+  check("timer resumed after reload", /REST|GO/.test(await page.locator("body").innerText()));
+  check("endsAt unchanged by the reload", (await readRest())?.endsAt === restBefore.endsAt);
+  await page.getByText(/SKIP|OK/).first().click();
+  await page.waitForTimeout(400);
+  check("skip clears it", (await readRest()) === null);
 
   console.log("\n── FORM COACHING ────────────────────────────────");
   await page.getByText("How to do it").first().click();
@@ -161,6 +250,95 @@ function check(name, ok, detail){
   check("settings renders", /SETTINGS/.test(st));
   check("key warning present", /Stored unencrypted/.test(st));
   check("equipment editor present", /YOUR GYM/.test(st));
+  check("text size editor present", /text size/i.test(st));
+  check("sound toggle present", /Rest timer sounds/.test(st));
+  check("wake lock toggle present", /Keep the screen awake/.test(st));
+  check("test cues button present", /Test the cues/.test(st));
+
+  console.log("\n── TEXT SIZE ────────────────────────────────────");
+  // Body text scales; the big headings deliberately do not.
+  const sizes = async () => page.evaluate(()=>{
+    const h = document.querySelector("h2");
+    const body = [...document.querySelectorAll("div")]
+      .find(d=>/Applies to everything except/.test(d.textContent||"") && d.children.length===0);
+    return {
+      ts: getComputedStyle(document.documentElement).getPropertyValue("--ts").trim(),
+      heading: h ? parseFloat(getComputedStyle(h).fontSize) : null,
+      body: body ? parseFloat(getComputedStyle(body).fontSize) : null,
+    };
+  });
+  const beforeSize = await sizes();
+  check("default scale is Comfortable", beforeSize.ts === "1.11", `--ts was ${beforeSize.ts}`);
+
+  const aBtns = page.locator("text=Text size").locator("..").locator("button");
+  await aBtns.nth(4).click();                 // Largest
+  await page.waitForTimeout(400);
+  const largest = await sizes();
+  check("body text grows", largest.body > beforeSize.body, `${beforeSize.body} → ${largest.body}`);
+  check("headings do not", Math.abs(largest.heading - beforeSize.heading) < 0.5,
+    `${beforeSize.heading} → ${largest.heading}`);
+
+  await aBtns.nth(0).click();                 // Compact
+  await page.waitForTimeout(400);
+  const compact = await sizes();
+  check("and shrinks the other way", compact.body < beforeSize.body, `${beforeSize.body} → ${compact.body}`);
+
+  await aBtns.nth(3).click();                 // Large
+  await page.waitForTimeout(300);
+  await page.reload({waitUntil:"networkidle"});
+  await page.waitForTimeout(1800);
+  check("choice survives a reload",
+    (await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue("--ts").trim())) === "1.22");
+  await page.evaluate(()=>{ localStorage.setItem("snapfit_v2_textscale","comfortable"); });
+
+  console.log("\n── JSON BACKUP ROUND-TRIP ───────────────────────");
+  const backup = await page.evaluate(()=>localStorage.getItem("snapfit_v2"));
+  const parsed = JSON.parse(backup);
+  check("backup has the training data", Array.isArray(parsed.sessions) && !!parsed.block);
+  check("backup never contains the API key", !/snapfit_v2_apikey|sk-ant/.test(backup));
+
+  const restore = async (text) => {
+    await page.locator("text=📋").last().click();
+    await page.waitForTimeout(400);
+    await page.getByText("Data", {exact:true}).click();
+    await page.waitForTimeout(300);
+    const [chooser] = await Promise.all([
+      page.waitForEvent("filechooser"),
+      page.getByText("RESTORE JSON").click(),
+    ]);
+    await chooser.setFiles({name:"b.json", mimeType:"application/json", buffer:Buffer.from(text)});
+    await page.waitForTimeout(600);
+  };
+
+  // A wrong-shaped file must be named as such and change nothing.
+  await restore('{"hello":"world"}');
+  let rt = await page.locator("body").innerText();
+  check("bad file rejected specifically", /version marker/.test(rt), rt.slice(0,300));
+  check("bad file changed nothing", /Nothing on this device has been changed/.test(rt));
+  check("data still intact after a rejection",
+    (await page.evaluate(()=>JSON.parse(localStorage.getItem("snapfit_v2")).sessions.length)) === parsed.sessions.length);
+
+  await restore('{"v":2,"sessions":"not-a-list"}');
+  check("corrupt field rejected specifically", /`sessions` field is corrupt/.test(await page.locator("body").innerText()));
+
+  // Now wipe and restore for real.
+  await page.evaluate(()=>{ localStorage.setItem("snapfit_v2", JSON.stringify({v:2,onboarded:true,goal:{type:"lose_fat"},sessions:[],exerciseHistory:{},weights:{}})); });
+  await page.reload({waitUntil:"networkidle"});
+  await page.waitForTimeout(1800);
+  await restore(backup);
+  rt = await page.locator("body").innerText();
+  check("restore shows what's in the file first", /WHAT'S IN THE FILE/.test(rt), rt.slice(0,300));
+  check("preview counts the sessions", new RegExp(`${parsed.sessions.length}`).test(rt));
+  await page.getByText("Replace everything").click();
+  await page.waitForTimeout(1200);
+  const restored = await page.evaluate(()=>JSON.parse(localStorage.getItem("snapfit_v2")));
+  check("sessions came back", restored.sessions.length === parsed.sessions.length,
+    `${restored.sessions.length} vs ${parsed.sessions.length}`);
+  check("goal came back", restored.goal?.type === parsed.goal?.type, `${restored.goal?.type} vs ${parsed.goal?.type}`);
+  check("history came back",
+    Object.keys(restored.exerciseHistory||{}).length === Object.keys(parsed.exerciseHistory||{}).length);
+  check("working weights came back",
+    Object.keys(restored.weights||{}).length === Object.keys(parsed.weights||{}).length);
 
   console.log("\n── PERSISTENCE ──────────────────────────────────");
   await page.reload({waitUntil:"networkidle"});

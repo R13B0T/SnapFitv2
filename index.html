@@ -64,7 +64,7 @@ h1,h2,h3{font-family:'Bebas Neue',sans-serif;font-weight:400;letter-spacing:0.04
 .md li{margin-bottom:.3em}
 .md strong{color:${C.text};font-weight:600}
 .md code{background:${C.raised};padding:1px 5px;border-radius:4px;font-size:.9em}
-.md h3{font-family:'DM Sans',sans-serif;font-weight:700;font-size:.85rem;color:${C.text};margin:1em 0 .4em;letter-spacing:0}
+.md h3{font-family:'DM Sans',sans-serif;font-weight:700;font-size:calc(.85rem * var(--ts, 1));color:${C.text};margin:1em 0 .4em;letter-spacing:0}
 `;
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1029,6 +1029,7 @@ function buildSessionRules(state, checkin){
     readiness: adj,
     checkin: checkin||null,
     focusTip: focusTipFor(day, phase),
+    brief: buildBriefRules(day, phase, prog, state, exercises),
     exercises,
   };
 }
@@ -1042,6 +1043,32 @@ function buildWhy(ex, phase, prog, state){
   return `${role} ${phase.name==="Deload"
     ? "This week is a deload, so the weight is deliberately light."
     : `In the ${phase.name.toLowerCase()} phase you're working ${phase.repRange[0]}–${phase.repRange[1]} reps at around ${phase.rpe}/10 effort.`} Serves ${goalLabel.toLowerCase()}.`;
+}
+
+/* The coach's brief: what today is for, what's required of you, and how you'll
+   know you got it right. Composed rather than templated — it should read like
+   someone talking, not like a form with the slots showing. */
+function buildBriefRules(day, phase, prog, state, exercises){
+  const goal = GOAL_BY_ID[state.goal?.type];
+  const [lo,hi] = phase.repRange;
+  const deload = /deload/i.test(phase.name);
+  const compounds = exercises.filter(e=>e.compound).map(e=>e.name);
+  const groups = [...new Set(exercises.map(e=>e.primary))];
+  const totalSets = exercises.reduce((n,e)=>n+e.sets,0);
+
+  const purpose = deload
+    ? `This is your deload week, and today is meant to feel easy. The weights are about 60% of what you've been lifting. The work of the last few weeks is already done — this week is when it turns into progress, and the only way to get that wrong is to push.`
+    : `Today is ${day.name.toLowerCase()} — ${exercises.length} exercises, ${totalSets} sets, working ${groups.slice(0,4).join(", ").toLowerCase()}. You're in week ${prog.week} of ${prog.total}, the ${phase.name.toLowerCase()} phase, and the job of this phase is ${phase.intent.charAt(0).toLowerCase()+phase.intent.slice(1).replace(/\.$/,"")}.`;
+
+  const required = deload
+    ? `Two sets per exercise, well short of failure, moving cleanly. Stop while it still feels like a warm-up.`
+    : `Each set wants ${lo} to ${hi} reps at roughly ${phase.rpe} out of 10 effort — that's ${phase.rpe>=9?"a rep or less":phase.rpe>=8?"one to two reps":"two to three reps"} left in the tank. Take the last set of each exercise closer to the limit than the earlier ones. Control the lowering for two to three seconds; that's where most of the growth is, and it costs you nothing.${compounds.length?` ${compounds[0]} is the one that matters most today, so do it while you're freshest.` : ""}`;
+
+  const standard = deload
+    ? `You'll know you've done it right if you leave feeling like you could have done the whole thing again.`
+    : `You'll know it worked if you reach ${hi} reps on most sets with your form intact. Get there and the weight goes up next time — that's the whole mechanism. If you can't hit ${lo} with clean reps, the weight's too heavy, and dropping it is the fast way forward rather than the slow one.${goal ? ` All of it is in service of ${goal.label.toLowerCase()}.` : ""}`;
+
+  return `${purpose}\n\n**What's required.** ${required}\n\n**The standard.** ${standard}`;
 }
 
 function focusTipFor(day, phase){
@@ -1392,8 +1419,9 @@ const S_BLOCK = {
 
 const S_SESSION = {
   type:"object", additionalProperties:false,
-  required:["focusTip","exercises"],
+  required:["brief","focusTip","exercises"],
   properties:{
+    brief:{type:"string", description:"The coach's brief for today, read before they start. Markdown, 2-3 short paragraphs, second person. Cover three things: what this session is for and how it serves their goal; what's required of them to make it count (rep range, effort level, tempo, which exercise matters most); and the standard — how they'll know they got it right, and what to do if they can't hit it. Reference their own numbers where you have them. Write it as a coach talking, not a summary."},
     focusTip:{type:"string", description:"One coaching cue for today, max 16 words."},
     adaptationNote:{type:"string", description:"If you changed the session because of their check-in or recent performance, one sentence saying what and why. Empty string if unchanged."},
     exercises:{ type:"array", minItems:2, maxItems:8, items:{
@@ -1522,7 +1550,8 @@ Rules:
             why: r.why };
         }).filter(Boolean);
         if(exercises.length < 2) throw new CoachError("Too few valid exercises","shape");
-        return {...base, source:"ai", focusTip:raw.focusTip, adaptationNote:raw.adaptationNote||"", exercises};
+        return {...base, source:"ai", brief:raw.brief || base.brief,
+          focusTip:raw.focusTip, adaptationNote:raw.adaptationNote||"", exercises};
       }, rules, "session");
     },
 
@@ -1602,6 +1631,231 @@ Cover: how the week went, progress against their goal specifically, what's worki
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   DEVICE — audio cues, wake lock, text scale
+
+   All three are preferences that live outside the main state blob, so they
+   survive a data reset and never end up in an export.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const SOUND_KEY = "snapfit_v2_sound";
+const WAKE_KEY  = "snapfit_v2_wake";
+const SCALE_KEY = "snapfit_v2_textscale";
+const REST_KEY  = "snapfit_v2_rest";
+
+function prefOn(key){ try{ return localStorage.getItem(key) !== "off"; }catch{ return true; } }
+function setPref(key,on){ try{ localStorage.setItem(key, on?"on":"off"); }catch{} }
+
+/* ── Text scale ───────────────────────────────────────────────────────────
+   Body font sizes are written as calc(Xrem * var(--ts, 1)). Setting --ts on
+   the root element rescales every one of them with no React re-render at all,
+   which is what makes the slider smooth.                                    */
+
+const TEXT_STEPS = [
+  {id:"compact",     label:"Compact",     v:0.92, note:"Tighter than default"},
+  {id:"standard",    label:"Standard",    v:1.00, note:"Original size"},
+  {id:"comfortable", label:"Comfortable", v:1.11, note:"Default — easier to read at arm's length"},
+  {id:"large",       label:"Large",       v:1.22, note:"Noticeably bigger"},
+  {id:"largest",     label:"Largest",     v:1.35, note:"Biggest available"},
+];
+const DEFAULT_SCALE = "comfortable";
+
+function loadScaleId(){
+  try{
+    const v = localStorage.getItem(SCALE_KEY);
+    return TEXT_STEPS.some(s=>s.id===v) ? v : DEFAULT_SCALE;
+  }catch{ return DEFAULT_SCALE; }
+}
+function applyScale(id){
+  const step = TEXT_STEPS.find(s=>s.id===id) || TEXT_STEPS.find(s=>s.id===DEFAULT_SCALE);
+  document.documentElement.style.setProperty("--ts", String(step.v));
+  return step;
+}
+function saveScaleId(id){ try{ localStorage.setItem(SCALE_KEY,id); }catch{} applyScale(id); }
+applyScale(loadScaleId());   // before first paint, so there's no visible reflow
+
+/* ── Audio cues ───────────────────────────────────────────────────────────
+   The whole sequence is scheduled against the AudioContext clock the moment
+   rest starts, rather than fired from a JS timer. Timers get throttled to once
+   a minute in a backgrounded tab; the audio clock does not. Everything is
+   synthesised, so there's nothing to download and it works offline.          */
+
+const CUE_PLAN = [
+  {at:20, kind:"beep"},
+  {at:10, kind:"double"},
+  {at:9,  kind:"tick"}, {at:8, kind:"tick"}, {at:7, kind:"tick"}, {at:6, kind:"tick"},
+  {at:5,  kind:"tick"}, {at:4, kind:"tick"}, {at:3, kind:"tick"}, {at:2, kind:"tick"},
+  {at:1,  kind:"tick"},
+  {at:0,  kind:"whistle"},
+];
+
+const cues = (()=>{
+  let ctx = null, live = [], keepEl = null, keepURI = null;
+
+  function context(){
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return null;
+    if(!ctx) ctx = new AC();
+    return ctx;
+  }
+
+  /* Must be called from inside a user gesture or iOS leaves the context
+     suspended and nothing ever plays. */
+  function unlock(){
+    const c = context();
+    if(c && c.state === "suspended") c.resume().catch(()=>{});
+    return c;
+  }
+
+  function blip(c, at, {freq, dur, type="sine", peak=0.3, warble=0}){
+    const osc = c.createOscillator(), g = c.createGain();
+    osc.type = type;
+    if(warble){
+      // Referee-whistle shrillness comes from the warble, not the pitch.
+      const n = 24, curve = new Float32Array(n);
+      for(let i=0;i<n;i++) curve[i] = freq + Math.sin(i/n * Math.PI * 2 * 6) * warble;
+      osc.frequency.setValueCurveAtTime(curve, at, dur);
+    } else {
+      osc.frequency.setValueAtTime(freq, at);
+    }
+    // Envelope, or it clicks at both ends.
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(peak, at + Math.min(0.02, dur/4));
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    osc.connect(g).connect(c.destination);
+    osc.start(at);
+    osc.stop(at + dur + 0.02);
+    live.push(osc);
+  }
+
+  function play(c, kind, at){
+    if(kind==="beep")    return blip(c, at, {freq:880, dur:0.12});
+    if(kind==="double"){ blip(c, at, {freq:880, dur:0.10}); return blip(c, at+0.19, {freq:880, dur:0.10}); }
+    if(kind==="tick")    return blip(c, at, {freq:660, dur:0.055, peak:0.2});
+    if(kind==="whistle") return blip(c, at, {freq:2000, dur:0.45, type:"square", peak:0.34, warble:260});
+  }
+
+  /* A silent looping <audio> element holds the OS audio session open, which is
+     what gives the scheduled cues a chance of surviving a locked screen. It
+     works on Android and on some iOS versions — see the README; it is not a
+     guarantee, which is why the wake lock below is the reliable route. */
+  function silentWav(){
+    if(keepURI) return keepURI;
+    const rate = 8000, n = rate, bytes = 44 + n*2;
+    const buf = new ArrayBuffer(bytes), v = new DataView(buf);
+    const str = (o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); };
+    str(0,"RIFF"); v.setUint32(4, bytes-8, true); str(8,"WAVEfmt ");
+    v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+    v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+    str(36,"data"); v.setUint32(40, n*2, true);
+    let s = ""; const u8 = new Uint8Array(buf);
+    for(let i=0;i<u8.length;i++) s += String.fromCharCode(u8[i]);
+    keepURI = "data:audio/wav;base64," + btoa(s);
+    return keepURI;
+  }
+  function keepAwake(on){
+    try{
+      if(on){
+        if(!keepEl){
+          keepEl = new Audio(silentWav());
+          keepEl.loop = true; keepEl.volume = 0.001;
+          keepEl.setAttribute("playsinline","");
+        }
+        keepEl.play().catch(()=>{});
+        if("mediaSession" in navigator && window.MediaMetadata){
+          navigator.mediaSession.metadata = new window.MediaMetadata({
+            title:"Rest timer", artist:"SnapFit", album:"Training",
+          });
+          navigator.mediaSession.playbackState = "playing";
+        }
+      } else if(keepEl){
+        keepEl.pause();
+        if("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
+      }
+    }catch{}
+  }
+
+  return {
+    enabled: ()=>prefOn(SOUND_KEY),
+    setEnabled(on){ setPref(SOUND_KEY,on); if(!on){ this.cancel(); } },
+    supported: ()=>!!(window.AudioContext || window.webkitAudioContext),
+    unlock,
+
+    /* Schedule every cue for a rest ending at `endsAt` (epoch ms). Returns the
+       offsets in seconds it scheduled, which is what the tests assert on. */
+    schedule(endsAt){
+      this.cancel();
+      if(!prefOn(SOUND_KEY)) return [];
+      const c = unlock();
+      if(!c) return [];
+      const secsLeft = (endsAt - Date.now()) / 1000;
+      const now = c.currentTime;
+      const used = [];
+      CUE_PLAN.forEach(cue=>{
+        const offset = secsLeft - cue.at;
+        if(offset < 0.05) return;              // already past, don't fire late
+        play(c, cue.kind, now + offset);
+        used.push({at:cue.at, kind:cue.kind, offset:Math.round(offset*100)/100});
+      });
+      keepAwake(true);
+      return used;
+    },
+
+    cancel(){
+      live.forEach(n=>{ try{ n.stop(0); }catch{} });
+      live = [];
+      keepAwake(false);
+    },
+
+    /* Settings preview: the same sequence compressed so you can check volume. */
+    test(){
+      this.cancel();
+      const c = unlock();
+      if(!c) return;
+      const now = c.currentTime + 0.05;
+      play(c, "beep",    now);
+      play(c, "double",  now + 0.8);
+      [0,1,2,3].forEach(i=> play(c, "tick", now + 1.7 + i*0.28));
+      play(c, "whistle", now + 3.1);
+    },
+  };
+})();
+
+/* ── Screen wake lock ─────────────────────────────────────────────────────
+   A screen that never sleeps is an audio context that never gets suspended,
+   so this is also the reliable answer to "play the cues with the screen off".
+   The browser drops the lock whenever the tab hides, so it has to be
+   re-requested every time you come back.                                    */
+
+const wakeLock = (()=>{
+  let sentinel = null, wanted = false;
+  const supported = () => typeof navigator !== "undefined" && "wakeLock" in navigator;
+
+  async function acquire(){
+    if(!wanted || !supported() || !prefOn(WAKE_KEY) || sentinel) return;
+    try{
+      sentinel = await navigator.wakeLock.request("screen");
+      sentinel.addEventListener("release", ()=>{ sentinel = null; });
+    }catch{ sentinel = null; }
+  }
+  function release(){
+    try{ sentinel && sentinel.release(); }catch{}
+    sentinel = null;
+  }
+  if(typeof document !== "undefined"){
+    document.addEventListener("visibilitychange", ()=>{
+      if(document.visibilityState === "visible") acquire(); else release();
+    });
+  }
+  return {
+    supported,
+    enabled: ()=>prefOn(WAKE_KEY),
+    setEnabled(on){ setPref(WAKE_KEY,on); on ? acquire() : release(); },
+    setWanted(v){ wanted = v; v ? acquire() : release(); },
+    held: ()=>!!sentinel,
+  };
+})();
+
+/* ═══════════════════════════════════════════════════════════════════════════
    UI PRIMITIVES
    ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -1643,7 +1897,7 @@ function Card({children, style, onClick, accent}){
 
 function Chip({children, color=C.faint, bg, onClick, style}){
   return (<span onClick={onClick} style={{
-    fontSize:".58rem", fontWeight:700, letterSpacing:".05em", color,
+    fontSize:"calc(.58rem * var(--ts, 1))", fontWeight:700, letterSpacing:".05em", color,
     background: bg || `${color}15`, border:`1px solid ${color}40`,
     padding:"3px 8px", borderRadius:20, whiteSpace:"nowrap",
     cursor:onClick?"pointer":undefined, display:"inline-block", ...style}}>{children}</span>);
@@ -1653,7 +1907,7 @@ function SectionTitle({children, sub, right}){
   return (<div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:12,gap:12}}>
     <div style={{minWidth:0}}>
       <h2 style={{fontSize:"1.9rem",color:C.text,lineHeight:1}}>{children}</h2>
-      {sub && <div style={{fontSize:".68rem",color:C.faint,marginTop:4}}>{sub}</div>}
+      {sub && <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,marginTop:4}}>{sub}</div>}
     </div>
     {right}
   </div>);
@@ -1661,15 +1915,15 @@ function SectionTitle({children, sub, right}){
 
 function Field({label, hint, children}){
   return (<div style={{marginBottom:14}}>
-    <div style={{fontSize:".62rem",color:C.dim,fontWeight:700,letterSpacing:".1em",marginBottom:6,textTransform:"uppercase"}}>{label}</div>
+    <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.dim,fontWeight:700,letterSpacing:".1em",marginBottom:6,textTransform:"uppercase"}}>{label}</div>
     {children}
-    {hint && <div style={{fontSize:".62rem",color:C.ghost,marginTop:5,lineHeight:1.5}}>{hint}</div>}
+    {hint && <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,marginTop:5,lineHeight:1.5}}>{hint}</div>}
   </div>);
 }
 
 const inputStyle = {
   width:"100%", background:C.raised, border:`1px solid ${C.line}`, borderRadius:10,
-  padding:"12px 13px", color:C.text, fontSize:".9rem", outline:"none",
+  padding:"12px 13px", color:C.text, fontSize:"calc(.9rem * var(--ts, 1))", outline:"none",
 };
 
 function Input(props){ return <input {...props} style={{...inputStyle, ...(props.style||{})}}/>; }
@@ -1682,9 +1936,9 @@ function Choice({options, value, onChange, cols=2}){
       return (<button key={o.value} onClick={()=>onChange(o.value)} style={{
         padding:"11px 10px", borderRadius:11, cursor:"pointer", textAlign:"left",
         border:`1.5px solid ${on?C.red:C.line}`, background:on?`${C.red}12`:C.raised,
-        color:on?C.text:C.dim, fontSize:".78rem", fontWeight:on?600:400}}>
+        color:on?C.text:C.dim, fontSize:"calc(.78rem * var(--ts, 1))", fontWeight:on?600:400}}>
         {o.icon && <span style={{marginRight:6}}>{o.icon}</span>}{o.label}
-        {o.sub && <div style={{fontSize:".6rem",color:C.faint,marginTop:3,fontWeight:400}}>{o.sub}</div>}
+        {o.sub && <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.faint,marginTop:3,fontWeight:400}}>{o.sub}</div>}
       </button>);
     })}
   </div>);
@@ -1699,8 +1953,8 @@ function Toggle({on, onChange, label, sub}){
       <div style={{position:"absolute",top:2.5,left:on?20:2.5,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
     </div>
     <div style={{flex:1,minWidth:0}}>
-      <div style={{fontSize:".82rem",color:on?C.text:C.dim,fontWeight:on?600:400}}>{label}</div>
-      {sub && <div style={{fontSize:".62rem",color:C.faint,marginTop:2}}>{sub}</div>}
+      <div style={{fontSize:"calc(.82rem * var(--ts, 1))",color:on?C.text:C.dim,fontWeight:on?600:400}}>{label}</div>
+      {sub && <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,marginTop:2}}>{sub}</div>}
     </div>
   </button>);
 }
@@ -1731,10 +1985,10 @@ function Sheet({children, onClose, title, sub}){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,marginBottom:14}}>
         <div style={{minWidth:0}}>
           {title && <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.4rem",color:C.text,letterSpacing:".05em",lineHeight:1.1}}>{title}</div>}
-          {sub && <div style={{fontSize:".64rem",color:C.faint,marginTop:4}}>{sub}</div>}
+          {sub && <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.faint,marginTop:4}}>{sub}</div>}
         </div>
         <button onClick={onClose} style={{background:C.raised,border:"none",color:C.dim,borderRadius:20,
-          width:32,height:32,cursor:"pointer",fontSize:"1rem",flexShrink:0}}>✕</button>
+          width:32,height:32,cursor:"pointer",fontSize:"calc(1rem * var(--ts, 1))",flexShrink:0}}>✕</button>
       </div>
       {children}
     </div>
@@ -1746,8 +2000,8 @@ function Confirm({message, sub, confirmLabel="Confirm", danger, onConfirm, onCan
       display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
     <div className="pop" onClick={e=>e.stopPropagation()} style={{background:C.surface,border:`1px solid ${C.line}`,
       borderRadius:18,padding:22,maxWidth:360,width:"100%"}}>
-      <div style={{fontSize:".95rem",color:C.text,fontWeight:600,marginBottom:6,lineHeight:1.45}}>{message}</div>
-      {sub && <div style={{fontSize:".72rem",color:C.faint,lineHeight:1.6,marginBottom:18}}>{sub}</div>}
+      <div style={{fontSize:"calc(.95rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:6,lineHeight:1.45}}>{message}</div>
+      {sub && <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.faint,lineHeight:1.6,marginBottom:18}}>{sub}</div>}
       <div style={{display:"flex",gap:8,marginTop:18}}>
         <Btn kind="ghost" onClick={onCancel} full>Cancel</Btn>
         <Btn kind={danger?"danger":"primary"} onClick={onConfirm} full>{confirmLabel}</Btn>
@@ -1763,9 +2017,9 @@ function Spinner({size=16, color=C.red}){
 
 function Empty({icon, title, body, action}){
   return (<div style={{textAlign:"center",padding:"48px 24px"}}>
-    <div style={{fontSize:"2.2rem",marginBottom:12,opacity:.5}}>{icon}</div>
+    <div style={{fontSize:"calc(2.2rem * var(--ts, 1))",marginBottom:12,opacity:.5}}>{icon}</div>
     <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.3rem",color:C.dim,letterSpacing:".05em",marginBottom:8}}>{title}</div>
-    <div style={{fontSize:".76rem",color:C.faint,lineHeight:1.7,maxWidth:320,margin:"0 auto"}}>{body}</div>
+    <div style={{fontSize:"calc(.76rem * var(--ts, 1))",color:C.faint,lineHeight:1.7,maxWidth:320,margin:"0 auto"}}>{body}</div>
     {action && <div style={{marginTop:20}}>{action}</div>}
   </div>);
 }
@@ -1795,19 +2049,70 @@ function Markdown({text, style}){
     flush();
     return out.join("");
   },[text]);
-  return <div className="md" style={{fontSize:".8rem",color:C.dim,...style}} dangerouslySetInnerHTML={{__html:html}}/>;
+  return <div className="md" style={{fontSize:"calc(.8rem * var(--ts, 1))",color:C.dim,...style}} dangerouslySetInnerHTML={{__html:html}}/>;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   REP PICKER — reps, then how it felt. Carried over from v1 and extended
-   with a per-set weight override.
+   NUMBER FIELD — stepper buttons either side of a real editable field, because
+   getting from 100 to 47.5 with a +/- button is eleven taps.
+
+   The raw string is held in local state while typing so a half-entered "4."
+   isn't clobbered by a re-render, and only committed on blur or Enter.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function RepPicker({exercise, setIndex, initial, onSave, onClose}){
+function NumberField({value, onChange, step=1, min=0, max=999, suffix, size="lg", inputMode="decimal"}){
+  const [draft,setDraft] = useState(null);          // null = not being edited
+  const shown = draft !== null ? draft : String(value);
+
+  function commit(raw){
+    const n = parseFloat(raw);
+    setDraft(null);
+    if(!isFinite(n)) return;                        // gibberish: snap back
+    onChange(clamp(Math.round(n*100)/100, min, max));
+  }
+  const bump = d => { setDraft(null); onChange(clamp(round25(value + d), min, max)); };
+
+  const big = size === "lg";
+  return (<div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:big?12:8}}>
+    <button onClick={()=>bump(-step)} style={{width:big?44:30,height:big?44:30,borderRadius:big?12:8,
+      border:`1px solid ${C.line}`,background:big?C.raised:C.card,color:C.dim,
+      fontSize:big?"1.5rem":"1rem",cursor:"pointer",flexShrink:0,lineHeight:1}}>−</button>
+
+    <div style={{position:"relative",flex:big?undefined:1,minWidth:0}}>
+      <input
+        value={shown}
+        inputMode={inputMode}
+        onChange={e=>setDraft(e.target.value.replace(/[^0-9.]/g,""))}
+        onFocus={e=>{ setDraft(String(value)); e.target.select(); }}
+        onBlur={e=>commit(e.target.value)}
+        onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); commit(e.target.value); e.target.blur(); } }}
+        style={{
+          width:big?110:78, textAlign:"center", background:"transparent",
+          border:"none", borderBottom:`1px dashed ${C.line}`, outline:"none", color:C.text,
+          fontFamily:"'Bebas Neue',sans-serif",
+          fontSize:big?"3.2rem":"1.15rem", lineHeight:1, padding:big?"0 0 4px":"0 0 2px",
+        }}/>
+      {suffix && <span style={{fontSize:big?"1rem":".7rem",color:C.faint,marginLeft:2}}>{suffix}</span>}
+    </div>
+
+    <button onClick={()=>bump(step)} style={{width:big?44:30,height:big?44:30,borderRadius:big?12:8,
+      border:`1px solid ${C.line}`,background:big?C.raised:C.card,color:C.dim,
+      fontSize:big?"1.5rem":"1rem",cursor:"pointer",flexShrink:0,lineHeight:1}}>+</button>
+  </div>);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   REP PICKER — reps, then how it felt.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function RepPicker({exercise, setIndex, initial, lastWeight, onSave, onClose}){
   const [step,setStep]     = useState("reps");
   const [reps,setReps]     = useState(initial?.reps ?? exercise.targetReps);
   const [effort,setEffort] = useState(initial?.effort ?? null);
-  const [weight,setWeight] = useState(initial?.weight ?? exercise.weight);
+  // Editing this set → its own value. Otherwise the weight actually used on the
+  // last set, not the planned one, so a mid-exercise drop carries forward.
+  const [weight,setWeight] = useState(initial?.weight ?? lastWeight ?? exercise.weight);
+  const carried = initial?.weight == null && lastWeight != null && lastWeight !== exercise.weight;
 
   const target = exercise.targetReps;
   const opts = [...new Set([target-3,target-2,target-1,target,target+1,target+2,target+3].filter(n=>n>=0))];
@@ -1830,8 +2135,8 @@ function RepPicker({exercise, setIndex, initial, onSave, onClose}){
     <div className="pop" onClick={e=>e.stopPropagation()} style={{background:C.surface,border:`1px solid ${C.line}`,
       borderRadius:20,padding:"22px 20px 18px",width:"100%",maxWidth:320,textAlign:"center"}}>
 
-      <div style={{fontSize:".62rem",color:C.faint,letterSpacing:".08em",marginBottom:2}}>{exercise.name.toUpperCase()}</div>
-      <div style={{fontSize:".68rem",color:C.ghost,marginBottom:14}}>Set {setIndex+1} of {exercise.sets}</div>
+      <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,letterSpacing:".08em",marginBottom:2}}>{exercise.name.toUpperCase()}</div>
+      <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.ghost,marginBottom:14}}>Set {setIndex+1} of {exercise.sets}</div>
 
       <div style={{display:"flex",justifyContent:"center",gap:6,marginBottom:16}}>
         <div style={{height:3,width:38,borderRadius:2,background:step==="reps"?C.red:C.ghost}}/>
@@ -1839,57 +2144,51 @@ function RepPicker({exercise, setIndex, initial, onSave, onClose}){
       </div>
 
       {step==="reps" && (<>
-        <div style={{fontSize:".64rem",color:C.dim,fontWeight:700,letterSpacing:".1em",marginBottom:4}}>REPS COMPLETED</div>
-        <div style={{fontSize:".7rem",color:C.faint,marginBottom:14}}>Target: <span style={{color:C.text,fontWeight:600}}>{target}</span> at {weight}kg</div>
+        <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.dim,fontWeight:700,letterSpacing:".1em",marginBottom:4}}>REPS COMPLETED</div>
+        <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,marginBottom:14}}>Target: <span style={{color:C.text,fontWeight:600}}>{target}</span> at {weight}kg</div>
 
-        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:16,marginBottom:12}}>
-          <button onClick={()=>setReps(r=>Math.max(0,r-1))} style={{width:44,height:44,borderRadius:12,
-            border:`1px solid ${C.line}`,background:C.raised,color:C.dim,fontSize:"1.5rem",cursor:"pointer"}}>−</button>
-          <div>
-            <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"3.6rem",color:rc,lineHeight:1,minWidth:74}}>{reps}</div>
-            <div style={{fontSize:".58rem",color:C.ghost}}>reps done</div>
-          </div>
-          <button onClick={()=>setReps(r=>Math.min(50,r+1))} style={{width:44,height:44,borderRadius:12,
-            border:`1px solid ${C.line}`,background:C.raised,color:C.dim,fontSize:"1.5rem",cursor:"pointer"}}>+</button>
+        <div style={{marginBottom:4}}>
+          <NumberField value={reps} onChange={setReps} step={1} min={0} max={99} inputMode="numeric"/>
         </div>
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,marginBottom:12}}>reps done — tap the number to type it</div>
 
         <div style={{display:"flex",gap:5,justifyContent:"center",flexWrap:"wrap",marginBottom:14}}>
           {opts.map(n=>(<button key={n} onClick={()=>setReps(n)} style={{width:34,height:34,borderRadius:8,
             border:`1.5px solid ${reps===n?C.red:C.line}`, background:reps===n?C.red:C.raised,
-            color:reps===n?"#fff":C.dim, fontSize:".74rem", fontWeight:700, cursor:"pointer"}}>{n}</button>))}
+            color:reps===n?"#fff":C.dim, fontSize:"calc(.74rem * var(--ts, 1))", fontWeight:700, cursor:"pointer"}}>{n}</button>))}
         </div>
 
-        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:16,
-          background:C.raised,borderRadius:10,padding:"8px 10px"}}>
-          <span style={{fontSize:".62rem",color:C.faint}}>Weight used</span>
-          <button onClick={()=>setWeight(w=>Math.max(0,round25(w-(exercise.inc||2.5))))} style={{width:28,height:28,
-            borderRadius:8,border:`1px solid ${C.line}`,background:C.card,color:C.dim,cursor:"pointer"}}>−</button>
-          <span style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.1rem",color:C.text,minWidth:52}}>{weight}kg</span>
-          <button onClick={()=>setWeight(w=>round25(w+(exercise.inc||2.5)))} style={{width:28,height:28,
-            borderRadius:8,border:`1px solid ${C.line}`,background:C.card,color:C.dim,cursor:"pointer"}}>+</button>
+        <div style={{background:C.raised,borderRadius:10,padding:"9px 10px",marginBottom:6}}>
+          <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,marginBottom:5}}>Weight used</div>
+          <NumberField value={weight} onChange={setWeight} step={exercise.inc||2.5}
+            min={0} max={999} suffix="kg" size="sm"/>
+        </div>
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:carried?C.yellow:C.ghost,marginBottom:14,lineHeight:1.5}}>
+          {carried ? `Carried over from your last set. Coach says ${exercise.weight}kg.`
+                   : `Coach says ${exercise.weight}kg.`}
         </div>
 
         <Btn onClick={()=>setStep("effort")} full size="md">HOW DID IT FEEL? →</Btn>
       </>)}
 
       {step==="effort" && (<>
-        <div style={{fontSize:".64rem",color:C.dim,fontWeight:700,letterSpacing:".1em",marginBottom:4}}>HOW MANY LEFT IN THE TANK?</div>
-        <div style={{fontSize:".7rem",color:C.faint,marginBottom:14}}>{reps} reps at {weight}kg</div>
+        <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.dim,fontWeight:700,letterSpacing:".1em",marginBottom:4}}>HOW MANY LEFT IN THE TANK?</div>
+        <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,marginBottom:14}}>{reps} reps at {weight}kg</div>
 
         <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:14}}>
           {EFFORT.map(e=>(<button key={e.key} onClick={()=>setEffort(e.key)} style={{
             width:"100%",padding:"10px 13px",borderRadius:12,cursor:"pointer",display:"flex",
             alignItems:"center",gap:11,textAlign:"left",
             border:`1.5px solid ${effort===e.key?e.color:C.line}`, background:effort===e.key?`${e.color}12`:C.raised}}>
-            <span style={{fontSize:"1.3rem",flexShrink:0}}>{e.emoji}</span>
+            <span style={{fontSize:"calc(1.3rem * var(--ts, 1))",flexShrink:0}}>{e.emoji}</span>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:".76rem",fontWeight:700,color:effort===e.key?e.color:C.dim}}>{e.label}</div>
-              <div style={{fontSize:".58rem",color:C.faint,marginTop:1}}>{e.desc}</div>
+              <div style={{fontSize:"calc(.76rem * var(--ts, 1))",fontWeight:700,color:effort===e.key?e.color:C.dim}}>{e.label}</div>
+              <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.faint,marginTop:1}}>{e.desc}</div>
             </div>
           </button>))}
         </div>
 
-        {suggestion && <div style={{fontSize:".66rem",color:suggestion.color,background:`${suggestion.color}10`,
+        {suggestion && <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:suggestion.color,background:`${suggestion.color}10`,
           border:`1px solid ${suggestion.color}30`,borderRadius:9,padding:"8px 10px",marginBottom:14,lineHeight:1.5}}>
           {suggestion.msg}</div>}
 
@@ -1903,8 +2202,92 @@ function RepPicker({exercise, setIndex, initial, onSave, onClose}){
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ONBOARDING
+   REST TIMER BAR
+
+   Lives at App level so it survives tab changes, and derives remaining time
+   from a wall-clock `endsAt` rather than counting down a number — throttling in
+   a backgrounded tab can make the display coarse, but it can never be wrong,
+   and it self-corrects the moment you come back.
    ═══════════════════════════════════════════════════════════════════════════ */
+
+function RestBar({rest, onSkip}){
+  const [now,setNow] = useState(()=>Date.now());
+
+  useEffect(()=>{
+    if(!rest) return;
+    const tick = ()=>setNow(Date.now());
+    tick();
+    const id = setInterval(tick, 250);
+    const onVis = ()=>{ if(document.visibilityState==="visible") tick(); };
+    document.addEventListener("visibilitychange", onVis);
+    return ()=>{ clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
+  },[rest?.endsAt]);
+
+  if(!rest) return null;
+
+  const remaining = Math.max(0, Math.ceil((rest.endsAt - now)/1000));
+  const pct  = clamp((remaining / Math.max(1,rest.total)) * 100, 0, 100);
+  const done = remaining === 0;
+  const urgent = remaining <= 10 && !done;
+  const col = done ? C.green : urgent ? C.red : remaining <= 30 ? C.yellow : C.green;
+  const m = Math.floor(remaining/60), s = remaining%60;
+
+  return (<div style={{position:"fixed",left:0,right:0,bottom:"calc(66px + env(safe-area-inset-bottom))",
+    background:C.surface,borderTop:`2px solid ${col}`,padding:"9px 16px 8px",zIndex:80}}>
+    <div style={{maxWidth:620,margin:"0 auto"}}>
+      <div style={{height:3,background:C.lineSoft,borderRadius:2,overflow:"hidden",marginBottom:7}}>
+        <div style={{height:"100%",width:`${pct}%`,background:col,transition:"width .25s linear"}}/>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:"calc(.55rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".08em"}}>
+            {done ? "GO" : "REST"}</div>
+          <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,overflow:"hidden",
+            textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rest.label} · {rest.exName}</div>
+        </div>
+        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"2rem",color:col,lineHeight:1,minWidth:52,
+          textAlign:"center",animation:urgent?"pulse .7s infinite":"none"}}>
+          {done ? "GO" : m>0 ? `${m}:${String(s).padStart(2,"0")}` : `${s}s`}</div>
+        <Btn kind="ghost" size="sm" onClick={onSkip}>{done ? "OK ✓" : "SKIP →"}</Btn>
+      </div>
+    </div>
+  </div>);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ONBOARDING
+
+   OnboardShell MUST stay at module scope. Defined inside Onboarding it would be
+   a new function identity on every render, so React would treat each keystroke
+   as a change of component type, unmount the whole step, and destroy the focused
+   input — which closes the keyboard after a single character on a phone.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function OnboardShell({children, steps, step, onBack, showBack=true, cta, ctaLabel, disabled}){
+  return (
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column"}}>
+      <div style={{padding:"18px 18px 0",maxWidth:560,margin:"0 auto",width:"100%"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+          <Logo h={24}/>
+          <div style={{width:1,height:16,background:C.line}}/>
+          <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:".9rem",color:C.dim,letterSpacing:".12em"}}>GYM BUDDY</div>
+        </div>
+        <div style={{display:"flex",gap:4,marginBottom:22}}>
+          {steps.map((s,i)=>(<div key={s} style={{flex:1,height:3,borderRadius:2,
+            background:i<=step?C.red:C.lineSoft,transition:"background .3s"}}/>))}
+        </div>
+      </div>
+      <div style={{flex:1,padding:"0 18px",maxWidth:560,margin:"0 auto",width:"100%",overflowY:"auto"}}>
+        {children}
+      </div>
+      <div style={{padding:"14px 18px calc(20px + env(safe-area-inset-bottom))",maxWidth:560,margin:"0 auto",width:"100%",
+        display:"flex",gap:8,borderTop:`1px solid ${C.lineSoft}`,background:C.bg}}>
+        {showBack && step>0 && <Btn kind="ghost" size="lg" onClick={onBack} style={{width:56,padding:0}}>←</Btn>}
+        <Btn size="lg" full onClick={cta} disabled={disabled}>{ctaLabel}</Btn>
+      </div>
+    </div>
+  );
+}
 
 function Onboarding({state, setState, onDone, coach}){
   const [step,setStep]   = useState(0);
@@ -1938,36 +2321,15 @@ function Onboarding({state, setState, onDone, coach}){
     catch(e){ setKeyState("bad"); setKeyMsg(e.kind==="auth" ? "That key was rejected. Check you copied all of it." : e.message); }
   }
 
-  const Wrap = ({children, cta, ctaLabel, back, disabled}) => (
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column"}}>
-      <div style={{padding:"18px 18px 0",maxWidth:560,margin:"0 auto",width:"100%"}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
-          <Logo h={24}/>
-          <div style={{width:1,height:16,background:C.line}}/>
-          <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:".9rem",color:C.dim,letterSpacing:".12em"}}>GYM BUDDY</div>
-        </div>
-        <div style={{display:"flex",gap:4,marginBottom:22}}>
-          {steps.map((s,i)=>(<div key={s} style={{flex:1,height:3,borderRadius:2,
-            background:i<=step?C.red:C.lineSoft,transition:"background .3s"}}/>))}
-        </div>
-      </div>
-      <div className="fade" style={{flex:1,padding:"0 18px",maxWidth:560,margin:"0 auto",width:"100%",overflowY:"auto"}}>
-        {children}
-      </div>
-      <div style={{padding:"14px 18px calc(20px + env(safe-area-inset-bottom))",maxWidth:560,margin:"0 auto",width:"100%",
-        display:"flex",gap:8,borderTop:`1px solid ${C.lineSoft}`,background:C.bg}}>
-        {back!==false && step>0 && <Btn kind="ghost" size="lg" onClick={()=>setStep(s=>s-1)} style={{width:56,padding:0}}>←</Btn>}
-        <Btn size="lg" full onClick={cta} disabled={disabled}>{ctaLabel}</Btn>
-      </div>
-    </div>
-  );
+  // Stable props for the module-scope shell.
+  const shell = { steps, step, onBack:()=>setStep(s=>s-1) };
 
   /* 0 — Welcome */
-  if(step===0) return (<Wrap cta={()=>setStep(1)} ctaLabel="LET'S GO →" back={false}>
+  if(step===0) return (<OnboardShell {...shell} cta={()=>setStep(1)} ctaLabel="LET'S GO →" showBack={false}>
     <h1 style={{fontSize:"2.7rem",color:C.text,lineHeight:1.05,marginBottom:14}}>
       NOT JUST A<br/><span style={{color:C.red}}>TRACKER</span>
     </h1>
-    <div style={{fontSize:".88rem",color:C.dim,lineHeight:1.75,marginBottom:22}}>
+    <div style={{fontSize:"calc(.88rem * var(--ts, 1))",color:C.dim,lineHeight:1.75,marginBottom:22}}>
       V1 told you what to lift. This one tells you <strong style={{color:C.text}}>why</strong>, shows you <strong style={{color:C.text}}>how</strong>,
       and builds a real plan toward something you actually want.
     </div>
@@ -1979,20 +2341,20 @@ function Onboarding({state, setState, onDone, coach}){
         ["🔁","Check in, debrief, adjust","How you slept changes today's session. What you lifted changes next week's."],
       ].map(([icon,t,b])=>(
         <div key={t} style={{display:"flex",gap:12,alignItems:"flex-start"}}>
-          <div style={{fontSize:"1.1rem",width:26,flexShrink:0,textAlign:"center"}}>{icon}</div>
+          <div style={{fontSize:"calc(1.1rem * var(--ts, 1))",width:26,flexShrink:0,textAlign:"center"}}>{icon}</div>
           <div style={{minWidth:0}}>
-            <div style={{fontSize:".82rem",color:C.text,fontWeight:600,marginBottom:2}}>{t}</div>
-            <div style={{fontSize:".72rem",color:C.faint,lineHeight:1.6}}>{b}</div>
+            <div style={{fontSize:"calc(.82rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:2}}>{t}</div>
+            <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.faint,lineHeight:1.6}}>{b}</div>
           </div>
         </div>))}
     </div>
-    <div style={{fontSize:".68rem",color:C.ghost,lineHeight:1.6,borderTop:`1px solid ${C.lineSoft}`,paddingTop:14}}>
+    <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.ghost,lineHeight:1.6,borderTop:`1px solid ${C.lineSoft}`,paddingTop:14}}>
       Takes about a minute to set up. Everything stays on this device.
     </div>
-  </Wrap>);
+  </OnboardShell>);
 
   /* 1 — Goal */
-  if(step===1) return (<Wrap cta={()=>setStep(2)} ctaLabel="NEXT →" disabled={!goal.type}>
+  if(step===1) return (<OnboardShell {...shell} cta={()=>setStep(2)} ctaLabel="NEXT →" disabled={!goal.type}>
     <SectionTitle sub="Everything else is built backwards from this.">WHAT ARE YOU AFTER?</SectionTitle>
     <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:18}}>
       {GOAL_TYPES.map(gt=>{
@@ -2001,16 +2363,16 @@ function Onboarding({state, setState, onDone, coach}){
           padding:"14px 15px",borderRadius:13,cursor:"pointer",textAlign:"left",
           border:`1.5px solid ${on?C.red:C.line}`, background:on?`${C.red}0f`:C.card}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
-            <span style={{fontSize:"1.1rem"}}>{gt.icon}</span>
-            <span style={{fontSize:".92rem",fontWeight:700,color:on?C.text:C.dim}}>{gt.label}</span>
+            <span style={{fontSize:"calc(1.1rem * var(--ts, 1))"}}>{gt.icon}</span>
+            <span style={{fontSize:"calc(.92rem * var(--ts, 1))",fontWeight:700,color:on?C.text:C.dim}}>{gt.label}</span>
           </div>
-          <div style={{fontSize:".7rem",color:C.faint,lineHeight:1.55}}>{gt.blurb}</div>
+          <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,lineHeight:1.55}}>{gt.blurb}</div>
         </button>);
       })}
     </div>
 
     <div style={{background:C.card,border:`1px solid ${C.lineSoft}`,borderRadius:14,padding:16}}>
-      <div style={{fontSize:".68rem",color:C.dim,marginBottom:14,lineHeight:1.6}}>
+      <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.dim,marginBottom:14,lineHeight:1.6}}>
         Give it a target and a date if you can. A goal with a number attached is one the coach can actually measure you against — but you can leave these blank and set them later.
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -2031,10 +2393,10 @@ function Onboarding({state, setState, onDone, coach}){
           onChange={e=>setGoal(x=>({...x,why:e.target.value}))}/>
       </Field>
     </div>
-  </Wrap>);
+  </OnboardShell>);
 
   /* 2 — Profile */
-  if(step===2) return (<Wrap cta={()=>setStep(3)} ctaLabel="NEXT →">
+  if(step===2) return (<OnboardShell {...shell} cta={()=>setStep(3)} ctaLabel="NEXT →">
     <SectionTitle sub="Shapes how hard the plan pushes and how fast it climbs.">ABOUT YOU</SectionTitle>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
       <Field label="Age"><Input type="number" inputMode="numeric" placeholder="35" value={prof.age}
@@ -2057,7 +2419,7 @@ function Onboarding({state, setState, onDone, coach}){
     <Field label={`Days per week — ${prof.daysPerWeek}`} hint="Pick the number you'll actually hit, not the number you'd like to hit. Three consistent days beats five you skip.">
       <Slider min={2} max={5} value={prof.daysPerWeek} onChange={v=>setProf(p=>({...p,daysPerWeek:v}))}
         format={v=>`${v} days`}/>
-      <div style={{fontSize:".65rem",color:C.faint,marginTop:8}}>
+      <div style={{fontSize:"calc(.65rem * var(--ts, 1))",color:C.faint,marginTop:8}}>
         Split: {(SPLITS[prof.daysPerWeek]||SPLITS[3]).map(d=>d.name).join(" · ")}
       </div>
     </Field>
@@ -2070,10 +2432,10 @@ function Onboarding({state, setState, onDone, coach}){
         onChange={v=>setProf(p=>({...p,freeWeightPct:v}))}
         format={v=>v===0?"All machines":v===100?"All free weights":`${v}% free weights`}/>
     </Field>
-  </Wrap>);
+  </OnboardShell>);
 
   /* 3 — Limits */
-  if(step===3) return (<Wrap cta={()=>setStep(4)} ctaLabel="NEXT →">
+  if(step===3) return (<OnboardShell {...shell} cta={()=>setStep(4)} ctaLabel="NEXT →">
     <SectionTitle sub="Anything flagged here gets programmed around, not through.">ANYTHING SORE?</SectionTitle>
     <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
       {[["knees","Knees","Skips leg press, extensions and squats"],
@@ -2088,25 +2450,25 @@ function Onboarding({state, setState, onDone, coach}){
       <TextArea placeholder="e.g. Left shoulder clicks on overhead press — fine on machines"
         value={lim.note} onChange={e=>setLim(l=>({...l,note:e.target.value}))}/>
     </Field>
-    <div style={{fontSize:".68rem",color:C.ghost,lineHeight:1.65,background:C.card,border:`1px solid ${C.lineSoft}`,
+    <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.ghost,lineHeight:1.65,background:C.card,border:`1px solid ${C.lineSoft}`,
       borderRadius:12,padding:14,marginTop:6}}>
       This app gives general training guidance, not medical advice. Sharp pain, pain in a joint,
       pain on one side only, or anything that doesn't settle — see a physio or doctor. The coach will
       work around it in the meantime, but it can't diagnose anything.
     </div>
-  </Wrap>);
+  </OnboardShell>);
 
   /* 4 — Equipment */
   if(step===4){
     const allStations = [...SEED_STATIONS, ...(equip.custom||[])];
     const on = new Set(equip.enabled);
     const toggle = num => setEquip(e=>({...e, enabled: on.has(num) ? e.enabled.filter(n=>n!==num) : [...e.enabled, num]}));
-    return (<Wrap cta={()=>setStep(5)} ctaLabel="NEXT →" disabled={!equip.enabled.length}>
+    return (<OnboardShell {...shell} cta={()=>setStep(5)} ctaLabel="NEXT →" disabled={!equip.enabled.length}>
       <SectionTitle sub="Pre-loaded with Snap Fitness Watagan Park. Untick anything that isn't there.">YOUR GYM</SectionTitle>
       <div style={{display:"flex",gap:8,marginBottom:14}}>
         <Btn kind="ghost" size="sm" onClick={()=>setEquip(e=>({...e,enabled:allStations.map(s=>s.num)}))}>Select all</Btn>
         <Btn kind="ghost" size="sm" onClick={()=>setEquip(e=>({...e,enabled:[]}))}>Clear</Btn>
-        <div style={{marginLeft:"auto",fontSize:".68rem",color:C.faint,alignSelf:"center"}}>{equip.enabled.length} of {allStations.length}</div>
+        <div style={{marginLeft:"auto",fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,alignSelf:"center"}}>{equip.enabled.length} of {allStations.length}</div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:16}}>
         {allStations.map(s=>{
@@ -2116,36 +2478,36 @@ function Onboarding({state, setState, onDone, coach}){
             border:`1px solid ${active?`${C.red}55`:C.line}`, background:active?`${C.red}0d`:C.raised}}>
             <div style={{width:14,height:14,borderRadius:4,flexShrink:0,
               background:active?C.red:"transparent",border:`1.5px solid ${active?C.red:C.ghost}`,
-              display:"flex",alignItems:"center",justifyContent:"center",fontSize:".55rem",color:"#fff"}}>{active?"✓":""}</div>
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:"calc(.55rem * var(--ts, 1))",color:"#fff"}}>{active?"✓":""}</div>
             <div style={{minWidth:0}}>
-              <div style={{fontSize:".7rem",color:active?C.text:C.faint,fontWeight:active?600:400,
+              <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:active?C.text:C.faint,fontWeight:active?600:400,
                 overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
-              <div style={{fontSize:".55rem",color:C.ghost}}>#{s.num}</div>
+              <div style={{fontSize:"calc(.55rem * var(--ts, 1))",color:C.ghost}}>#{s.num}</div>
             </div>
           </button>);
         })}
       </div>
-      <div style={{fontSize:".68rem",color:C.ghost,lineHeight:1.6}}>
+      <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.ghost,lineHeight:1.6}}>
         You can edit this any time in Settings, including adding your own equipment.
       </div>
-    </Wrap>);
+    </OnboardShell>);
   }
 
   /* 5 — Key */
-  return (<Wrap cta={finish} ctaLabel={building?"BUILDING YOUR PLAN…":"BUILD MY PLAN →"} disabled={building}>
+  return (<OnboardShell {...shell} cta={finish} ctaLabel={building?"BUILDING YOUR PLAN…":"BUILD MY PLAN →"} disabled={building}>
     <SectionTitle sub="Optional. The app is fully usable without it.">TURN ON THE COACH</SectionTitle>
 
     <Card style={{marginBottom:14}} accent={C.green}>
-      <div style={{fontSize:".78rem",color:C.text,fontWeight:600,marginBottom:8}}>Without a key you still get</div>
-      <div style={{fontSize:".73rem",color:C.faint,lineHeight:1.75}}>
+      <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:8}}>Without a key you still get</div>
+      <div style={{fontSize:"calc(.73rem * var(--ts, 1))",color:C.faint,lineHeight:1.75}}>
         Your full training block, every session generated and progressed, all the form coaching and
         the Learn library, plus tracking and history. It works offline, in a gym dead-spot, forever.
       </div>
     </Card>
 
     <Card style={{marginBottom:16}} accent={C.red}>
-      <div style={{fontSize:".78rem",color:C.text,fontWeight:600,marginBottom:8}}>A key adds</div>
-      <div style={{fontSize:".73rem",color:C.faint,lineHeight:1.75}}>
+      <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:8}}>A key adds</div>
+      <div style={{fontSize:"calc(.73rem * var(--ts, 1))",color:C.faint,lineHeight:1.75}}>
         A plan written for you rather than picked from a template, sessions that adapt to how you're
         recovering, coaching written around your actual numbers, session debriefs and weekly reviews,
         and the chat tab where you can ask it anything.
@@ -2155,17 +2517,17 @@ function Onboarding({state, setState, onDone, coach}){
     <Field label="Anthropic API key" hint="Starts with sk-ant-. Get one at console.anthropic.com → API Keys.">
       <Input type="password" placeholder="sk-ant-..." value={key} autoComplete="off"
         onChange={e=>{setKey(e.target.value); setKeyState("idle"); setKeyMsg("");}}
-        style={{fontFamily:"monospace",fontSize:".78rem"}}/>
+        style={{fontFamily:"monospace",fontSize:"calc(.78rem * var(--ts, 1))"}}/>
     </Field>
 
     {key.trim() && (<div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12}}>
       <Btn kind="solid" size="sm" onClick={testKey} disabled={keyState==="testing"}>
         {keyState==="testing" ? <><Spinner size={12}/> Testing</> : "Test key"}
       </Btn>
-      {keyMsg && <div style={{fontSize:".66rem",color:keyState==="ok"?C.green:C.red,lineHeight:1.5}}>{keyMsg}</div>}
+      {keyMsg && <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:keyState==="ok"?C.green:C.red,lineHeight:1.5}}>{keyMsg}</div>}
     </div>)}
 
-    <div style={{fontSize:".66rem",color:C.ghost,lineHeight:1.7,background:C.card,
+    <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.ghost,lineHeight:1.7,background:C.card,
       border:`1px solid ${C.lineSoft}`,borderRadius:12,padding:14}}>
       <strong style={{color:C.yellow}}>Worth knowing:</strong> the key is stored in this browser, unencrypted.
       Anything else running on this device can read it. Use a key with a spend limit, and don't do this on a
@@ -2175,7 +2537,7 @@ function Onboarding({state, setState, onDone, coach}){
         Typical cost is a fraction of a cent per session on the cheaper models. You can switch models in Settings.
       </div>
     </div>
-  </Wrap>);
+  </OnboardShell>);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -2199,9 +2561,9 @@ function CheckIn({onSubmit, onSkip}){
       {Object.entries(SCALE).map(([k,cfg])=>(
         <Card key={k} style={{padding:14}}>
           <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:10}}>
-            <span style={{fontSize:"1rem"}}>{cfg.icon}</span>
-            <span style={{fontSize:".82rem",color:C.text,fontWeight:600}}>{cfg.label}</span>
-            <span style={{fontSize:".62rem",color:C.ghost,marginLeft:"auto"}}>{cfg.hint}</span>
+            <span style={{fontSize:"calc(1rem * var(--ts, 1))"}}>{cfg.icon}</span>
+            <span style={{fontSize:"calc(.82rem * var(--ts, 1))",color:C.text,fontWeight:600}}>{cfg.label}</span>
+            <span style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,marginLeft:"auto"}}>{cfg.hint}</span>
           </div>
           <div style={{display:"flex",gap:5}}>
             {[1,2,3,4,5].map(n=>{
@@ -2212,12 +2574,12 @@ function CheckIn({onSubmit, onSkip}){
               return (<button key={n} onClick={()=>setV(x=>({...x,[k]:n}))} style={{
                 flex:1, height:38, borderRadius:9, cursor:"pointer",
                 border:`1.5px solid ${col}`, background:on?`${col}1a`:C.raised,
-                color:on?col:C.ghost, fontSize:".8rem", fontWeight:700}}>{n}</button>);
+                color:on?col:C.ghost, fontSize:"calc(.8rem * var(--ts, 1))", fontWeight:700}}>{n}</button>);
             })}
           </div>
           <div style={{display:"flex",justifyContent:"space-between",marginTop:5}}>
-            <span style={{fontSize:".56rem",color:C.ghost}}>{cfg.low}</span>
-            <span style={{fontSize:".56rem",color:C.ghost}}>{cfg.high}</span>
+            <span style={{fontSize:"calc(.56rem * var(--ts, 1))",color:C.ghost}}>{cfg.low}</span>
+            <span style={{fontSize:"calc(.56rem * var(--ts, 1))",color:C.ghost}}>{cfg.high}</span>
           </div>
         </Card>))}
     </div>
@@ -2225,14 +2587,14 @@ function CheckIn({onSubmit, onSkip}){
     <Card accent={adj.color} style={{marginBottom:16}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
         <div style={{width:8,height:8,borderRadius:"50%",background:adj.color}}/>
-        <div style={{fontSize:".8rem",color:adj.color,fontWeight:700}}>{adj.label}</div>
+        <div style={{fontSize:"calc(.8rem * var(--ts, 1))",color:adj.color,fontWeight:700}}>{adj.label}</div>
       </div>
-      <div style={{fontSize:".73rem",color:C.faint,lineHeight:1.65}}>{adj.note}</div>
+      <div style={{fontSize:"calc(.73rem * var(--ts, 1))",color:C.faint,lineHeight:1.65}}>{adj.note}</div>
     </Card>
 
     <Btn size="lg" full onClick={()=>onSubmit(v)}>BUILD TODAY'S SESSION →</Btn>
     <button onClick={onSkip} style={{width:"100%",marginTop:10,background:"transparent",border:"none",
-      color:C.ghost,fontSize:".72rem",cursor:"pointer",padding:8}}>Skip — just give me the session</button>
+      color:C.ghost,fontSize:"calc(.72rem * var(--ts, 1))",cursor:"pointer",padding:8}}>Skip — just give me the session</button>
   </div>);
 }
 
@@ -2246,15 +2608,21 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
   const all   = done >= ex.sets;
   const avg   = done ? Math.round((logs.filter(l=>l&&l.reps!=null).reduce((n,l)=>n+l.reps,0)/done)*10)/10 : null;
 
+  // Big number = what you're actually lifting. The prescription row below keeps
+  // the coach's number visible regardless.
+  const loggedSets  = logs.filter(l=>l && l.reps!=null);
+  const shownWeight = loggedSets.length ? loggedSets[loggedSets.length-1].weight : ex.weight;
+  const offPlan     = shownWeight !== ex.weight;
+
   return (<Card style={{marginBottom:10, borderColor: all?`${C.green}44`:C.lineSoft}}
     accent={all?C.green:undefined}>
 
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:10}}>
       <div style={{minWidth:0,flex:1}}>
         <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3,flexWrap:"wrap"}}>
-          <span style={{fontSize:".56rem",color:C.ghost,fontWeight:700}}>{String(idx+1).padStart(2,"0")}</span>
-          <span style={{fontSize:".95rem",color:C.text,fontWeight:700,lineHeight:1.2}}>{ex.name}</span>
-          {all && <span style={{fontSize:".7rem",color:C.green}}>✓</span>}
+          <span style={{fontSize:"calc(.56rem * var(--ts, 1))",color:C.ghost,fontWeight:700}}>{String(idx+1).padStart(2,"0")}</span>
+          <span style={{fontSize:"calc(.95rem * var(--ts, 1))",color:C.text,fontWeight:700,lineHeight:1.2}}>{ex.name}</span>
+          {all && <span style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.green}}>✓</span>}
         </div>
         <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
           {ex.stations.map(s=><Chip key={s} color={C.blue}>#{s}</Chip>)}
@@ -2263,13 +2631,28 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
         </div>
       </div>
       <div style={{textAlign:"right",flexShrink:0}}>
-        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.7rem",color:C.text,lineHeight:1}}>{ex.weight}<span style={{fontSize:"0.8rem",color:C.faint}}>kg</span></div>
-        <div style={{fontSize:".62rem",color:C.faint,marginTop:2}}>{ex.sets} × {ex.targetReps}</div>
+        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.7rem",
+          color:offPlan?C.yellow:C.text,lineHeight:1}}>
+          {shownWeight}<span style={{fontSize:"calc(0.8rem * var(--ts, 1))",color:C.faint}}>kg</span></div>
+        <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,marginTop:2}}>
+          {offPlan ? "you're lifting" : `${ex.sets} × ${ex.targetReps}`}</div>
       </div>
     </div>
 
-    {ex.decisionLabel && !done && (
-      <div style={{fontSize:".64rem",color:ex.decisionColor,marginBottom:10}}>{ex.decisionLabel}</div>)}
+    {/* The prescription. Never changes as you log, so the target is always on
+        screen even after you've overridden the weight. */}
+    <div style={{background:C.raised,borderRadius:9,padding:"8px 10px",marginBottom:10}}>
+      <div style={{display:"flex",alignItems:"baseline",gap:7,flexWrap:"wrap"}}>
+        <span style={{fontSize:"calc(.55rem * var(--ts, 1))",color:C.blue,fontWeight:700,letterSpacing:".08em",flexShrink:0}}>COACH SAYS</span>
+        <span style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.text,fontWeight:600}}>
+          {ex.weight}kg · {ex.sets} × {ex.targetReps}{ex.rpe?` · RPE ${ex.rpe}`:""}</span>
+      </div>
+      {ex.decisionLabel && (
+        <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:ex.decisionColor,marginTop:3}}>{ex.decisionLabel}</div>)}
+      {offPlan && (
+        <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.yellow,marginTop:3}}>
+          You're {Math.abs(round25(shownWeight-ex.weight))}kg {shownWeight<ex.weight?"under":"over"} that.</div>)}
+    </div>
 
     {/* set buttons */}
     <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
@@ -2284,58 +2667,58 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
           display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:1}}>
           {filled ? (<>
             <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.15rem",color:col,lineHeight:1}}>{l.reps}</div>
-            <div style={{fontSize:".52rem",color:C.faint}}>{l.weight}kg {eff?.emoji}</div>
+            <div style={{fontSize:"calc(.52rem * var(--ts, 1))",color:C.faint}}>{l.weight}kg {eff?.emoji}</div>
           </>) : (<>
-            <div style={{fontSize:".62rem",color:C.ghost,fontWeight:700}}>SET {i+1}</div>
-            <div style={{fontSize:".54rem",color:C.ghost}}>tap to log</div>
+            <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,fontWeight:700}}>SET {i+1}</div>
+            <div style={{fontSize:"calc(.54rem * var(--ts, 1))",color:C.ghost}}>tap to log</div>
           </>)}
         </button>);
       })}
     </div>
 
-    {done>0 && <div style={{fontSize:".62rem",color:C.faint,marginBottom:10}}>
+    {done>0 && <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,marginBottom:10}}>
       {done}/{ex.sets} sets · averaging {avg} reps{avg>=ex.targetReps?" — at target":avg>=ex.targetReps-2?" — close":""}
     </div>}
 
     {/* Why / How */}
     <div style={{display:"flex",gap:6,borderTop:`1px solid ${C.lineSoft}`,paddingTop:10}}>
       <button onClick={()=>setOpen(o=>o==="why"?null:"why")} style={{
-        flex:1,padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:".68rem",fontWeight:600,
+        flex:1,padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
         border:`1px solid ${open==="why"?`${C.yellow}55`:C.line}`,
         background:open==="why"?`${C.yellow}0d`:"transparent", color:open==="why"?C.yellow:C.dim}}>
         Why this? {open==="why"?"▴":"▾"}
       </button>
       <button onClick={()=>{ setOpen(o=>o==="how"?null:"how"); if(!explanation) onExplain(); }} style={{
-        flex:1,padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:".68rem",fontWeight:600,
+        flex:1,padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
         border:`1px solid ${open==="how"?`${C.blue}55`:C.line}`,
         background:open==="how"?`${C.blue}0d`:"transparent", color:open==="how"?C.blue:C.dim}}>
         How to do it {open==="how"?"▴":"▾"}
       </button>
     </div>
 
-    {open==="why" && (<div className="fade" style={{marginTop:10,fontSize:".74rem",color:C.faint,lineHeight:1.7,
+    {open==="why" && (<div className="fade" style={{marginTop:10,fontSize:"calc(.74rem * var(--ts, 1))",color:C.faint,lineHeight:1.7,
       background:C.raised,borderRadius:10,padding:"11px 12px"}}>{ex.why}</div>)}
 
     {open==="how" && (<div className="fade" style={{marginTop:10,background:C.raised,borderRadius:10,padding:"12px 13px"}}>
-      {explaining && !explanation && <div style={{display:"flex",gap:8,alignItems:"center",color:C.faint,fontSize:".72rem"}}>
+      {explaining && !explanation && <div style={{display:"flex",gap:8,alignItems:"center",color:C.faint,fontSize:"calc(.72rem * var(--ts, 1))"}}>
         <Spinner size={13}/> Getting the coaching notes…</div>}
       {explanation && (<div style={{display:"flex",flexDirection:"column",gap:11}}>
         {[["Set up",explanation.setup,C.blue],["The rep",explanation.execution,C.green]].map(([t,body,col])=>(
           <div key={t}>
-            <div style={{fontSize:".58rem",color:col,fontWeight:700,letterSpacing:".08em",marginBottom:3,textTransform:"uppercase"}}>{t}</div>
-            <div style={{fontSize:".73rem",color:C.dim,lineHeight:1.65}}>{body}</div>
+            <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:col,fontWeight:700,letterSpacing:".08em",marginBottom:3,textTransform:"uppercase"}}>{t}</div>
+            <div style={{fontSize:"calc(.73rem * var(--ts, 1))",color:C.dim,lineHeight:1.65}}>{body}</div>
           </div>))}
         <div>
-          <div style={{fontSize:".58rem",color:C.red,fontWeight:700,letterSpacing:".08em",marginBottom:4,textTransform:"uppercase"}}>Common mistakes</div>
+          <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.red,fontWeight:700,letterSpacing:".08em",marginBottom:4,textTransform:"uppercase"}}>Common mistakes</div>
           <div style={{display:"flex",flexDirection:"column",gap:3}}>
             {(explanation.mistakes||[]).map((m,i)=>(
-              <div key={i} style={{fontSize:".72rem",color:C.dim,lineHeight:1.6,display:"flex",gap:7}}>
+              <div key={i} style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.dim,lineHeight:1.6,display:"flex",gap:7}}>
                 <span style={{color:C.red,flexShrink:0}}>✕</span><span>{m}</span></div>))}
           </div>
         </div>
         <div>
-          <div style={{fontSize:".58rem",color:C.yellow,fontWeight:700,letterSpacing:".08em",marginBottom:3,textTransform:"uppercase"}}>What it should feel like</div>
-          <div style={{fontSize:".73rem",color:C.dim,lineHeight:1.65}}>{explanation.feel}</div>
+          <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.yellow,fontWeight:700,letterSpacing:".08em",marginBottom:3,textTransform:"uppercase"}}>What it should feel like</div>
+          <div style={{fontSize:"calc(.73rem * var(--ts, 1))",color:C.dim,lineHeight:1.65}}>{explanation.feel}</div>
         </div>
         {explanation.source==="ai" && <Chip color={C.green} style={{alignSelf:"flex-start"}}>coached for you</Chip>}
       </div>)}
@@ -2347,24 +2730,13 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
    TODAY
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function TodayView({state, session, setSession, generating, onGenerate, onFinish, coach, aiOn, offlineFlag}){
+function TodayView({state, session, setSession, generating, onGenerate, onFinish, coach, aiOn,
+                    rest, startRest, skipRest}){
   const [picker,setPicker]   = useState(null);   // {exIdx,setIdx}
-  const [rest,setRest]       = useState(null);
   const [explain,setExplain] = useState({});     // exId -> explanation
   const [explaining,setExplaining] = useState({});
   const [confirmEnd,setConfirmEnd] = useState(false);
-  const restRef = useRef(null);
   const prog = blockProgress(state);
-
-  useEffect(()=>{
-    if(!rest || rest.remaining<=0){
-      clearInterval(restRef.current);
-      if(rest?.remaining===0) setTimeout(()=>setRest(null), 900);
-      return;
-    }
-    restRef.current = setInterval(()=>setRest(r=>r?{...r,remaining:r.remaining-1}:null), 1000);
-    return ()=>clearInterval(restRef.current);
-  },[rest?.remaining]);
 
   async function doExplain(exId){
     if(explain[exId] || explaining[exId]) return;
@@ -2386,11 +2758,18 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     const ex = session.exercises[exIdx];
     const doneAfter = (ex.log||[]).filter((l,i)=>i!==setIdx && l && l.reps!=null).length + 1;
     if(doneAfter < ex.sets){
-      setRest({exName:ex.name, remaining:ex.rest, total:ex.rest, label:`Set ${doneAfter+1} of ${ex.sets}`});
+      startRest({exName:ex.name, seconds:ex.rest, label:`Set ${doneAfter+1} of ${ex.sets}`});
     } else {
       const next = session.exercises[exIdx+1];
-      if(next) setRest({exName:next.name, remaining:Math.round(ex.rest*1.1), total:Math.round(ex.rest*1.1), label:"Next exercise"});
+      if(next) startRest({exName:next.name, seconds:Math.round(ex.rest*1.1), label:"Next exercise"});
     }
+  }
+
+  /* The weight actually used on the most recent logged set of an exercise, so
+     set 2 offers what you really lifted rather than what was planned. */
+  function lastLoggedWeight(ex){
+    const logged = (ex.log||[]).filter(l=>l && l.reps!=null);
+    return logged.length ? logged[logged.length-1].weight : null;
   }
 
   const loggedSets = session ? session.exercises.reduce((n,e)=>n+(e.log||[]).filter(l=>l&&l.reps!=null).length,0) : 0;
@@ -2404,11 +2783,11 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
   if(prog?.complete && !session) return (<div className="fade" style={{paddingTop:10}}>
     <SectionTitle sub={state.block.name}>BLOCK COMPLETE</SectionTitle>
     <Card accent={C.green} style={{marginBottom:14}}>
-      <div style={{fontSize:"2rem",marginBottom:8}}>🏁</div>
-      <div style={{fontSize:".88rem",color:C.text,fontWeight:600,marginBottom:8}}>
+      <div style={{fontSize:"calc(2rem * var(--ts, 1))",marginBottom:8}}>🏁</div>
+      <div style={{fontSize:"calc(.88rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:8}}>
         You finished all {prog.total} weeks.
       </div>
-      <div style={{fontSize:".76rem",color:C.faint,lineHeight:1.7}}>
+      <div style={{fontSize:"calc(.76rem * var(--ts, 1))",color:C.faint,lineHeight:1.7}}>
         That's {prog.done} sessions. Time to build the next block — the coach will use everything
         you've logged to set the starting point, so it picks up where this one left off rather than starting over.
       </div>
@@ -2423,7 +2802,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
       <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.2rem",color:C.dim,letterSpacing:".08em"}}>
         {aiOn ? "YOUR COACH IS WRITING TODAY'S SESSION" : "BUILDING TODAY'S SESSION"}
       </div>
-      <div style={{fontSize:".7rem",color:C.ghost,maxWidth:260,lineHeight:1.6}}>
+      <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.ghost,maxWidth:260,lineHeight:1.6}}>
         {aiOn ? "Reading your last few sessions and today's check-in." : "Working from your block targets and logged weights."}
       </div>
     </div>
@@ -2445,25 +2824,43 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
         {session.source==="ai" ? <Chip color={C.green}>🤖 coached</Chip> : <Chip color={C.faint}>built-in plan</Chip>}
       </div>
       <h1 style={{fontSize:"2.2rem",color:C.text,lineHeight:1,marginBottom:6}}>{session.dayName.toUpperCase()}</h1>
-      <div style={{fontSize:".74rem",color:C.faint,lineHeight:1.6}}>{session.phaseIntent}</div>
     </div>
 
-    {session.adaptationNote && (<Card accent={readiness?.color||C.blue} style={{marginBottom:12,padding:13}}>
-      <div style={{fontSize:".58rem",color:readiness?.color||C.blue,fontWeight:700,letterSpacing:".08em",marginBottom:4}}>ADJUSTED FOR TODAY</div>
-      <div style={{fontSize:".74rem",color:C.dim,lineHeight:1.6}}>{session.adaptationNote}</div>
+    {/* The brief — what today is for and what's being asked of you. */}
+    {session.brief && (<Card accent={C.blue} style={{marginBottom:12}}>
+      <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8}}>
+        <span style={{fontSize:"calc(.85rem * var(--ts, 1))"}}>🎧</span>
+        <span style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.blue,fontWeight:700,letterSpacing:".08em"}}>TODAY'S BRIEF</span>
+        {session.source==="ai" && <Chip color={C.green} style={{marginLeft:"auto"}}>coached</Chip>}
+      </div>
+      <Markdown text={session.brief} style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.dim}}/>
+      {/* The one-line cue belongs with the brief, not in a card of its own —
+          three stacked notes before the first exercise is too much to read. */}
+      {session.focusTip && (<div style={{display:"flex",gap:9,alignItems:"flex-start",marginTop:11,
+        paddingTop:11,borderTop:`1px solid ${C.lineSoft}`}}>
+        <span style={{fontSize:"calc(.85rem * var(--ts, 1))",flexShrink:0}}>💡</span>
+        <div style={{fontSize:"calc(.76rem * var(--ts, 1))",color:C.yellow,lineHeight:1.55}}>{session.focusTip}</div>
+      </div>)}
     </Card>)}
 
-    {session.focusTip && (<div style={{background:`${C.yellow}0d`,border:`1px solid ${C.yellow}30`,borderRadius:11,
+    {session.adaptationNote && (<Card accent={readiness?.color||C.blue} style={{marginBottom:12,padding:13}}>
+      <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:readiness?.color||C.blue,fontWeight:700,letterSpacing:".08em",marginBottom:4}}>ADJUSTED FOR TODAY</div>
+      <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.dim,lineHeight:1.6}}>{session.adaptationNote}</div>
+    </Card>)}
+
+    {/* If there's no brief to fold it into, the cue still gets its own card. */}
+    {session.focusTip && !session.brief && (<div style={{background:`${C.yellow}0d`,
+      border:`1px solid ${C.yellow}30`,borderRadius:11,
       padding:"10px 13px",marginBottom:14,display:"flex",gap:9,alignItems:"flex-start"}}>
-      <span style={{fontSize:".85rem",flexShrink:0}}>💡</span>
-      <div style={{fontSize:".74rem",color:C.yellow,lineHeight:1.55}}>{session.focusTip}</div>
+      <span style={{fontSize:"calc(.85rem * var(--ts, 1))",flexShrink:0}}>💡</span>
+      <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.yellow,lineHeight:1.55}}>{session.focusTip}</div>
     </div>)}
 
     {/* progress */}
     <div style={{marginBottom:14}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
-        <span style={{fontSize:".62rem",color:C.faint}}>{loggedSets} of {totalSets} sets logged</span>
-        <span style={{fontSize:".62rem",color:C.faint}}>{Math.round((loggedSets/totalSets)*100)||0}%</span>
+        <span style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint}}>{loggedSets} of {totalSets} sets logged</span>
+        <span style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint}}>{Math.round((loggedSets/totalSets)*100)||0}%</span>
       </div>
       <div style={{height:4,background:C.lineSoft,borderRadius:2,overflow:"hidden"}}>
         <div style={{height:"100%",width:`${(loggedSets/totalSets)*100||0}%`,background:C.red,
@@ -2483,16 +2880,17 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
       <Btn kind={loggedSets?"green":"ghost"} size="lg" onClick={()=>onFinish(session)}
         disabled={!loggedSets} style={{flex:2}}>FINISH SESSION ✓</Btn>
     </div>
-    {!loggedSets && <div style={{textAlign:"center",fontSize:".64rem",color:C.ghost,marginTop:8}}>
+    {!loggedSets && <div style={{textAlign:"center",fontSize:"calc(.64rem * var(--ts, 1))",color:C.ghost,marginTop:8}}>
       Log at least one set to finish.</div>}
 
-    {/* The rest timer is fixed above the nav bar — keep it off the buttons. */}
-    {rest && rest.remaining>0 && <div style={{height:74}}/>}
+    {/* The rest bar is fixed above the nav — keep it off the buttons. */}
+    {rest && <div style={{height:74}}/>}
 
     {picker && (()=>{
       const ex = session.exercises[picker.exIdx];
       return <RepPicker exercise={ex} setIndex={picker.setIdx}
         initial={(ex.log||[])[picker.setIdx]}
+        lastWeight={lastLoggedWeight(ex)}
         onSave={d=>saveSet(picker.exIdx,picker.setIdx,d)}
         onClose={()=>setPicker(null)}/>;
     })()}
@@ -2500,34 +2898,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     {confirmEnd && <Confirm message="Abandon this session?" danger confirmLabel="Abandon"
       sub="Nothing logged will be saved and your weights won't move."
       onCancel={()=>setConfirmEnd(false)}
-      onConfirm={()=>{ setConfirmEnd(false); setSession(null); }}/>}
-
-    {/* rest timer */}
-    {rest && rest.remaining>0 && (()=>{
-      const pct = (rest.remaining/rest.total)*100;
-      const urgent = rest.remaining<=10;
-      const col = urgent?C.red : rest.remaining<=30?C.yellow : C.green;
-      const m = Math.floor(rest.remaining/60), s = rest.remaining%60;
-      return (<div style={{position:"fixed",left:0,right:0,bottom:"calc(66px + env(safe-area-inset-bottom))",
-        background:C.surface,borderTop:`2px solid ${col}`,padding:"9px 16px 8px",zIndex:80}}>
-        <div style={{maxWidth:620,margin:"0 auto"}}>
-          <div style={{height:3,background:C.lineSoft,borderRadius:2,overflow:"hidden",marginBottom:7}}>
-            <div style={{height:"100%",width:`${pct}%`,background:col,transition:"width 1s linear"}}/>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:".55rem",color:C.ghost,fontWeight:700,letterSpacing:".08em"}}>REST</div>
-              <div style={{fontSize:".68rem",color:C.faint,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                {rest.label} · {rest.exName}</div>
-            </div>
-            <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"2rem",color:col,lineHeight:1,minWidth:52,
-              textAlign:"center",animation:urgent?"pulse .7s infinite":"none"}}>
-              {m>0?`${m}:${String(s).padStart(2,"0")}`:`${s}s`}</div>
-            <Btn kind="ghost" size="sm" onClick={()=>setRest(null)}>SKIP →</Btn>
-          </div>
-        </div>
-      </div>);
-    })()}
+      onConfirm={()=>{ setConfirmEnd(false); skipRest(); setSession(null); }}/>}
   </div>);
 }
 
@@ -2546,9 +2917,9 @@ function DebriefView({debrief, loading, onDone, aiOn}){
 
   return (<div className="fade" style={{paddingTop:8,paddingBottom:20}}>
     <div style={{textAlign:"center",marginBottom:20}}>
-      <div style={{fontSize:"2.4rem",marginBottom:8}}>✅</div>
+      <div style={{fontSize:"calc(2.4rem * var(--ts, 1))",marginBottom:8}}>✅</div>
       <h1 style={{fontSize:"2rem",color:C.text,lineHeight:1.1,marginBottom:8}}>SESSION DONE</h1>
-      <div style={{fontSize:".84rem",color:C.dim,lineHeight:1.6,maxWidth:400,margin:"0 auto"}}>{debrief.headline}</div>
+      <div style={{fontSize:"calc(.84rem * var(--ts, 1))",color:C.dim,lineHeight:1.6,maxWidth:400,margin:"0 auto"}}>{debrief.headline}</div>
     </div>
 
     {debrief.stats && (<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
@@ -2557,7 +2928,7 @@ function DebriefView({debrief, loading, onDone, aiOn}){
         ["Sets",debrief.stats.sets,C.green]].map(([l,v,col])=>(
         <Card key={l} style={{padding:"13px 10px",textAlign:"center"}}>
           <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.6rem",color:col,lineHeight:1}}>{v}</div>
-          <div style={{fontSize:".57rem",color:C.ghost,marginTop:3,letterSpacing:".06em"}}>{l.toUpperCase()}</div>
+          <div style={{fontSize:"calc(.57rem * var(--ts, 1))",color:C.ghost,marginTop:3,letterSpacing:".06em"}}>{l.toUpperCase()}</div>
         </Card>))}
     </div>)}
 
@@ -2567,21 +2938,21 @@ function DebriefView({debrief, loading, onDone, aiOn}){
     </Card>
 
     {debrief.nextFocus && (<Card accent={C.yellow} style={{marginBottom:12}}>
-      <div style={{fontSize:".58rem",color:C.yellow,fontWeight:700,letterSpacing:".08em",marginBottom:5}}>NEXT SESSION</div>
-      <div style={{fontSize:".78rem",color:C.dim,lineHeight:1.65}}>{debrief.nextFocus}</div>
+      <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.yellow,fontWeight:700,letterSpacing:".08em",marginBottom:5}}>NEXT SESSION</div>
+      <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.dim,lineHeight:1.65}}>{debrief.nextFocus}</div>
     </Card>)}
 
     {debrief.rows?.length>0 && (<Card style={{marginBottom:16,padding:0,overflow:"hidden"}}>
-      <div style={{padding:"12px 14px 8px",fontSize:".58rem",color:C.ghost,fontWeight:700,letterSpacing:".08em"}}>
+      <div style={{padding:"12px 14px 8px",fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".08em"}}>
         WHAT MOVES NEXT TIME</div>
       {debrief.rows.map((r,i)=>(
         <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",
           borderTop:`1px solid ${C.lineSoft}`}}>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:".76rem",color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</div>
-            <div style={{fontSize:".6rem",color:C.ghost,marginTop:1}}>{r.weight}kg · {r.sets} sets · avg {r.avg} reps</div>
+            <div style={{fontSize:"calc(.76rem * var(--ts, 1))",color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</div>
+            <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,marginTop:1}}>{r.weight}kg · {r.sets} sets · avg {r.avg} reps</div>
           </div>
-          <div style={{fontSize:".62rem",color:r.dec.color,textAlign:"right",flexShrink:0,maxWidth:130,lineHeight:1.4}}>
+          <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:r.dec.color,textAlign:"right",flexShrink:0,maxWidth:130,lineHeight:1.4}}>
             {r.dec.action==="up"?"↑":r.dec.action==="down"?"↓":"→"} {r.dec.action==="up"?`+${r.dec.delta}kg`:r.dec.action==="down"?`${r.dec.delta}kg`:"hold"}
           </div>
         </div>))}
@@ -2612,28 +2983,28 @@ function PlanView({state, onReplan, replanning, aiOn}){
     <Card accent={C.red} style={{marginBottom:14}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:10}}>
         <div style={{minWidth:0}}>
-          <div style={{fontSize:".95rem",color:C.text,fontWeight:700,lineHeight:1.3}}>{b.name}</div>
-          <div style={{fontSize:".62rem",color:C.ghost,marginTop:3}}>
+          <div style={{fontSize:"calc(.95rem * var(--ts, 1))",color:C.text,fontWeight:700,lineHeight:1.3}}>{b.name}</div>
+          <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,marginTop:3}}>
             Started {b.startedAt} · {b.source==="ai"?"written for you":"built-in template"}
           </div>
         </div>
         <div style={{textAlign:"right",flexShrink:0}}>
           <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.9rem",color:C.red,lineHeight:1}}>{prog.pct}%</div>
-          <div style={{fontSize:".55rem",color:C.ghost}}>COMPLETE</div>
+          <div style={{fontSize:"calc(.55rem * var(--ts, 1))",color:C.ghost}}>COMPLETE</div>
         </div>
       </div>
       <div style={{height:5,background:C.lineSoft,borderRadius:3,overflow:"hidden",marginBottom:10}}>
         <div style={{height:"100%",width:`${prog.pct}%`,background:`linear-gradient(90deg,${C.red},${C.redSoft})`,borderRadius:3}}/>
       </div>
-      {b.rationale && <div style={{fontSize:".75rem",color:C.faint,lineHeight:1.7}}>{b.rationale}</div>}
+      {b.rationale && <div style={{fontSize:"calc(.75rem * var(--ts, 1))",color:C.faint,lineHeight:1.7}}>{b.rationale}</div>}
     </Card>
 
     <Card accent={C.purple} style={{marginBottom:16}}>
-      <div style={{fontSize:".58rem",color:C.purple,fontWeight:700,letterSpacing:".08em",marginBottom:6}}>RIGHT NOW</div>
-      <div style={{fontSize:"1rem",color:C.text,fontWeight:700,marginBottom:4}}>
+      <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.purple,fontWeight:700,letterSpacing:".08em",marginBottom:6}}>RIGHT NOW</div>
+      <div style={{fontSize:"calc(1rem * var(--ts, 1))",color:C.text,fontWeight:700,marginBottom:4}}>
         Week {prog.week} of {prog.total} · {prog.phase.name}
       </div>
-      <div style={{fontSize:".75rem",color:C.faint,lineHeight:1.7,marginBottom:10}}>{prog.phase.intent}</div>
+      <div style={{fontSize:"calc(.75rem * var(--ts, 1))",color:C.faint,lineHeight:1.7,marginBottom:10}}>{prog.phase.intent}</div>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         <Chip color={C.blue}>{prog.phase.sets} sets</Chip>
         <Chip color={C.green}>{prog.phase.repRange[0]}–{prog.phase.repRange[1]} reps</Chip>
@@ -2642,7 +3013,7 @@ function PlanView({state, onReplan, replanning, aiOn}){
       </div>
     </Card>
 
-    <div style={{fontSize:".6rem",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:10}}>THE WHOLE BLOCK</div>
+    <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:10}}>THE WHOLE BLOCK</div>
     <div style={{marginBottom:18}}>
       {b.phases.map((p,i)=>{
         const from = weekCursor+1, to = weekCursor+p.weeks;
@@ -2659,14 +3030,14 @@ function PlanView({state, onReplan, replanning, aiOn}){
           </div>
           <div style={{flex:1,minWidth:0,paddingBottom:16,opacity:past?.55:1}}>
             <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:3}}>
-              <span style={{fontSize:".85rem",color:current?C.text:C.dim,fontWeight:current?700:600}}>{p.name}</span>
+              <span style={{fontSize:"calc(.85rem * var(--ts, 1))",color:current?C.text:C.dim,fontWeight:current?700:600}}>{p.name}</span>
               <Chip color={isDeload?C.blue:current?C.red:C.faint}>
                 {p.weeks===1?`Week ${from}`:`Weeks ${from}–${to}`}
               </Chip>
               {current && <Chip color={C.red} bg={`${C.red}22`}>YOU ARE HERE</Chip>}
             </div>
-            <div style={{fontSize:".71rem",color:C.faint,lineHeight:1.65,marginBottom:5}}>{p.intent}</div>
-            <div style={{fontSize:".62rem",color:C.ghost}}>
+            <div style={{fontSize:"calc(.71rem * var(--ts, 1))",color:C.faint,lineHeight:1.65,marginBottom:5}}>{p.intent}</div>
+            <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost}}>
               {p.sets} sets · {p.repRange[0]}–{p.repRange[1]} reps · RPE {p.rpe}
             </div>
           </div>
@@ -2674,7 +3045,7 @@ function PlanView({state, onReplan, replanning, aiOn}){
       })}
     </div>
 
-    <div style={{fontSize:".6rem",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:10}}>YOUR WEEKLY SPLIT</div>
+    <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:10}}>YOUR WEEKLY SPLIT</div>
     <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:18}}>
       {split.map((d,i)=>{
         const isNext = i===prog.dayIdx;
@@ -2683,8 +3054,8 @@ function PlanView({state, onReplan, replanning, aiOn}){
             <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1rem",color:isNext?C.red:C.ghost,
               width:20,flexShrink:0}}>{i+1}</div>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:".8rem",color:isNext?C.text:C.dim,fontWeight:isNext?700:500}}>{d.name}</div>
-              <div style={{fontSize:".62rem",color:C.ghost,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              <div style={{fontSize:"calc(.8rem * var(--ts, 1))",color:isNext?C.text:C.dim,fontWeight:isNext?700:500}}>{d.name}</div>
+              <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                 {[...new Set(d.slots)].map(s=>PATTERN_LABEL[s].split(" (")[0]).join(" · ")}
               </div>
             </div>
@@ -2697,7 +3068,7 @@ function PlanView({state, onReplan, replanning, aiOn}){
     <Btn kind="ghost" size="md" full onClick={()=>setConfirm(true)} disabled={replanning}>
       {replanning ? <><Spinner size={13}/> BUILDING…</> : "REBUILD THIS BLOCK"}
     </Btn>
-    <div style={{fontSize:".64rem",color:C.ghost,lineHeight:1.6,marginTop:8,textAlign:"center"}}>
+    <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.ghost,lineHeight:1.6,marginTop:8,textAlign:"center"}}>
       Rebuild if your goal, schedule or gym has changed. Your logged weights and history are kept.
     </div>
 
@@ -2767,10 +3138,10 @@ function GoalView({state, setState, review, reviewLoading, onReview, aiOn}){
 
     <Card accent={C.red} style={{marginBottom:14}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-        <div style={{fontSize:"1.6rem"}}>{meta?.icon}</div>
+        <div style={{fontSize:"calc(1.6rem * var(--ts, 1))"}}>{meta?.icon}</div>
         <div style={{minWidth:0,flex:1}}>
-          <div style={{fontSize:"1.05rem",color:C.text,fontWeight:700}}>{meta?.label}</div>
-          {target!=null && <div style={{fontSize:".68rem",color:C.faint,marginTop:2}}>
+          <div style={{fontSize:"calc(1.05rem * var(--ts, 1))",color:C.text,fontWeight:700}}>{meta?.label}</div>
+          {target!=null && <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,marginTop:2}}>
             {start!=null?`${start} → `:""}{target} · {meta?.metric}
           </div>}
         </div>
@@ -2778,7 +3149,7 @@ function GoalView({state, setState, review, reviewLoading, onReview, aiOn}){
           <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.5rem",
             color:daysLeft<0?C.red:daysLeft<14?C.yellow:C.text,lineHeight:1}}>
             {daysLeft<0?"—":daysLeft}</div>
-          <div style={{fontSize:".54rem",color:C.ghost}}>{daysLeft<0?"PAST DUE":"DAYS LEFT"}</div>
+          <div style={{fontSize:"calc(.54rem * var(--ts, 1))",color:C.ghost}}>{daysLeft<0?"PAST DUE":"DAYS LEFT"}</div>
         </div>)}
       </div>
 
@@ -2786,13 +3157,13 @@ function GoalView({state, setState, review, reviewLoading, onReview, aiOn}){
         <div style={{height:6,background:C.lineSoft,borderRadius:3,overflow:"hidden",marginBottom:7}}>
           <div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${C.red},${C.green})`,borderRadius:3,transition:"width .4s"}}/>
         </div>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:".66rem",color:C.faint}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:"calc(.66rem * var(--ts, 1))",color:C.faint}}>
           <span>{pct}% of the way there</span>
           <span style={{color:delta>0?C.green:delta<0?C.blue:C.faint}}>
             {delta>0?"+":""}{delta} so far</span>
         </div>
       </>) : (
-        <div style={{fontSize:".72rem",color:C.ghost,lineHeight:1.6}}>
+        <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.ghost,lineHeight:1.6}}>
           Add a target and a starting point to track progress against it. Log your weight below and the
           chart fills in as you go.
         </div>)}
@@ -2801,12 +3172,12 @@ function GoalView({state, setState, review, reviewLoading, onReview, aiOn}){
     {/* body weight */}
     <Card style={{marginBottom:14}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-        <div style={{fontSize:".58rem",color:C.ghost,fontWeight:700,letterSpacing:".08em"}}>BODY WEIGHT</div>
-        {latest && <div style={{fontSize:".66rem",color:C.faint}}>last logged {latest.date}</div>}
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".08em"}}>BODY WEIGHT</div>
+        {latest && <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.faint}}>last logged {latest.date}</div>}
       </div>
       {body.length>=2
         ? <Sparkline points={body.map(b=>({v:b.weightKg}))} color={C.blue}/>
-        : <div style={{fontSize:".72rem",color:C.ghost,lineHeight:1.6,marginBottom:10}}>
+        : <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.ghost,lineHeight:1.6,marginBottom:10}}>
             Log it once a week, same time of day. Day-to-day swings are mostly water — the trend over
             weeks is the only bit that means anything.
           </div>}
@@ -2815,7 +3186,7 @@ function GoalView({state, setState, review, reviewLoading, onReview, aiOn}){
           value={wt} onChange={e=>setWt(e.target.value)} style={{flex:1}}/>
         <Btn size="md" onClick={addWeight} disabled={!wt}>LOG</Btn>
       </div>
-      {body.length>=2 && (<div style={{display:"flex",justifyContent:"space-between",marginTop:9,fontSize:".64rem",color:C.faint}}>
+      {body.length>=2 && (<div style={{display:"flex",justifyContent:"space-between",marginTop:9,fontSize:"calc(.64rem * var(--ts, 1))",color:C.faint}}>
         <span>{body[0].weightKg} kg on {body[0].date}</span>
         <span style={{color:C.text,fontWeight:600}}>{latest.weightKg} kg now</span>
       </div>)}
@@ -2823,15 +3194,15 @@ function GoalView({state, setState, review, reviewLoading, onReview, aiOn}){
 
     {/* weekly review */}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-      <div style={{fontSize:".6rem",color:C.ghost,fontWeight:700,letterSpacing:".1em"}}>WEEKLY REVIEW</div>
+      <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em"}}>WEEKLY REVIEW</div>
       <Btn kind="ghost" size="sm" onClick={onReview} disabled={reviewLoading}>
         {reviewLoading ? <><Spinner size={11}/> Writing</> : review ? "Refresh" : "Get it"}
       </Btn>
     </div>
     {review ? (<Card style={{marginBottom:14}}>
-      <div style={{fontSize:".88rem",color:C.text,fontWeight:700,marginBottom:8}}>{review.headline}</div>
+      <div style={{fontSize:"calc(.88rem * var(--ts, 1))",color:C.text,fontWeight:700,marginBottom:8}}>{review.headline}</div>
       {review.adherence!=null && (<div style={{marginBottom:12}}>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:".62rem",color:C.faint,marginBottom:4}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,marginBottom:4}}>
           <span>{review.sessions} of {review.target} sessions this week</span><span>{review.adherence}%</span>
         </div>
         <div style={{height:4,background:C.lineSoft,borderRadius:2,overflow:"hidden"}}>
@@ -2843,7 +3214,7 @@ function GoalView({state, setState, review, reviewLoading, onReview, aiOn}){
       {review.source==="ai" && <Chip color={C.green} style={{marginTop:10}}>🤖 written for you</Chip>}
     </Card>) : (
       <Card style={{marginBottom:14,padding:16}}>
-        <div style={{fontSize:".74rem",color:C.ghost,lineHeight:1.7}}>
+        <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.ghost,lineHeight:1.7}}>
           A read on your week — attendance, which lifts are climbing, which have stalled, and the one
           thing worth changing. {aiOn?"":"Add an API key in Settings for a written review; the built-in one still gives you the numbers."}
         </div>
@@ -2864,7 +3235,7 @@ function GoalView({state, setState, review, reviewLoading, onReview, aiOn}){
         onChange={e=>setDraft(d=>({...d,targetDate:e.target.value}))}/></Field>
       <Field label="Why it matters"><TextArea value={draft.why||""}
         onChange={e=>setDraft(d=>({...d,why:e.target.value}))}/></Field>
-      <div style={{fontSize:".66rem",color:C.ghost,lineHeight:1.6,marginBottom:14}}>
+      <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.ghost,lineHeight:1.6,marginBottom:14}}>
         Changing the goal type doesn't rebuild your block automatically — do that from the Plan tab when you're ready.
       </div>
       <Btn size="lg" full onClick={()=>{ setState(s=>({...s,goal:draft})); setEditing(false); }}>SAVE GOAL</Btn>
@@ -2896,22 +3267,22 @@ function LearnView({state, setState}){
 
     <Card style={{marginBottom:16}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-        <div style={{fontSize:".72rem",color:C.dim}}>
+        <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.dim}}>
           <strong style={{color:C.text}}>{read.size}</strong> of {LEARN.length} topics covered
         </div>
-        <div style={{fontSize:".62rem",color:C.faint}}>{Math.round((read.size/LEARN.length)*100)}%</div>
+        <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint}}>{Math.round((read.size/LEARN.length)*100)}%</div>
       </div>
       <div style={{height:5,background:C.lineSoft,borderRadius:3,overflow:"hidden"}}>
         <div style={{height:"100%",width:`${(read.size/LEARN.length)*100}%`,
           background:`linear-gradient(90deg,${C.blue},${C.green})`,borderRadius:3,transition:"width .4s"}}/>
       </div>
-      {read.size===LEARN.length && <div style={{fontSize:".7rem",color:C.green,marginTop:9,lineHeight:1.6}}>
+      {read.size===LEARN.length && <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.green,marginTop:9,lineHeight:1.6}}>
         You've read the lot. That's genuinely more training theory than most people in the gym have.</div>}
     </Card>
 
     {tags.map(tag=>(
       <div key={tag} style={{marginBottom:16}}>
-        <div style={{fontSize:".6rem",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:8}}>{tag.toUpperCase()}</div>
+        <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:8}}>{tag.toUpperCase()}</div>
         <div style={{display:"flex",flexDirection:"column",gap:7}}>
           {LEARN.filter(t=>t.tag===tag).map(t=>{
             const isRead = read.has(t.id);
@@ -2920,13 +3291,13 @@ function LearnView({state, setState}){
               <div style={{display:"flex",gap:11,alignItems:"flex-start"}}>
                 <div style={{width:20,height:20,borderRadius:"50%",flexShrink:0,marginTop:2,
                   border:`1.5px solid ${isRead?C.green:C.ghost}`, background:isRead?`${C.green}22`:"transparent",
-                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:".6rem",color:C.green}}>
+                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:"calc(.6rem * var(--ts, 1))",color:C.green}}>
                   {isRead?"✓":""}</div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:".84rem",color:C.text,fontWeight:600,marginBottom:3}}>{t.title}</div>
-                  <div style={{fontSize:".7rem",color:C.faint,lineHeight:1.55}}>{t.hook}</div>
+                  <div style={{fontSize:"calc(.84rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:3}}>{t.title}</div>
+                  <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,lineHeight:1.55}}>{t.hook}</div>
                 </div>
-                <div style={{fontSize:".58rem",color:C.ghost,flexShrink:0,marginTop:3}}>{t.mins} min</div>
+                <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,flexShrink:0,marginTop:3}}>{t.mins} min</div>
               </div>
             </Card>);
           })}
@@ -2934,11 +3305,11 @@ function LearnView({state, setState}){
       </div>))}
 
     {topic && (<Sheet title={topic.title} sub={`${topic.tag} · ${topic.mins} min read`} onClose={()=>{markRead(topic.id); setOpen(null);}}>
-      <Markdown text={topic.body} style={{fontSize:".84rem",color:C.dim}}/>
+      <Markdown text={topic.body} style={{fontSize:"calc(.84rem * var(--ts, 1))",color:C.dim}}/>
 
       {topic.check && (<div style={{marginTop:20,background:C.card,border:`1px solid ${C.lineSoft}`,borderRadius:14,padding:16}}>
-        <div style={{fontSize:".58rem",color:C.yellow,fontWeight:700,letterSpacing:".08em",marginBottom:8}}>QUICK CHECK</div>
-        <div style={{fontSize:".82rem",color:C.text,lineHeight:1.6,marginBottom:12}}>{topic.check.q}</div>
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.yellow,fontWeight:700,letterSpacing:".08em",marginBottom:8}}>QUICK CHECK</div>
+        <div style={{fontSize:"calc(.82rem * var(--ts, 1))",color:C.text,lineHeight:1.6,marginBottom:12}}>{topic.check.q}</div>
         <div style={{display:"flex",flexDirection:"column",gap:7}}>
           {topic.check.a.map((a,i)=>{
             const picked = answer===i;
@@ -2948,14 +3319,14 @@ function LearnView({state, setState}){
             return (<button key={i} disabled={show} onClick={()=>{setAnswer(i); recordQuiz(topic.id, right);}} style={{
               padding:"11px 13px",borderRadius:11,textAlign:"left",cursor:show?"default":"pointer",
               border:`1.5px solid ${col}`, background: show&&right ? `${C.green}12` : picked ? `${C.red}12` : C.raised,
-              color: show&&(right||picked) ? C.text : C.dim, fontSize:".76rem",lineHeight:1.5}}>
+              color: show&&(right||picked) ? C.text : C.dim, fontSize:"calc(.76rem * var(--ts, 1))",lineHeight:1.5}}>
               {show && right && <span style={{color:C.green,marginRight:6}}>✓</span>}
               {show && picked && !right && <span style={{color:C.red,marginRight:6}}>✕</span>}
               {a}
             </button>);
           })}
         </div>
-        {answer!=null && (<div className="fade" style={{marginTop:12,fontSize:".75rem",color:C.faint,lineHeight:1.7,
+        {answer!=null && (<div className="fade" style={{marginTop:12,fontSize:"calc(.75rem * var(--ts, 1))",color:C.faint,lineHeight:1.7,
           background:C.raised,borderRadius:10,padding:"11px 12px"}}>{topic.check.why}</div>)}
       </div>)}
 
@@ -3018,16 +3389,16 @@ function ChatView({state, setState, coach, aiOn, onGoSettings}){
   if(!aiOn) return (<div className="fade" style={{paddingTop:8}}>
     <SectionTitle sub="The one part that genuinely needs a key.">COACH</SectionTitle>
     <Card accent={C.red} style={{marginBottom:14}}>
-      <div style={{fontSize:"1.6rem",marginBottom:10}}>💬</div>
-      <div style={{fontSize:".88rem",color:C.text,fontWeight:600,marginBottom:8}}>Add an API key to unlock chat</div>
-      <div style={{fontSize:".76rem",color:C.faint,lineHeight:1.75,marginBottom:14}}>
+      <div style={{fontSize:"calc(1.6rem * var(--ts, 1))",marginBottom:10}}>💬</div>
+      <div style={{fontSize:"calc(.88rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:8}}>Add an API key to unlock chat</div>
+      <div style={{fontSize:"calc(.76rem * var(--ts, 1))",color:C.faint,lineHeight:1.75,marginBottom:14}}>
         Everything else in the app works without one. Chat can't — there's no way to answer
         "why has my squat stalled" from a lookup table. With a key, the coach can see your whole
         logged history and answer specifically.
       </div>
       <Btn size="md" full onClick={onGoSettings}>ADD A KEY IN SETTINGS →</Btn>
     </Card>
-    <div style={{fontSize:".7rem",color:C.ghost,lineHeight:1.7}}>
+    <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.ghost,lineHeight:1.7}}>
       In the meantime, the <strong style={{color:C.dim}}>Learn</strong> tab covers the questions people
       ask most often — stalled lifts, how hard to train, why deloads exist.
     </div>
@@ -3041,15 +3412,15 @@ function ChatView({state, setState, coach, aiOn, onGoSettings}){
 
     <div style={{flex:1,minHeight:0,overflowY:"auto",paddingBottom:8}}>
       {!msgs.length && !stream && (<div style={{paddingTop:8}}>
-        <div style={{fontSize:".76rem",color:C.faint,lineHeight:1.7,marginBottom:16}}>
+        <div style={{fontSize:"calc(.76rem * var(--ts, 1))",color:C.faint,lineHeight:1.7,marginBottom:16}}>
           Ask anything about your training. It has your numbers in front of it, so be specific and
           you'll get a specific answer.
         </div>
-        <div style={{fontSize:".58rem",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>TRY ASKING</div>
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>TRY ASKING</div>
         <div style={{display:"flex",flexDirection:"column",gap:7}}>
           {OPENERS.map(o=>(<button key={o} onClick={()=>send(o)} style={{
             padding:"11px 13px",borderRadius:11,border:`1px solid ${C.line}`,background:C.card,
-            color:C.dim,fontSize:".78rem",textAlign:"left",cursor:"pointer",lineHeight:1.5}}>{o}</button>))}
+            color:C.dim,fontSize:"calc(.78rem * var(--ts, 1))",textAlign:"left",cursor:"pointer",lineHeight:1.5}}>{o}</button>))}
         </div>
       </div>)}
 
@@ -3062,25 +3433,25 @@ function ChatView({state, setState, coach, aiOn, onGoSettings}){
             borderRadius: m.role==="user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
             padding:"11px 13px"}}>
             {m.role==="user"
-              ? <div style={{fontSize:".8rem",color:C.text,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{m.content}</div>
-              : <Markdown text={m.content} style={{fontSize:".8rem"}}/>}
+              ? <div style={{fontSize:"calc(.8rem * var(--ts, 1))",color:C.text,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{m.content}</div>
+              : <Markdown text={m.content} style={{fontSize:"calc(.8rem * var(--ts, 1))"}}/>}
           </div>
         </div>))}
 
       {stream && (<div style={{marginBottom:14,display:"flex",justifyContent:"flex-start"}}>
         <div style={{maxWidth:"88%",background:C.card,border:`1px solid ${C.lineSoft}`,
           borderRadius:"14px 14px 14px 4px",padding:"11px 13px"}}>
-          <Markdown text={stream} style={{fontSize:".8rem"}}/>
+          <Markdown text={stream} style={{fontSize:"calc(.8rem * var(--ts, 1))"}}/>
           <span style={{display:"inline-block",width:7,height:13,background:C.red,
             animation:"blink 1s infinite",verticalAlign:"text-bottom",marginLeft:2}}/>
         </div>
       </div>)}
 
       {busy && !stream && (<div style={{display:"flex",gap:8,alignItems:"center",color:C.ghost,
-        fontSize:".72rem",marginBottom:14}}><Spinner size={13}/> Thinking…</div>)}
+        fontSize:"calc(.72rem * var(--ts, 1))",marginBottom:14}}><Spinner size={13}/> Thinking…</div>)}
 
       {error && (<Card accent={C.red} style={{marginBottom:14,padding:12}}>
-        <div style={{fontSize:".74rem",color:C.red,lineHeight:1.6}}>{error}</div></Card>)}
+        <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.red,lineHeight:1.6}}>{error}</div></Card>)}
 
       <div ref={endRef}/>
     </div>
@@ -3124,6 +3495,42 @@ function exportJSON(state){
   const a = document.createElement("a");
   a.href = url; a.download = `snapfit-backup-${todayISO()}.json`; a.click();
   URL.revokeObjectURL(url);
+}
+
+/* Validate a JSON backup before it's allowed anywhere near live data. Every
+   rejection names the actual problem — "invalid file" tells you nothing when
+   you're trying to work out whether your training history is recoverable. */
+function inspectJSON(text){
+  let raw;
+  try{ raw = JSON.parse(text); }
+  catch{ throw new Error("That isn't valid JSON. If you edited the file, a stray comma is the usual culprit."); }
+
+  if(!raw || typeof raw !== "object" || Array.isArray(raw))
+    throw new Error("That file contains JSON, but not a SnapFit backup — the top level should be an object.");
+  if(raw.v == null)
+    throw new Error("No version marker. That looks like a different app's export, not a SnapFit backup.");
+  if(Number(raw.v) > 2)
+    throw new Error(`That backup is from a newer version (v${raw.v}) than this app understands.`);
+  if(raw.sessions != null && !Array.isArray(raw.sessions))
+    throw new Error("The `sessions` field is corrupt — it should be a list.");
+  if(raw.exerciseHistory != null && (typeof raw.exerciseHistory !== "object" || Array.isArray(raw.exerciseHistory)))
+    throw new Error("The `exerciseHistory` field is corrupt — it should be an object keyed by exercise.");
+  if(raw.weights != null && (typeof raw.weights !== "object" || Array.isArray(raw.weights)))
+    throw new Error("The `weights` field is corrupt — it should be an object keyed by exercise.");
+
+  const state = migrate(raw);          // an older backup gains newer fields
+  const dates = (state.sessions||[]).map(s=>s.date).filter(Boolean).sort();
+  return {
+    state,
+    summary:{
+      goal: state.goal ? (GOAL_BY_ID[state.goal.type]?.label || state.goal.type) : "none set",
+      sessions: (state.sessions||[]).length,
+      exercises: Object.keys(state.exerciseHistory||{}).length,
+      from: dates[0] || null,
+      to: dates[dates.length-1] || null,
+      block: state.block ? state.block.name : "none",
+    },
+  };
 }
 
 function parseCSVLine(row){
@@ -3187,30 +3594,48 @@ function importCSV(text, state){
   return {hist, weights, imported, skipped};
 }
 
-function LogView({state, setState}){
+function LogView({state, setState, onRestore}){
   const [detail,setDetail] = useState(null);   // exId
   const [session,setSession] = useState(null);
   const [tab,setTab] = useState("sessions");
   const [msg,setMsg] = useState("");
+  const [err,setErr] = useState("");
+  const [pending,setPending] = useState(null);  // parsed JSON awaiting confirmation
   const fileRef = useRef(null);
+  const jsonRef = useRef(null);
 
   const exIds = Object.keys(state.exerciseHistory||{})
     .filter(id=>(state.exerciseHistory[id]||[]).length)
     .sort((a,b)=>(EX_NAME[a]||a).localeCompare(EX_NAME[b]||b));
 
-  function onFile(e){
+  function readFile(e, handler){
     const f = e.target.files?.[0];
+    e.target.value = "";
     if(!f) return;
+    setMsg(""); setErr("");
     const r = new FileReader();
-    r.onload = ev => {
+    r.onerror = ()=>setErr("Couldn't read that file off disk.");
+    r.onload = ev => handler(String(ev.target.result));
+    r.readAsText(f);
+  }
+
+  function onCSV(e){
+    readFile(e, text=>{
       try{
-        const {hist,weights,imported,skipped} = importCSV(String(ev.target.result), state);
+        const {hist,weights,imported,skipped} = importCSV(text, state);
         setState(s=>({...s, exerciseHistory:hist, weights:{...s.weights, ...weights}}));
         setMsg(`Imported ${imported} rows${skipped?`, skipped ${skipped}`:""}. Your working weights have been updated to match.`);
-      }catch(err){ setMsg(`Import failed: ${err.message}`); }
-    };
-    r.readAsText(f);
-    e.target.value = "";
+      }catch(e2){ setErr(`Import failed: ${e2.message}`); }
+    });
+  }
+
+  /* JSON is a full restore, so nothing happens until you've seen what's in the
+     file and confirmed. Validation failures leave existing data untouched. */
+  function onJSON(e){
+    readFile(e, text=>{
+      try{ setPending(inspectJSON(text)); }
+      catch(e2){ setErr(e2.message); }
+    });
   }
 
   return (<div className="fade" style={{paddingTop:8,paddingBottom:20}}>
@@ -3220,7 +3645,7 @@ function LogView({state, setState}){
       {[["sessions","Sessions"],["exercises","Exercises"],["data","Data"]].map(([k,l])=>(
         <button key={k} onClick={()=>setTab(k)} style={{flex:1,padding:"9px 8px",borderRadius:10,cursor:"pointer",
           border:`1px solid ${tab===k?`${C.red}55`:C.line}`, background:tab===k?`${C.red}0f`:C.raised,
-          color:tab===k?C.text:C.dim, fontSize:".72rem", fontWeight:tab===k?700:400}}>{l}</button>))}
+          color:tab===k?C.text:C.dim, fontSize:"calc(.72rem * var(--ts, 1))", fontWeight:tab===k?700:400}}>{l}</button>))}
     </div>
 
     {tab==="sessions" && (state.sessions.length===0
@@ -3233,7 +3658,7 @@ function LogView({state, setState}){
             return (<Card key={s.id} onClick={()=>setSession(s)} style={{padding:"13px 14px"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
                 <div style={{minWidth:0}}>
-                  <div style={{fontSize:".85rem",color:C.text,fontWeight:600,marginBottom:3}}>{s.dayName}</div>
+                  <div style={{fontSize:"calc(.85rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:3}}>{s.dayName}</div>
                   <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
                     <Chip color={C.faint}>{s.date}</Chip>
                     <Chip color={C.purple}>wk {s.week}</Chip>
@@ -3243,7 +3668,7 @@ function LogView({state, setState}){
                 <div style={{textAlign:"right",flexShrink:0}}>
                   <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.3rem",color:C.red,lineHeight:1}}>
                     {(vol/1000).toFixed(1)}t</div>
-                  <div style={{fontSize:".55rem",color:C.ghost}}>{sets} SETS</div>
+                  <div style={{fontSize:"calc(.55rem * var(--ts, 1))",color:C.ghost}}>{sets} SETS</div>
                 </div>
               </div>
             </Card>);
@@ -3260,9 +3685,9 @@ function LogView({state, setState}){
             return (<Card key={id} onClick={()=>setDetail(id)} style={{padding:"12px 14px"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
                 <div style={{minWidth:0,flex:1}}>
-                  <div style={{fontSize:".82rem",color:C.text,fontWeight:600,overflow:"hidden",
+                  <div style={{fontSize:"calc(.82rem * var(--ts, 1))",color:C.text,fontWeight:600,overflow:"hidden",
                     textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{EX_NAME[id]||id}</div>
-                  <div style={{fontSize:".62rem",color:C.ghost,marginTop:2}}>{h.length} sessions · now {last.weight}kg</div>
+                  <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,marginTop:2}}>{h.length} sessions · now {last.weight}kg</div>
                 </div>
                 {delta!==0 && <Chip color={delta>0?C.green:C.orange}>{delta>0?"+":""}{delta}kg</Chip>}
               </div>
@@ -3272,59 +3697,106 @@ function LogView({state, setState}){
 
     {tab==="data" && (<div>
       <Card style={{marginBottom:12}}>
-        <div style={{fontSize:".82rem",color:C.text,fontWeight:600,marginBottom:6}}>Coming from v1?</div>
-        <div style={{fontSize:".74rem",color:C.faint,lineHeight:1.7,marginBottom:12}}>
+        <div style={{fontSize:"calc(.82rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:6}}>Coming from v1?</div>
+        <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.faint,lineHeight:1.7,marginBottom:12}}>
           Export your history from the old app and import the CSV here. Same format — your exercise
           history and working weights come straight across, so the coach picks up where you left off
           instead of starting you from scratch.
         </div>
         <Btn kind="solid" size="md" full onClick={()=>fileRef.current?.click()}>IMPORT CSV</Btn>
-        <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={onFile} style={{display:"none"}}/>
+        <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={onCSV} style={{display:"none"}}/>
       </Card>
 
       <Card style={{marginBottom:12}}>
-        <div style={{fontSize:".82rem",color:C.text,fontWeight:600,marginBottom:6}}>Get your data out</div>
-        <div style={{fontSize:".74rem",color:C.faint,lineHeight:1.7,marginBottom:12}}>
-          CSV for spreadsheets. JSON for a complete backup you can restore from — that one includes
-          everything except your API key, which never leaves storage.
+        <div style={{fontSize:"calc(.82rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:6}}>Backup and restore</div>
+        <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.faint,lineHeight:1.7,marginBottom:12}}>
+          A JSON backup holds everything — goal, plan, history, settings — except your API key,
+          which never leaves storage. Restoring one replaces what's on this device, so you'll see
+          what's in the file and be asked to confirm first.
         </div>
         <div style={{display:"flex",gap:8}}>
-          <Btn kind="solid" size="md" full onClick={()=>exportCSV(state)}>CSV</Btn>
-          <Btn kind="solid" size="md" full onClick={()=>exportJSON(state)}>JSON BACKUP</Btn>
+          <Btn kind="solid" size="md" full onClick={()=>exportJSON(state)}>EXPORT JSON</Btn>
+          <Btn kind="solid" size="md" full onClick={()=>jsonRef.current?.click()}>RESTORE JSON</Btn>
         </div>
+        <input ref={jsonRef} type="file" accept=".json,application/json" onChange={onJSON} style={{display:"none"}}/>
       </Card>
 
-      {msg && <Card accent={C.green}><div style={{fontSize:".74rem",color:C.dim,lineHeight:1.6}}>{msg}</div></Card>}
+      <Card style={{marginBottom:12}}>
+        <div style={{fontSize:"calc(.82rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:6}}>Spreadsheet export</div>
+        <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.faint,lineHeight:1.7,marginBottom:12}}>
+          Every logged set as CSV, in the same shape v1 used.
+        </div>
+        <Btn kind="solid" size="md" full onClick={()=>exportCSV(state)}>EXPORT CSV</Btn>
+      </Card>
+
+      {msg && <Card accent={C.green} style={{marginBottom:12}}>
+        <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.dim,lineHeight:1.6}}>{msg}</div></Card>}
+      {err && <Card accent={C.red} style={{marginBottom:12}}>
+        <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.red,lineHeight:1.6}}>{err}</div>
+        <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.ghost,lineHeight:1.6,marginTop:6}}>
+          Nothing on this device has been changed.</div></Card>}
     </div>)}
+
+    {pending && (<Sheet title="Restore this backup?" sub="Everything currently on this device will be replaced."
+      onClose={()=>setPending(null)}>
+      <Card style={{marginBottom:14}}>
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.blue,fontWeight:700,letterSpacing:".08em",marginBottom:8}}>WHAT'S IN THE FILE</div>
+        {[["Goal", pending.summary.goal],
+          ["Block", pending.summary.block],
+          ["Sessions", String(pending.summary.sessions)],
+          ["Exercises tracked", String(pending.summary.exercises)],
+          ["Date range", pending.summary.from ? `${pending.summary.from} → ${pending.summary.to}` : "no dated sessions"],
+        ].map(([k,v])=>(
+          <div key={k} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"6px 0",
+            borderBottom:`1px solid ${C.lineSoft}`}}>
+            <span style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.faint}}>{k}</span>
+            <span style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.text,fontWeight:600,textAlign:"right"}}>{v}</span>
+          </div>))}
+      </Card>
+      <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.faint,lineHeight:1.7,marginBottom:16}}>
+        Your current {state.sessions.length} session{state.sessions.length===1?"":"s"} and everything
+        else on this device will be gone. If you haven't exported a backup of what's here now, cancel
+        and do that first — this can't be undone.
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <Btn kind="ghost" size="lg" onClick={()=>setPending(null)} full>Cancel</Btn>
+        <Btn kind="danger" size="lg" full onClick={()=>{
+          const s = pending.state;
+          setPending(null);
+          onRestore(s);
+          setMsg(`Restored ${(s.sessions||[]).length} sessions and ${Object.keys(s.exerciseHistory||{}).length} exercises.`);
+        }}>Replace everything</Btn>
+      </div>
+    </Sheet>)}
 
     {detail && (()=>{
       const h = (state.exerciseHistory[detail]||[]).slice().sort((a,b)=>a.date<b.date?-1:1);
       const ex = EX_BY_ID[detail];
       return (<Sheet title={EX_NAME[detail]||detail} sub={`${h.length} sessions tracked`} onClose={()=>setDetail(null)}>
         {h.length>=2 && (<div style={{marginBottom:16}}>
-          <div style={{fontSize:".58rem",color:C.ghost,fontWeight:700,letterSpacing:".08em",marginBottom:8}}>WEIGHT OVER TIME</div>
+          <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".08em",marginBottom:8}}>WEIGHT OVER TIME</div>
           <Sparkline points={h.map(x=>({v:x.weight}))} color={C.red} height={56}/>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:".62rem",color:C.ghost,marginTop:5}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,marginTop:5}}>
             <span>{h[0].weight}kg</span><span>{h[h.length-1].weight}kg</span>
           </div>
         </div>)}
-        <div style={{fontSize:".58rem",color:C.ghost,fontWeight:700,letterSpacing:".08em",marginBottom:8}}>EVERY SESSION</div>
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".08em",marginBottom:8}}>EVERY SESSION</div>
         <div style={{display:"flex",flexDirection:"column",gap:1}}>
           {h.slice().reverse().map((e,i,arr)=>{
             const prev = arr[i+1];
             const up = prev && e.weight>prev.weight, dn = prev && e.weight<prev.weight;
             return (<div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",
               borderBottom:`1px solid ${C.lineSoft}`}}>
-              <div style={{fontSize:".7rem",color:C.faint,width:80,flexShrink:0}}>{e.date}</div>
-              <div style={{fontSize:".78rem",color:up?C.green:dn?C.orange:C.text,fontWeight:600,width:66}}>
+              <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,width:80,flexShrink:0}}>{e.date}</div>
+              <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:up?C.green:dn?C.orange:C.text,fontWeight:600,width:66}}>
                 {e.weight}kg{up?" ↑":dn?" ↓":""}</div>
-              <div style={{fontSize:".7rem",color:C.dim,flex:1}}>
+              <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.dim,flex:1}}>
                 {e.setsLogged}×{e.avgReps!=null?e.avgReps.toFixed(1):"?"}
                 <span style={{color:C.ghost}}> / {e.targetReps}</span></div>
             </div>);
           })}
         </div>
-        {ex && (<div style={{marginTop:16,fontSize:".74rem",color:C.faint,lineHeight:1.7,
+        {ex && (<div style={{marginTop:16,fontSize:"calc(.74rem * var(--ts, 1))",color:C.faint,lineHeight:1.7,
           background:C.card,borderRadius:12,padding:14}}>{ex.why}</div>)}
       </Sheet>);
     })()}
@@ -3332,21 +3804,21 @@ function LogView({state, setState}){
     {session && (<Sheet title={session.dayName} sub={`${session.date} · week ${session.week} · ${session.phaseName}`}
       onClose={()=>setSession(null)}>
       {session.debrief && (<Card style={{marginBottom:14}}>
-        <div style={{fontSize:".84rem",color:C.text,fontWeight:600,marginBottom:8}}>{session.debrief.headline}</div>
+        <div style={{fontSize:"calc(.84rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:8}}>{session.debrief.headline}</div>
         <Markdown text={session.debrief.body}/>
       </Card>)}
       {session.exercises.map((e,i)=>{
         const logged = (e.log||[]).filter(l=>l&&l.reps!=null);
         return (<div key={i} style={{padding:"11px 0",borderBottom:`1px solid ${C.lineSoft}`}}>
           <div style={{display:"flex",justifyContent:"space-between",gap:10,marginBottom:6}}>
-            <div style={{fontSize:".8rem",color:C.text,fontWeight:600}}>{e.name}</div>
-            <div style={{fontSize:".72rem",color:C.faint,flexShrink:0}}>{e.weight}kg</div>
+            <div style={{fontSize:"calc(.8rem * var(--ts, 1))",color:C.text,fontWeight:600}}>{e.name}</div>
+            <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.faint,flexShrink:0}}>{e.weight}kg</div>
           </div>
           <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
             {logged.length ? logged.map((l,j)=>(
               <Chip key={j} color={EFFORT_BY_KEY[l.effort]?.color||C.faint}>
                 {l.reps} @ {l.weight}kg {EFFORT_BY_KEY[l.effort]?.emoji}</Chip>
-            )) : <span style={{fontSize:".68rem",color:C.ghost}}>not logged</span>}
+            )) : <span style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.ghost}}>not logged</span>}
           </div>
         </div>);
       })}
@@ -3365,6 +3837,9 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
   const [showKey,setShowKey]   = useState(false);
   const [confirmReset,setConfirmReset] = useState(false);
   const [newStation,setNewStation] = useState({num:"",name:""});
+  const [scaleId,setScaleId]   = useState(loadScaleId);
+  const [sound,setSound]       = useState(()=>cues.enabled());
+  const [wake,setWake]         = useState(()=>wakeLock.enabled());
 
   const allStations = [...SEED_STATIONS, ...(state.equipment.custom||[])];
   const on = new Set(state.equipment.enabled);
@@ -3415,10 +3890,10 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
     <Card accent={apiKey?C.green:C.faint} style={{marginBottom:14}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
         <div>
-          <div style={{fontSize:".82rem",color:C.text,fontWeight:700}}>
+          <div style={{fontSize:"calc(.82rem * var(--ts, 1))",color:C.text,fontWeight:700}}>
             {apiKey ? "🤖 Coach is live" : "Built-in coach"}
           </div>
-          <div style={{fontSize:".66rem",color:C.faint,marginTop:2}}>
+          <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.faint,marginTop:2}}>
             {apiKey ? "Plans, adapts and chats using your history" : "Rule-based. Works offline, forever."}
           </div>
         </div>
@@ -3429,7 +3904,7 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
         <div style={{display:"flex",gap:6}}>
           <Input type={showKey?"text":"password"} placeholder="sk-ant-..." value={draftKey} autoComplete="off"
             onChange={e=>{setDraftKey(e.target.value); setKeyState("idle"); setKeyMsg("");}}
-            style={{fontFamily:"monospace",fontSize:".76rem",flex:1}}/>
+            style={{fontFamily:"monospace",fontSize:"calc(.76rem * var(--ts, 1))",flex:1}}/>
           <Btn kind="ghost" size="md" onClick={()=>setShowKey(v=>!v)} style={{width:46,padding:0}}>
             {showKey?"🙈":"👁"}</Btn>
         </div>
@@ -3442,10 +3917,10 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
         {apiKey && <Btn kind="danger" size="sm" onClick={()=>{ setDraftKey(""); setApiKey(""); saveKey("");
           setKeyState("idle"); setKeyMsg("Key removed. The built-in coach takes over."); }}>Remove</Btn>}
       </div>
-      {keyMsg && <div style={{fontSize:".68rem",lineHeight:1.5,
+      {keyMsg && <div style={{fontSize:"calc(.68rem * var(--ts, 1))",lineHeight:1.5,
         color:keyState==="bad"?C.red:C.green}}>{keyMsg}</div>}
 
-      <div style={{fontSize:".66rem",color:C.ghost,lineHeight:1.7,marginTop:12,
+      <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.ghost,lineHeight:1.7,marginTop:12,
         borderTop:`1px solid ${C.lineSoft}`,paddingTop:11}}>
         <strong style={{color:C.yellow}}>Stored unencrypted in this browser.</strong> Any script running on this
         device can read it — that's a limitation of an app with no server, not a bug. Use a key with a spend
@@ -3460,8 +3935,58 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
       </Field>
     </Card>)}
 
+    {/* ── this device ─────────────────────────────────────────────────── */}
+    <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>THIS DEVICE</div>
+    <Card style={{marginBottom:14}}>
+      <Field label="Text size" hint="Applies to everything except the big headings.">
+        <div style={{display:"flex",gap:5,marginBottom:12}}>
+          {TEXT_STEPS.map(s=>{
+            const on = s.id===scaleId;
+            return (<button key={s.id} onClick={()=>{ setScaleId(s.id); saveScaleId(s.id); }} style={{
+              flex:1,padding:"9px 4px",borderRadius:9,cursor:"pointer",
+              border:`1.5px solid ${on?C.red:C.line}`, background:on?`${C.red}12`:C.raised,
+              color:on?C.text:C.faint, fontWeight:on?700:400,
+              fontSize:`calc(${0.5 + (s.v-0.92)*0.5}rem)`}}>A</button>);
+          })}
+        </div>
+        <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.dim,marginBottom:8}}>
+          <strong style={{color:C.text}}>{(TEXT_STEPS.find(s=>s.id===scaleId)||{}).label}</strong>
+          {" — "}{(TEXT_STEPS.find(s=>s.id===scaleId)||{}).note}
+        </div>
+        <div style={{background:C.raised,borderRadius:10,padding:"11px 12px"}}>
+          <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".08em",marginBottom:5}}>PREVIEW</div>
+          <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.dim,lineHeight:1.7}}>
+            Lower for a slow 2–3 seconds until your knees reach about 90°. Drive back through the
+            whole foot, mostly the heel. Stop just short of locking out.
+          </div>
+        </div>
+      </Field>
+    </Card>
+
+    <Card style={{marginBottom:14}}>
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+        <Toggle on={sound} label="Rest timer sounds"
+          sub="Beep at 20 and 10 seconds, a tick each second after that, whistle when rest is up"
+          onChange={v=>{ setSound(v); cues.setEnabled(v); }}/>
+        <Toggle on={wake} label="Keep the screen awake during a session"
+          sub={wakeLock.supported()
+            ? "Stops the phone sleeping mid-workout — and a screen that stays on is what makes the sounds reliable"
+            : "This browser doesn't support it. On iPhone you'll need Safari 16.4 or newer."}
+          onChange={v=>{ setWake(v); wakeLock.setEnabled(v); }}/>
+      </div>
+      <Btn kind="solid" size="sm" onClick={()=>cues.test()} disabled={!sound || !cues.supported()}>
+        ▶ Test the cues
+      </Btn>
+      <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.ghost,lineHeight:1.7,marginTop:11,
+        borderTop:`1px solid ${C.lineSoft}`,paddingTop:11}}>
+        Cues are scheduled on the audio clock the moment rest starts, so they survive the phone
+        backgrounding the app. Whether they survive a <em>locked</em> screen depends on the phone —
+        it's reliable on Android, and hit-and-miss on iOS. Keeping the screen awake is the way to be sure.
+      </div>
+    </Card>
+
     {/* ── training ────────────────────────────────────────────────────── */}
-    <div style={{fontSize:".6rem",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>TRAINING</div>
+    <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>TRAINING</div>
     <Card style={{marginBottom:14}}>
       <Field label={`Days per week — ${p.daysPerWeek}`}
         hint={`Split: ${(SPLITS[p.daysPerWeek]||SPLITS[3]).map(d=>d.name).join(" · ")}. Changing this takes effect on your next session.`}>
@@ -3488,7 +4013,7 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
     </Card>
 
     {/* ── limits ──────────────────────────────────────────────────────── */}
-    <div style={{fontSize:".6rem",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>WORK AROUND</div>
+    <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>WORK AROUND</div>
     <Card style={{marginBottom:14}}>
       <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:12}}>
         {[["knees","Knees"],["shoulders","Shoulders"],["back","Lower back"],["ankles","Ankles"],["elbows","Elbows"]].map(([k,label])=>(
@@ -3501,10 +4026,10 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
     </Card>
 
     {/* ── equipment ───────────────────────────────────────────────────── */}
-    <div style={{fontSize:".6rem",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>
+    <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>
       YOUR GYM · {state.equipment.enabled.length} of {allStations.length}</div>
     <Card style={{marginBottom:14}}>
-      <div style={{fontSize:".7rem",color:C.faint,lineHeight:1.6,marginBottom:12}}>
+      <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,lineHeight:1.6,marginBottom:12}}>
         Only ticked equipment gets programmed. Untick what your gym doesn't have, or add your own below.
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:14}}>
@@ -3517,16 +4042,16 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
               border:`1px solid ${active?`${C.red}55`:C.line}`, background:active?`${C.red}0d`:C.raised}}>
               <div style={{width:13,height:13,borderRadius:4,flexShrink:0,
                 background:active?C.red:"transparent",border:`1.5px solid ${active?C.red:C.ghost}`,
-                display:"flex",alignItems:"center",justifyContent:"center",fontSize:".5rem",color:"#fff"}}>{active?"✓":""}</div>
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:"calc(.5rem * var(--ts, 1))",color:"#fff"}}>{active?"✓":""}</div>
               <div style={{minWidth:0,flex:1}}>
-                <div style={{fontSize:".68rem",color:active?C.text:C.faint,overflow:"hidden",
+                <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:active?C.text:C.faint,overflow:"hidden",
                   textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
-                <div style={{fontSize:".54rem",color:C.ghost}}>#{s.num}{custom?" · yours":""}</div>
+                <div style={{fontSize:"calc(.54rem * var(--ts, 1))",color:C.ghost}}>#{s.num}{custom?" · yours":""}</div>
               </div>
             </button>
             {custom && <button onClick={()=>removeStation(s.num)} style={{position:"absolute",top:-5,right:-5,
               width:18,height:18,borderRadius:"50%",border:"none",background:C.red,color:"#fff",
-              fontSize:".6rem",cursor:"pointer",lineHeight:1}}>✕</button>}
+              fontSize:"calc(.6rem * var(--ts, 1))",cursor:"pointer",lineHeight:1}}>✕</button>}
           </div>);
         })}
       </div>
@@ -3538,23 +4063,23 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
         <Btn size="md" onClick={addStation} disabled={!newStation.num.trim()||!newStation.name.trim()}
           style={{width:52,padding:0}}>+</Btn>
       </div>
-      <div style={{fontSize:".64rem",color:C.ghost,lineHeight:1.6,marginTop:9}}>
+      <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.ghost,lineHeight:1.6,marginTop:9}}>
         Custom equipment is passed to the coach by name, but only exercises in the built-in catalogue
         get full form coaching.
       </div>
     </Card>
 
     {/* ── danger ──────────────────────────────────────────────────────── */}
-    <div style={{fontSize:".6rem",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>DANGER ZONE</div>
+    <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>DANGER ZONE</div>
     <Card style={{marginBottom:14}}>
-      <div style={{fontSize:".74rem",color:C.faint,lineHeight:1.7,marginBottom:12}}>
+      <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.faint,lineHeight:1.7,marginBottom:12}}>
         Wipes your goal, plan, history and settings from this device. Export a JSON backup from the
         Log tab first if there's anything you want to keep.
       </div>
       <Btn kind="danger" size="md" full onClick={()=>setConfirmReset(true)}>RESET EVERYTHING</Btn>
     </Card>
 
-    <div style={{textAlign:"center",fontSize:".62rem",color:C.ghost,lineHeight:1.8,paddingTop:6}}>
+    <div style={{textAlign:"center",fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,lineHeight:1.8,paddingTop:6}}>
       SnapFit v2 · Gym Buddy<br/>
       General training guidance, not medical advice.
     </div>
@@ -3596,6 +4121,15 @@ function App(){
   const [reviewLoading,setReviewLoading]   = useState(false);
   const [offline,setOffline]       = useState(null);
 
+  /* Rest timer lives here, not in TodayView, so it survives tab changes.
+     Persisted so a reload mid-workout resumes it rather than losing it. */
+  const [rest,setRestRaw] = useState(()=>{
+    try{
+      const r = JSON.parse(localStorage.getItem(REST_KEY) || "null");
+      return (r && r.endsAt > Date.now()) ? r : null;
+    }catch{ return null; }
+  });
+
   const stateRef = useRef(state); stateRef.current = state;
   const keyRef   = useRef(apiKey); keyRef.current   = apiKey;
   const modelRef = useRef(model);  modelRef.current = model;
@@ -3614,6 +4148,33 @@ function App(){
       return next;
     });
   },[]);
+
+  const setRest = useCallback(r=>{
+    try{ r ? localStorage.setItem(REST_KEY, JSON.stringify(r)) : localStorage.removeItem(REST_KEY); }catch{}
+    setRestRaw(r);
+  },[]);
+
+  /* Called from a tap, which is the only place iOS lets us resume the audio
+     context — so the cues are scheduled here and nowhere else. */
+  const startRest = useCallback(({exName, label, seconds})=>{
+    const endsAt = Date.now() + seconds*1000;
+    setRest({endsAt, total:seconds, exName, label});
+    cues.schedule(endsAt);
+  },[setRest]);
+
+  const skipRest = useCallback(()=>{ cues.cancel(); setRest(null); },[setRest]);
+
+  // Clear the bar a beat after it hits zero, so "GO" is readable first.
+  useEffect(()=>{
+    if(!rest) return;
+    const id = setInterval(()=>{
+      if(Date.now() > rest.endsAt + 2500) setRest(null);
+    }, 500);
+    return ()=>clearInterval(id);
+  },[rest, setRest]);
+
+  // Hold the screen awake only while a session is actually in progress.
+  useEffect(()=>{ wakeLock.setWanted(!!session); },[!!session]);
 
   const flagOffline = useCallback((kind, err)=>{
     setOffline({kind, msg: err?.kind==="auth" ? "API key rejected — using the built-in coach."
@@ -3694,8 +4255,17 @@ function App(){
 
   function resetAll(){
     try{ localStorage.removeItem(STORE_KEY); localStorage.removeItem(ACTIVE_KEY); }catch{}
-    setSession(null); setDebrief(null); setReview(null);
+    skipRest(); setSession(null); setDebrief(null); setReview(null);
     setStateRaw(defaultState()); stateRef.current = defaultState();
+    setView("today");
+  }
+
+  /* Restoring a backup swaps the whole state out, so anything derived from the
+     old one — the in-progress session, a running rest, a stale debrief — has to
+     go with it. */
+  function restoreState(next){
+    skipRest(); setSession(null); setDebrief(null); setReview(null);
+    setState(next);
     setView("today");
   }
 
@@ -3715,7 +4285,7 @@ function App(){
           <Spinner size={30}/>
           <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.3rem",color:C.dim,
             letterSpacing:".08em",marginTop:16}}>BUILDING YOUR BLOCK</div>
-          <div style={{fontSize:".72rem",color:C.ghost,marginTop:8,maxWidth:280,lineHeight:1.6}}>
+          <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.ghost,marginTop:8,maxWidth:280,lineHeight:1.6}}>
             {aiOn ? "Your coach is designing a plan around your goal, schedule and gym."
                   : "Putting together a plan from your goal and schedule."}
           </div>
@@ -3732,24 +4302,27 @@ function App(){
 
       {/* header */}
       <div style={{background:C.bg,borderBottom:`1px solid ${C.lineSoft}`,position:"sticky",top:0,zIndex:60}}>
-        <div style={{maxWidth:620,margin:"0 auto",padding:"0 16px",height:54,display:"flex",alignItems:"center",gap:10}}>
+        {/* minHeight, not height — at the larger text sizes the goal line wraps
+            and the header needs to grow with it rather than spill out. */}
+        <div style={{maxWidth:620,margin:"0 auto",padding:"6px 16px",minHeight:54,
+          display:"flex",alignItems:"center",gap:10}}>
           <Logo h={22}/>
           <div style={{width:1,height:16,background:C.line,flexShrink:0}}/>
           <div style={{minWidth:0,flex:1}}>
             <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:".85rem",color:C.dim,
               letterSpacing:".1em",lineHeight:1.1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
               {goalMeta ? goalMeta.label.toUpperCase() : "GYM BUDDY"}</div>
-            {prog && <div style={{fontSize:".55rem",color:C.ghost,marginTop:1}}>
+            {prog && <div style={{fontSize:"calc(.55rem * var(--ts, 1))",color:C.ghost,marginTop:1}}>
               Week {prog.week}/{prog.total} · {prog.phase.name}</div>}
           </div>
           <Chip color={aiOn?C.green:C.faint} onClick={()=>setView("settings")}
             style={{cursor:"pointer"}}>{aiOn?"🤖 COACH":"BUILT-IN"}</Chip>
           <button onClick={()=>setView("settings")} style={{background:"transparent",border:"none",
-            color:view==="settings"?C.red:C.faint,fontSize:"1.05rem",cursor:"pointer",padding:"4px 2px",flexShrink:0}}>⚙</button>
+            color:view==="settings"?C.red:C.faint,fontSize:"calc(1.05rem * var(--ts, 1))",cursor:"pointer",padding:"4px 2px",flexShrink:0}}>⚙</button>
         </div>
         {offline && (<div className="fade" style={{background:`${C.yellow}12`,borderTop:`1px solid ${C.yellow}30`,
           padding:"6px 16px"}}>
-          <div style={{maxWidth:620,margin:"0 auto",fontSize:".64rem",color:C.yellow}}>⚠ {offline.msg}</div>
+          <div style={{maxWidth:620,margin:"0 auto",fontSize:"calc(.64rem * var(--ts, 1))",color:C.yellow}}>⚠ {offline.msg}</div>
         </div>)}
       </div>
 
@@ -3765,18 +4338,23 @@ function App(){
                                     generating={generating} onGenerate={ci=>{
                                       if(prog?.complete) buildBlock(); else generate(ci);
                                     }}
-                                    onFinish={finishSession} coach={coach} aiOn={aiOn}/>
+                                    onFinish={finishSession} coach={coach} aiOn={aiOn}
+                                    rest={rest} startRest={startRest} skipRest={skipRest}/>
             : view==="plan"     ? <PlanView state={state} onReplan={()=>buildBlock()} replanning={replanning} aiOn={aiOn}/>
             : view==="goal"     ? <GoalView state={state} setState={setState} review={review}
                                     reviewLoading={reviewLoading} onReview={runReview} aiOn={aiOn}/>
             : view==="coach"    ? <ChatView state={state} setState={setState} coach={coach} aiOn={aiOn}
                                     onGoSettings={()=>setView("settings")}/>
             : view==="learn"    ? <LearnView state={state} setState={setState}/>
-            : view==="log"      ? <LogView state={state} setState={setState}/>
+            : view==="log"      ? <LogView state={state} setState={setState} onRestore={restoreState}/>
             : <SettingsView state={state} setState={setState} apiKey={apiKey} setApiKey={setApiKey}
                 model={model} setModel={setModel} coach={coach} onReset={resetAll}/>}
         </div>
       </div>
+
+      {/* Rest bar sits above the nav and shows on every tab, so you can read
+          Learn or check the Plan while you wait without losing the countdown. */}
+      <RestBar rest={rest} onSkip={skipRest}/>
 
       {/* nav */}
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.surface,
@@ -3790,8 +4368,8 @@ function App(){
               position:"relative",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
               <div style={{position:"absolute",top:0,left:"18%",right:"18%",height:2,borderRadius:"0 0 2px 2px",
                 background:active?C.red:"transparent"}}/>
-              <span style={{fontSize:".85rem",lineHeight:1,opacity:active?1:.42}}>{n.icon}</span>
-              <span style={{fontSize:".52rem",fontWeight:active?700:500,color:active?C.text:C.faint,
+              <span style={{fontSize:"calc(.85rem * var(--ts, 1))",lineHeight:1,opacity:active?1:.42}}>{n.icon}</span>
+              <span style={{fontSize:"calc(.52rem * var(--ts, 1))",fontWeight:active?700:500,color:active?C.text:C.faint,
                 letterSpacing:".03em"}}>{n.label.toUpperCase()}</span>
               {badge && !active && <div style={{position:"absolute",top:7,right:"24%",width:5,height:5,
                 borderRadius:"50%",background:C.red}}/>}

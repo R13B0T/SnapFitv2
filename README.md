@@ -22,9 +22,20 @@ job in today's session, and a *How to do it* panel with setup cues, how to execu
 the mistakes people actually make on that exercise, and what it should feel like when it's
 right.
 
+**It briefs you before you start.** What today's session is for, what's required of you to
+make it count, and how you'll know you got it right — at the top of the Today screen, before
+the first exercise.
+
 **It checks in and debriefs.** Before the session: sleep, energy, soreness, stress. Rough
 night and the weights come down and a set comes off. After the session: what happened, what
 it means, and what moves next time.
+
+**The rest timer runs on the audio clock.** Beep at 20 seconds, double beep at 10, a tick
+every second after that, and a whistle when rest is up — so you can put the phone down. It
+keeps counting when you switch tabs, and it survives a reload mid-workout.
+
+**Every exercise shows what the coach prescribed** alongside what you're actually lifting, so
+overriding a weight never loses track of the target.
 
 **A Learn hub for the concepts.** Progressive overload, RPE and reps-in-reserve, the muscle
 map, rep ranges, why deloads exist, warming up, recovery, what to do when a lift stalls.
@@ -77,12 +88,38 @@ session still happens.
 
 ---
 
+## Settings worth knowing about
+
+**Text size.** Five steps, defaulting to Comfortable. It scales body text and deliberately
+leaves the big display headings alone. Implemented as a CSS custom property, so the change is
+instant — no re-render.
+
+**Rest timer sounds.** On by default, with a *Test the cues* button so you can check your
+volume before you're mid-session. The whole cue sequence is scheduled against the audio clock
+the moment rest starts rather than fired from a JavaScript timer, because timers get throttled
+to once a minute in a backgrounded tab and the audio clock doesn't.
+
+**Keep the screen awake during a session.** On by default. Uses the Screen Wake Lock API
+(Chrome/Android, Safari 16.4+), and the toggle says so where it isn't supported.
+
+> **On lock-screen audio, honestly:** scheduling on the audio clock gets the cues through the
+> app being backgrounded. A *locked* screen is different — iOS Safari suspends the audio
+> context outright, and the silent-keepalive workaround this app uses works on some iOS
+> versions and not others. It's reliable on Android. Keeping the screen awake is the way to be
+> sure, which is why that setting exists and defaults to on.
+
 ## Coming from v1
 
 v2 lives at a different URL, so browser storage doesn't carry across. Export a CSV from v1
 (**Weights → Export**) and import it under **Log → Data**. The CSV format is unchanged, so
 your exercise history and working weights come straight over and the coach picks up from
 your real numbers instead of starting you at zero.
+
+**Moving between devices, or restoring after a reset:** use **Log → Data → Export JSON**, then
+**Restore JSON** on the other device. A restore replaces everything, so it shows you what's in
+the file — goal, block, session count, date range — and asks you to confirm first. A file that
+isn't a valid backup is rejected with the actual reason, and nothing on the device is touched.
+The API key is never in an export and is never altered by an import.
 
 ---
 

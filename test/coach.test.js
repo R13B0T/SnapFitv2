@@ -42,7 +42,8 @@ function mockBlock(){
   ]};
 }
 function mockSession(){
-  return { focusTip:"Mock cue for today.", adaptationNote:"Trimmed because you slept badly.",
+  return { brief:"Mock brief paragraph one.\n\n**What's required.** Mock requirement.\n\n**The standard.** Mock standard.",
+    focusTip:"Mock cue for today.", adaptationNote:"Trimmed because you slept badly.",
     exercises:[
       {exId:"leg_press", sets:3, targetReps:10, weight:100, rest:120, why:"Mock reason one."},
       {exId:"chest_press_mach", sets:3, targetReps:10, weight:40, rest:90, why:"Mock reason two."},
@@ -188,6 +189,11 @@ function mockSession(){
   check("AI focus tip shown", /Mock cue for today/.test(t));
   check("adaptation note shown", /Trimmed because you slept badly/.test(t));
   check("AI why shown", /Mock reason one/.test(t) || true);
+  check("brief is requested in the schema", !!lastRequest?.output_config?.format?.schema?.properties?.brief);
+  check("brief is required, not optional",
+    (lastRequest?.output_config?.format?.schema?.required||[]).includes("brief"));
+  check("AI brief rendered", /Mock brief paragraph one/.test(t), t.slice(0,300));
+  check("AI brief keeps its markdown structure", /What's required/.test(t) && /The standard/.test(t));
 
   await page.getByText("How to do it").first().click();
   await page.waitForTimeout(900);
@@ -235,6 +241,82 @@ function mockSession(){
   check("chat persists to state", await page.evaluate(()=>{
     try{ return (JSON.parse(localStorage.getItem("snapfit_v2")).chat||[]).length>=2; }catch{ return false; }
   }));
+
+  /* ── AUDIO CUES ────────────────────────────────────────────────────────
+     The sound itself can't be asserted headlessly, but the schedule can: the
+     whole sequence is queued against the audio clock up front, so the offsets
+     are the thing worth checking. */
+  console.log("\n── AUDIO CUE SCHEDULE ───────────────────────────");
+  const audio = await page.evaluate(()=>{
+    // Record what gets scheduled instead of making noise.
+    const started = [];
+    const fakeParam = () => ({setValueAtTime(){}, exponentialRampToValueAtTime(){}, setValueCurveAtTime(){}});
+    class FakeCtx {
+      constructor(){ this.currentTime = 100; this.state = "running"; this.destination = {}; }
+      resume(){ this.state = "running"; return Promise.resolve(); }
+      createOscillator(){
+        const o = {type:"sine", frequency:fakeParam(),
+          connect(){ return {connect(){}}; },
+          start(t){ started.push(Math.round((t - 100)*100)/100); },
+          stop(){}};
+        return o;
+      }
+      createGain(){ return {gain:fakeParam(), connect(){ return {connect(){}}; }}; }
+    }
+    const realAC = window.AudioContext, realWAC = window.webkitAudioContext;
+    window.AudioContext = FakeCtx; window.webkitAudioContext = FakeCtx;
+
+    localStorage.setItem("snapfit_v2_sound","on");
+    const planned = cues.schedule(Date.now() + 30000);   // 30s of rest
+    const withSound = started.slice();
+
+    started.length = 0;
+    cues.cancel();
+    localStorage.setItem("snapfit_v2_sound","off");
+    const mutedPlan = cues.schedule(Date.now() + 30000);
+    const whenMuted = started.slice();
+
+    localStorage.setItem("snapfit_v2_sound","on");
+    window.AudioContext = realAC; window.webkitAudioContext = realWAC;
+    return {planned, withSound, mutedPlan, whenMuted};
+  });
+
+  const offsets = audio.planned.map(c=>c.offset);
+  check("cue at 20s remaining", audio.planned.some(c=>c.at===20 && c.kind==="beep" && c.offset===10), JSON.stringify(audio.planned.slice(0,2)));
+  check("cue at 10s remaining", audio.planned.some(c=>c.at===10 && c.kind==="double" && c.offset===20));
+  check("a tick every second from 9 to 1",
+    [9,8,7,6,5,4,3,2,1].every(n=>audio.planned.some(c=>c.at===n && c.kind==="tick" && c.offset===30-n)),
+    JSON.stringify(audio.planned.filter(c=>c.kind==="tick").map(c=>c.at)));
+  check("whistle exactly at zero", audio.planned.some(c=>c.at===0 && c.kind==="whistle" && c.offset===30));
+  check("twelve cues in total", audio.planned.length===12, `${audio.planned.length} cues`);
+  check("offsets are in ascending order",
+    offsets.every((o,i)=>i===0 || o >= offsets[i-1]), JSON.stringify(offsets));
+  check("the double beep really is two tones", audio.withSound.length === 13, `${audio.withSound.length} oscillators for 12 cues`);
+  check("nothing is scheduled with sound off",
+    audio.mutedPlan.length===0 && audio.whenMuted.length===0,
+    `${audio.mutedPlan.length} planned / ${audio.whenMuted.length} started`);
+
+  console.log("\n── CUES ALREADY PAST ARE NOT FIRED LATE ─────────");
+  const late = await page.evaluate(()=>{
+    class FakeCtx {
+      constructor(){ this.currentTime = 0; this.state="running"; this.destination={}; }
+      resume(){ return Promise.resolve(); }
+      createOscillator(){ return {type:"sine", frequency:{setValueAtTime(){},setValueCurveAtTime(){}},
+        connect(){return{connect(){}};}, start(){}, stop(){}}; }
+      createGain(){ return {gain:{setValueAtTime(){},exponentialRampToValueAtTime(){}}, connect(){return{connect(){}};}}; }
+    }
+    const real = window.AudioContext;
+    window.AudioContext = FakeCtx;
+    localStorage.setItem("snapfit_v2_sound","on");
+    const p = cues.schedule(Date.now() + 8000);   // only 8s left: 20s and 10s are gone
+    cues.cancel();
+    window.AudioContext = real;
+    return p;
+  });
+  check("skips the 20s cue when rest is shorter than that", !late.some(c=>c.at===20), JSON.stringify(late.map(c=>c.at)));
+  check("skips the 10s cue too", !late.some(c=>c.at===10));
+  check("still ticks down and whistles", late.some(c=>c.at===0) && late.some(c=>c.kind==="tick"),
+    JSON.stringify(late.map(c=>c.at)));
 
   console.log("\n── FINAL CONSOLE ────────────────────────────────");
   check("zero uncaught errors", errors.length===0, errors.slice(0,5).join(" | "));
