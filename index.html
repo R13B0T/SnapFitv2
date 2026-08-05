@@ -169,6 +169,15 @@ const daysBetween = (a,b) => Math.round((new Date(b)-new Date(a))/86400000);
 const uid = () => Math.random().toString(36).slice(2,10);
 const round25 = n => Math.round(n*2)/2;
 const clamp = (n,lo,hi) => Math.max(lo,Math.min(hi,n));
+const plainCoachText = text => String(text||"")
+  .replace(/#{1,4}\s+/g, "")
+  .replace(/\*\*(.+?)\*\*/g, "$1")
+  .replace(/\*(.+?)\*/g, "$1")
+  .replace(/`(.+?)`/g, "$1")
+  .replace(/^\s*[-•]\s+/gm, "")
+  .replace(/^\s*\d+[.)]\s+/gm, "")
+  .replace(/\s+/g, " ")
+  .trim();
 
 /* ═══════════════════════════════════════════════════════════════════════════
    EQUIPMENT — seeded with Snap Fitness Watagan Park, fully editable
@@ -864,6 +873,43 @@ const LEARN_BY_ID = Object.fromEntries(LEARN.map(t=>[t.id,t]));
 
 const DEFAULT_PROFILE = { age:"", sex:"", heightCm:"", experience:"beginner", daysPerWeek:3, sessionMinutes:45, freeWeightPct:30 };
 const DEFAULT_LIMITS  = { knees:false, shoulders:false, back:false, ankles:false, elbows:false, note:"" };
+const DEFAULT_COACH_STYLE = { sass:3, hardTruth:4 };
+const SASS_LEVELS = [
+  null,
+  {label:"Straight", note:"No jokes. Clear, calm coaching."},
+  {label:"Dry", note:"The occasional dry aside, used sparingly."},
+  {label:"Cheeky", note:"A bit of bite when it makes the point land."},
+  {label:"Spicy", note:"Regular sharp wit, without turning cruel."},
+  {label:"Full roast", note:"Maximum playful heat. Still respectful, never personal."},
+];
+const HARD_TRUTH_LEVELS = [
+  null,
+  {label:"Gentle", note:"Lead with context, then give the honest read."},
+  {label:"Candid", note:"Plain facts with a supportive next step."},
+  {label:"Direct", note:"Verdict first. Evidence and action straight after."},
+  {label:"Blunt", note:"Call out weak effort, excuses and inconsistency clearly."},
+  {label:"No sugar-coating", note:"Lead with the uncomfortable truth and its consequence."},
+];
+
+function coachStylePreview(style){
+  const sass = clamp(Number(style?.sass)||DEFAULT_COACH_STYLE.sass, 1, 5);
+  const truth = clamp(Number(style?.hardTruth)||DEFAULT_COACH_STYLE.hardTruth, 1, 5);
+  const verdict = [
+    "You completed two of four sessions. Let's make next week more workable.",
+    "You completed two of four sessions. That's below plan, so something needs to change.",
+    "You planned four sessions and completed two. Change the schedule or protect the time.",
+    "Two of four sessions is not enough for the result you want. Cut the plan or make the time.",
+    "You completed half the plan. At this rate the goal date is fiction — change the schedule today or accept a slower result.",
+  ][truth-1];
+  const aside = [
+    "",
+    " Good intentions remain difficult to progressively overload.",
+    " The calendar, rudely, does not count good intentions as training.",
+    " Your calendar has reviewed the vibes and declined to count them as reps.",
+    " The plan is not a decorative PDF. It needs sweat, not emotional support.",
+  ][sass-1];
+  return verdict + aside;
+}
 
 function defaultState(){
   return {
@@ -872,6 +918,7 @@ function defaultState(){
     goal:null,
     profile:{...DEFAULT_PROFILE},
     limits:{...DEFAULT_LIMITS},
+    coachStyle:{...DEFAULT_COACH_STYLE},
     equipment:{ enabled:SEED_STATIONS.map(s=>s.num), custom:[] },
     travel:null,          // an away gym for today — see TRAVEL / AWAY GYM below
     block:null,
@@ -890,6 +937,9 @@ function migrate(raw){
   const s = {...defaultState(), ...raw};
   s.profile   = {...DEFAULT_PROFILE, ...(raw.profile||{})};
   s.limits    = {...DEFAULT_LIMITS,  ...(raw.limits||{})};
+  s.coachStyle = {...DEFAULT_COACH_STYLE, ...(raw.coachStyle||{})};
+  s.coachStyle.sass = clamp(Number(s.coachStyle.sass)||DEFAULT_COACH_STYLE.sass, 1, 5);
+  s.coachStyle.hardTruth = clamp(Number(s.coachStyle.hardTruth)||DEFAULT_COACH_STYLE.hardTruth, 1, 5);
   s.equipment = {enabled:SEED_STATIONS.map(x=>x.num), custom:[], ...(raw.equipment||{})};
   s.travel    = normaliseTravel(raw.travel);
   s.learn     = {read:[], quiz:{},  ...(raw.learn||{})};
@@ -1342,13 +1392,17 @@ function debriefRules(session, state){
   const holds = rows.filter(r=>r.dec.action==="hold");
   if(holds.length) lines.push(`**Holding:** ${holds.map(r=>r.name).join(", ")}. Chase an extra rep next time and the weight follows.`);
 
+  const body = lines.join("\n\n") || "Log your sets and the debrief will have something to work with.";
+  const nextFocus = session.readiness?.key==="red"
+    ? "You went in under-recovered. Prioritise sleep before the next one."
+    : "Same session shape next time, with the adjusted weights above.";
+
   return {
     source:"rules",
     headline,
-    body: lines.join("\n\n") || "Log your sets and the debrief will have something to work with.",
-    nextFocus: session.readiness?.key==="red"
-      ? "You went in under-recovered. Prioritise sleep before the next one."
-      : "Same session shape next time, with the adjusted weights above.",
+    body,
+    nextFocus,
+    voiceSummary: plainCoachText(`${headline} ${body} Next session: ${nextFocus}`),
     stats:{ volume: Math.round(totalVolume), exercises: rows.length, sets: rows.reduce((n,r)=>n+r.sets,0) },
     rows,
   };
@@ -1388,10 +1442,13 @@ function weeklyReviewRules(state){
   }
   if(prog.phase.name==="Deload") lines.push("You're in the deload week. Feeling underworked is the intended outcome.");
 
+  const body = lines.join("\n\n");
+  const headline = `Week ${prog.week} of ${prog.total} — ${prog.phase.name}`;
   return {
     source:"rules",
-    headline:`Week ${prog.week} of ${prog.total} — ${prog.phase.name}`,
-    body: lines.join("\n\n"),
+    headline,
+    body,
+    voiceSummary: plainCoachText(`${headline}. ${body}`),
     adherence,
     sessions: since.length,
     target,
@@ -1431,6 +1488,8 @@ function coachIdentity(){
 How you talk:
 - Direct and warm. A good coach in a gym, not a textbook and not a hype man.
 - Say the thing. No hedging, no "it depends" without then saying what it depends on.
+- Do not flatter, fawn, mirror the user's opinion, or praise effort that the evidence does not support. Agreement is earned by the facts.
+- Praise only when it is specific and deserved. "You added 5kg with the same reps" is useful; "great job" on its own is noise.
 - Explain the reasoning behind what you prescribe. The user is here to learn, not just to be told.
 - Use their actual numbers. "Your leg press has gone 103 to 115 in four weeks" beats "you're progressing well".
 - Australian English. Metric. No emoji unless the user uses them first.
@@ -1440,6 +1499,35 @@ Where your remit ends:
 - You coach training and recovery. You can give general nutrition principles (protein targets, eating enough to support the goal) but you do not write meal plans or count calories.
 - You are not a medical professional. Sharp, joint-centred or one-sided pain, anything that persists, or anything that worries them: say plainly that it needs a physio or doctor, and offer to work around it in the meantime.
 - If asked about anabolic steroids or other performance-enhancing drugs, decline to advise on use and redirect to what training and recovery can do.`;
+}
+
+function coachStyleDigest(state){
+  const style = {...DEFAULT_COACH_STYLE, ...(state.coachStyle||{})};
+  const sass = clamp(Number(style.sass)||DEFAULT_COACH_STYLE.sass, 1, 5);
+  const truth = clamp(Number(style.hardTruth)||DEFAULT_COACH_STYLE.hardTruth, 1, 5);
+  const sassInstructions = [
+    "Use no sass or jokes. Keep the delivery clean and neutral.",
+    "Use at most one subtle dry aside when it genuinely helps the point land.",
+    "Use occasional cheeky wit and a light jab at bad habits, never at the person.",
+    "Use regular sharp, concise sass. Keep the coaching more memorable than polite.",
+    "Bring maximum playful roast energy, but keep every barb about the behaviour or the numbers, never the person's body, identity or worth.",
+  ];
+  const truthInstructions = [
+    "Deliver difficult feedback gently, but do not hide or change the verdict.",
+    "Be candid. Name the problem plainly, then give a supportive next step.",
+    "Lead with the verdict, support it with evidence, and finish with a concrete action.",
+    "Be blunt about poor effort, weak consistency and excuses. State the likely consequence if nothing changes.",
+    "Do not sugar-coat. Put the uncomfortable truth first, tie it to their actual data, and tell them exactly what must change.",
+  ];
+  return `COACH PERSONALITY — USER SETTINGS
+SASS ${sass}/5 (${SASS_LEVELS[sass].label}): ${sassInstructions[sass-1]}
+HARD TRUTH ${truth}/5 (${HARD_TRUTH_LEVELS[truth].label}): ${truthInstructions[truth-1]}
+
+Calibration rules:
+- Sass is wit, not contempt. Never insult, humiliate, body-shame, threaten, or use a protected trait as material.
+- Hard truth means accurate, specific and actionable — not reckless certainty. If the evidence is mixed or missing, say that plainly.
+- Never use pain, injury risk, disordered eating, punishment exercise, or unsafe loading as a punchline or a test of commitment.
+- Do not invent a failure just to sound tough. Match the verdict to the logged numbers.`;
 }
 
 function equipmentDigest(state){
@@ -1527,6 +1615,7 @@ function notesDigest(state){
 function buildSystemBlock(state, extra){
   return [
     coachIdentity(),
+    coachStyleDigest(state),
     goalDigest(state),
     profileDigest(state),
     equipmentDigest(state),
@@ -1704,20 +1793,22 @@ const S_EXPLAIN = {
 
 const S_DEBRIEF = {
   type:"object", additionalProperties:false,
-  required:["headline","body","nextFocus"],
+  required:["headline","body","nextFocus","voiceSummary"],
   properties:{
     headline:{type:"string", description:"One sentence verdict on the session."},
     body:{type:"string", description:"2-4 short paragraphs in markdown. What happened, what it means, what changes. Reference their actual numbers."},
     nextFocus:{type:"string", description:"One concrete thing to focus on next session."},
+    voiceSummary:{type:"string", description:"A natural spoken recap, 35-70 words. Lead with the verdict, use their numbers, then say what happens next. No markdown, headings or lists."},
     note:{type:"string", description:"Optional: one short observation worth remembering across sessions. Empty string if none."},
   }};
 
 const S_REVIEW = {
   type:"object", additionalProperties:false,
-  required:["headline","body"],
+  required:["headline","body","voiceSummary"],
   properties:{
     headline:{type:"string"},
     body:{type:"string", description:"Markdown. Progress against their goal, what's working, what to change. Reference real numbers."},
+    voiceSummary:{type:"string", description:"A natural spoken weekly recap, 40-80 words. Verdict, evidence, and one change. No markdown, headings or lists."},
     note:{type:"string", description:"Optional observation to carry forward. Empty string if none."},
   }};
 
@@ -1873,7 +1964,9 @@ ${session.readiness ? `They went in reading as "${session.readiness.label}".` : 
 Debrief it. What actually happened, what it means for their goal, and what changes next time. Use their numbers. Don't be congratulatory about a session that wasn't good, and don't be grim about one that was fine.`,
         });
         const r = rules();
-        return {...r, source:"ai", headline:raw.headline, body:raw.body, nextFocus:raw.nextFocus, note:raw.note||""};
+        return {...r, source:"ai", headline:raw.headline, body:raw.body, nextFocus:raw.nextFocus,
+          voiceSummary:raw.voiceSummary || plainCoachText(`${raw.headline} ${raw.body} Next session: ${raw.nextFocus}`),
+          note:raw.note||""};
       }, rules, "debrief");
     },
 
@@ -1888,7 +1981,9 @@ Debrief it. What actually happened, what it means for their goal, and what chang
 
 Cover: how the week went, progress against their goal specifically, what's working, and one thing to change. Reference real lifts and numbers from their history. Be honest if the week was poor.`,
         });
-        return {...r, source:"ai", headline:raw.headline, body:raw.body, note:raw.note||""};
+        return {...r, source:"ai", headline:raw.headline, body:raw.body,
+          voiceSummary:raw.voiceSummary || plainCoachText(`${raw.headline}. ${raw.body}`),
+          note:raw.note||""};
       }, rules, "review");
     },
 
@@ -2270,7 +2365,7 @@ function Logo({h=26}){
   </svg>);
 }
 
-function Btn({children, onClick, kind="primary", size="md", disabled, full, style}){
+function Btn({children, onClick, kind="primary", size="md", disabled, full, style, ...props}){
   const sizes = {sm:{h:34,fs:".72rem",px:12}, md:{h:46,fs:".95rem",px:16}, lg:{h:54,fs:"1.15rem",px:20}};
   const s = sizes[size];
   const kinds = {
@@ -2280,7 +2375,7 @@ function Btn({children, onClick, kind="primary", size="md", disabled, full, styl
     danger:{background:"transparent", color:C.red, border:`1px solid ${tint(C.red,0x55)}`},
     green:{background:`linear-gradient(135deg,${C.greenDeep},${C.green})`, color:C.onGreen, border:"none"},
   };
-  return (<button onClick={onClick} disabled={disabled} style={{
+  return (<button {...props} onClick={onClick} disabled={disabled} style={{
     height:s.h, padding:`0 ${s.px}px`, borderRadius:12, cursor:disabled?"not-allowed":"pointer",
     fontFamily:"'Bebas Neue',sans-serif", fontSize:s.fs, letterSpacing:".08em",
     width:full?"100%":undefined, opacity:disabled?.4:1, display:"inline-flex",
@@ -2450,6 +2545,43 @@ function Markdown({text, style}){
     return out.join("");
   },[text]);
   return <div className="md" style={{fontSize:"calc(.8rem * var(--ts, 1))",color:C.dim,...style}} dangerouslySetInnerHTML={{__html:html}}/>;
+}
+
+function SpeakButton({text, label="Listen"}){
+  const supported = typeof window!=="undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+  const [speaking,setSpeaking] = useState(false);
+  const utteranceRef = useRef(null);
+
+  useEffect(()=>()=>{
+    if(utteranceRef.current && supported) window.speechSynthesis.cancel();
+  },[supported]);
+
+  function toggle(){
+    if(!supported || !text) return;
+    window.speechSynthesis.cancel();
+    if(speaking){ setSpeaking(false); utteranceRef.current=null; return; }
+
+    const utterance = new SpeechSynthesisUtterance(plainCoachText(text));
+    const voices = window.speechSynthesis.getVoices();
+    const voice = voices.find(v=>v.lang==="en-AU" && /natural|enhanced|premium|neural/i.test(v.name))
+      || voices.find(v=>v.lang==="en-AU")
+      || voices.find(v=>/^en-(GB|NZ|US)/i.test(v.lang));
+    if(voice) utterance.voice = voice;
+    utterance.lang = voice?.lang || "en-AU";
+    utterance.rate = 1.02;
+    utterance.pitch = .96;
+    utterance.onend = ()=>{ setSpeaking(false); utteranceRef.current=null; };
+    utterance.onerror = ()=>{ setSpeaking(false); utteranceRef.current=null; };
+    utteranceRef.current = utterance;
+    setSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  }
+
+  if(!supported || !text) return null;
+  return <Btn kind="ghost" size="sm" onClick={toggle}
+    aria-label={speaking?"Stop voice summary":`${label} to voice summary`}>
+    {speaking?"■ Stop":`▶ ${label}`}
+  </Btn>;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -3402,9 +3534,14 @@ function CheckIn({onSubmit, onSkip}){
 
 function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaining, aiOn}){
   const [open,setOpen] = useState(null);   // "why" | "how" | null
+  const [expanded,setExpanded] = useState(false);
   const done  = logs.filter(l=>l&&l.reps!=null).length;
   const all   = done >= ex.sets;
   const avg   = done ? Math.round((logs.filter(l=>l&&l.reps!=null).reduce((n,l)=>n+l.reps,0)/done)*10)/10 : null;
+
+  useEffect(()=>{
+    if(all){ setExpanded(false); setOpen(null); }
+  },[all]);
 
   // Big number = what you're actually lifting. The prescription row below keeps
   // the coach's number visible regardless.
@@ -3412,10 +3549,14 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
   const shownWeight = loggedSets.length ? loggedSets[loggedSets.length-1].weight : ex.weight;
   const offPlan     = shownWeight !== ex.weight;
 
-  return (<Card style={{marginBottom:10, borderColor: all?`${tint(C.green,0x44)}`:C.lineSoft}}
+  return (<Card style={{marginBottom:10, borderColor: all?`${tint(C.green,0x55)}`:C.lineSoft,
+    background:all?tint(C.green,0x18):C.card}}
     accent={all?C.green:undefined}>
 
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:10}}>
+    <button onClick={()=>setExpanded(v=>!v)} aria-expanded={expanded}
+      aria-label={`${expanded?"Close":"Open"} ${ex.name} exercise details`} style={{
+      width:"100%",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,
+      marginBottom:expanded?10:0,padding:0,background:"transparent",border:"none",cursor:"pointer",textAlign:"left"}}>
       <div style={{minWidth:0,flex:1}}>
         <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3,flexWrap:"wrap"}}>
           <span style={{fontSize:"calc(.56rem * var(--ts, 1))",color:C.ghost,fontWeight:700}}>{String(idx+1).padStart(2,"0")}</span>
@@ -3434,8 +3575,12 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
           {shownWeight}<span style={{fontSize:"calc(0.8rem * var(--ts, 1))",color:C.faint}}>kg</span></div>
         <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,marginTop:2}}>
           {offPlan ? "you're lifting" : `${ex.sets} × ${ex.targetReps}`}</div>
+        <div style={{fontSize:"calc(.56rem * var(--ts, 1))",color:all?C.green:C.ghost,marginTop:5,fontWeight:700,
+          letterSpacing:".04em"}}>{expanded?"HIDE ▴":all?"COMPLETE · VIEW ▾":"OPEN ▾"}</div>
       </div>
-    </div>
+    </button>
+
+    {expanded && (<>
 
     {/* The prescription. Never changes as you log, so the target is always on
         screen even after you've overridden the weight. */}
@@ -3521,6 +3666,7 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
         {explanation.source==="ai" && <Chip color={C.green} style={{alignSelf:"flex-start"}}>coached for you</Chip>}
       </div>)}
     </div>)}
+    </>)}
   </Card>);
 }
 
@@ -3746,7 +3892,10 @@ function DebriefView({debrief, loading, onDone, aiOn}){
 
     <Card style={{marginBottom:12}}>
       <Markdown text={debrief.body}/>
-      {debrief.source==="ai" && <Chip color={C.green} style={{marginTop:10}}>🤖 written for you</Chip>}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,flexWrap:"wrap"}}>
+        {debrief.source==="ai" && <Chip color={C.green}>🤖 written for you</Chip>}
+        <SpeakButton text={debrief.voiceSummary || `${debrief.headline}. ${debrief.body}. Next session: ${debrief.nextFocus||""}`}/>
+      </div>
     </Card>
 
     {debrief.nextFocus && (<Card accent={C.yellow} style={{marginBottom:12}}>
@@ -4023,7 +4172,10 @@ function GoalView({state, setState, review, reviewLoading, onReview, aiOn}){
         </div>
       </div>)}
       <Markdown text={review.body}/>
-      {review.source==="ai" && <Chip color={C.green} style={{marginTop:10}}>🤖 written for you</Chip>}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,flexWrap:"wrap"}}>
+        {review.source==="ai" && <Chip color={C.green}>🤖 written for you</Chip>}
+        <SpeakButton text={review.voiceSummary || `${review.headline}. ${review.body}`}/>
+      </div>
     </Card>) : (
       <Card style={{marginBottom:14,padding:16}}>
         <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.ghost,lineHeight:1.7}}>
@@ -4704,8 +4856,11 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
   }
 
   const p = state.profile, l = state.limits;
+  const coachStyle = {...DEFAULT_COACH_STYLE, ...(state.coachStyle||{})};
   const setP = (k,v) => setState(s=>({...s, profile:{...s.profile,[k]:v}}));
   const setL = (k,v) => setState(s=>({...s, limits:{...s.limits,[k]:v}}));
+  const setCoachStyle = (k,v) => setState(s=>({...s,
+    coachStyle:{...DEFAULT_COACH_STYLE, ...(s.coachStyle||{}), [k]:v}}));
 
   return (<div className="fade" style={{paddingTop:8,paddingBottom:20}}>
     <SectionTitle sub="Everything lives on this device.">SETTINGS</SectionTitle>
@@ -4758,6 +4913,34 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
           options={MODELS.map(m=>({value:m.id,label:m.label,sub:m.note}))}/>
       </Field>
     </Card>)}
+
+    <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>COACH PERSONALITY</div>
+    <Card accent={C.orange} style={{marginBottom:14}}>
+      <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,lineHeight:1.65,marginBottom:16}}>
+        These settings shape every AI-written plan, session brief, debrief, weekly review and chat reply.
+        They do not loosen the coach's safety rules.
+      </div>
+      <Field label={`Sass — ${SASS_LEVELS[coachStyle.sass].label}`}
+        hint={SASS_LEVELS[coachStyle.sass].note}>
+        <Slider min={1} max={5} value={coachStyle.sass}
+          onChange={v=>setCoachStyle("sass",v)} format={v=>`${v} / 5`}/>
+      </Field>
+      <Field label={`Hard truth — ${HARD_TRUTH_LEVELS[coachStyle.hardTruth].label}`}
+        hint={HARD_TRUTH_LEVELS[coachStyle.hardTruth].note}>
+        <Slider min={1} max={5} value={coachStyle.hardTruth}
+          onChange={v=>setCoachStyle("hardTruth",v)} format={v=>`${v} / 5`}/>
+      </Field>
+      <div style={{background:C.raised,border:`1px solid ${C.lineSoft}`,borderRadius:11,padding:"12px 13px"}}>
+        <div style={{fontSize:"calc(.56rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".09em",marginBottom:6}}>HOW THAT SOUNDS</div>
+        <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.dim,lineHeight:1.65}}>
+          {coachStylePreview(coachStyle)}
+        </div>
+      </div>
+      <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.ghost,lineHeight:1.65,marginTop:12}}>
+        On supported phones, session debriefs and weekly reviews include a Listen button. The AI writes a short spoken recap;
+        your phone reads it with its best available English voice, so no second API key or audio upload is needed.
+      </div>
+    </Card>
 
     {/* ── this device ─────────────────────────────────────────────────── */}
     <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>THIS DEVICE</div>
