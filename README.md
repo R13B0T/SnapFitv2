@@ -37,6 +37,13 @@ keeps counting when you switch tabs, and it survives a reload mid-workout.
 **Every exercise shows what the coach prescribed** alongside what you're actually lifting, so
 overriding a weight never loses track of the target.
 
+**Photograph a strange gym and it adapts.** In a hotel, at a friend's place, anywhere that
+isn't your gym: take up to three photos and the coach reads what's there. You confirm the list
+— it flags what it's sure about and what it's guessing — and the day's session is built from
+that instead. Tell it the heaviest dumbbell and nothing gets prescribed above it. Your real
+gym, block, history and working weights are untouched, and it switches itself off overnight so
+you never walk into your own gym holding a hotel session.
+
 **A Learn hub for the concepts.** Progressive overload, RPE and reps-in-reserve, the muscle
 map, rep ranges, why deloads exist, warming up, recovery, what to do when a lift stalls.
 Ten topics with a comprehension check each, and it tracks what you've covered.
@@ -132,6 +139,32 @@ you have is a bench and some dumbbells.
 
 Injury flags work the same way: tick *knees* and nothing knee-loading gets programmed at all.
 
+### Training somewhere else
+
+The Today screen has a venue row. Tap it and you can either photograph the gym you're standing
+in — the coach reads the equipment and you confirm the list before it applies — or pick from a
+list by hand, starting from a preset for the usual hotel setups.
+
+The photo path needs an API key, because there is no way to read a picture offline. **The
+by-hand path needs nothing**, which matters: hotel gyms are in basements and basements have no
+signal. Presets get you to a working list in one tap.
+
+Both paths tell you what the place can actually build before you commit — how many exercises,
+which movement patterns are covered, and which are missing. Dumbbells and a bench covers all
+of them. A row of fixed machines doesn't, and it says so rather than quietly dropping your leg
+work.
+
+Two things it deliberately does:
+
+- **Nothing above the dumbbell ceiling.** Give it the heaviest pair on the rack and it caps
+  every dumbbell prescription there, then tells the coach to add reps instead. Being handed
+  30kg in a room where the heaviest is 15 is the fastest way to stop trusting an app.
+- **Expires overnight.** An away gym is set for a date. Tomorrow it's off, and the record stays
+  on file so a four-night stay is one tap a day rather than a rescan a day.
+
+Your real gym is never edited by any of this. Coming home is one tap, and it drops the session
+that was built for the other place rather than leaving you holding it.
+
 ---
 
 ## How it's built
@@ -159,6 +192,15 @@ so no view ever branches on whether a key exists.
 | `debrief` | Templated from progression outcomes | Written narrative |
 | `weeklyReview` | Adherence + e1RM deltas | Coaching read on the week |
 | `chat` | *(needs a key)* | Streamed, grounded in your data |
+| `scanGym` | *(impossible offline)* | Vision, matched to the station list |
+
+`scanGym` is the exception to the two-engines rule, because you cannot read a photograph
+without a model. It throws rather than falling through, and the UI answers that by offering
+the by-hand picker instead — which is why the feature still works with no key.
+
+One choke point makes the away gym work: `activeStations(state)`. The exercise pool, the
+equipment digest sent to the model and every count in the UI all read it, so overriding the
+venue needed no special-casing downstream and no edit to the stored gym.
 
 Notes on the API usage, since it moved on since v1:
 
@@ -168,6 +210,10 @@ Notes on the API usage, since it moved on since v1:
 - **Prompt caching** on the system block (goal, block, equipment, catalogue, history
   digest). Deliberately byte-stable — no timestamps or per-request ids in it, or the cache
   would be invalidated on every call.
+- **Vision** for the gym scan. Photos are downscaled to 1400px on the long edge in a canvas
+  before sending — a phone hands you 10MB and 4000px, base64 adds a third on top, and the API
+  caps an image at 5MB. The station list goes in the user turn, not the cached system block,
+  so it neither breaks the cache nor gets matched against an already-overridden gym.
 - **Streaming** for chat only.
 - Adaptive thinking left on with a low/medium effort setting. Disabling thinking on Opus 5
   can leak `<thinking>` tags into visible output.
@@ -183,12 +229,18 @@ npm install
 npm test
 ```
 
+264 checks.
+
 - **`test/app.test.js`** — the no-key path end to end: onboarding, check-in, session
   generation, logging a set, form coaching, finishing, the debrief, every tab, persistence
-  across reload, no horizontal scroll at 320px, zero console errors.
+  across reload, no horizontal scroll at 320px, zero console errors. Plus the away gym on the
+  path that needs no key: presets, what gets programmed, the dumbbell ceiling, reusing a
+  remembered venue and forgetting one.
 - **`test/coach.test.js`** — progression maths, readiness banding, v1 CSV migration, and
   the AI path against a mocked API: prompt caching, structured output, and the fallthrough
-  under 500s, 401s and dead connections.
+  under 500s, 401s and dead connections. The gym scan is driven through the real review UI
+  against a mock that returns a station number that doesn't exist, a duplicate and a guess,
+  so the confirmation step is tested as a safety net rather than assumed to be one.
 - **`test/block.test.js`** — simulates a complete 8-week block through the rules engine and
   asserts weeks advance, phases progress in order, load climbs, the deload drops it, and
   equipment and injury constraints actually hold.

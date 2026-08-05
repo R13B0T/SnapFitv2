@@ -51,6 +51,63 @@ function mockSession(){
     ]};
 }
 
+/* A real PNG, so createImageBitmap in the page can actually decode it and the
+   downscale path runs for real rather than being stubbed. */
+function png(w, h){
+  const zlib = require("zlib");
+  const raw = Buffer.alloc((w*3 + 1) * h);
+  for(let y=0; y<h; y++){
+    const row = y * (w*3 + 1);
+    raw[row] = 0;                                    // filter: none
+    for(let x=0; x<w; x++){
+      const p = row + 1 + x*3;
+      raw[p] = (x*7) & 255; raw[p+1] = (y*5) & 255; raw[p+2] = 128;
+    }
+  }
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; ihdr[9] = 2; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;   // 8-bit RGB
+  return Buffer.concat([
+    Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", zlib.deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+let CRC_TABLE = null;
+function crc32(buf){
+  if(!CRC_TABLE){
+    CRC_TABLE = new Int32Array(256);
+    for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c = c&1 ? 0xedb88320 ^ (c>>>1) : c>>>1; CRC_TABLE[n]=c; }
+  }
+  let c = -1;
+  for(let i=0;i<buf.length;i++) c = CRC_TABLE[(c ^ buf[i]) & 255] ^ (c >>> 8);
+  return (c ^ -1) >>> 0;
+}
+
+/* What a vision scan of a hotel gym plausibly returns, including the two things
+   that have to be handled rather than trusted: a station number that isn't in
+   the list at all, and one reported twice. */
+function mockGym(){
+  return { name:"Hotel gym",
+    stations:[
+      {num:"29", confidence:"sure",   seen:"rack of dumbbells on the left"},
+      {num:"25", confidence:"sure",   seen:"adjustable bench, upright"},
+      {num:"26", confidence:"likely", seen:"end of a flat bench in shot"},
+      {num:"35", confidence:"unsure", seen:"might be a leg press behind the pillar"},
+      {num:"29", confidence:"sure",   seen:"duplicate of the dumbbells"},
+      {num:"999",confidence:"sure",   seen:"a station number that does not exist"},
+    ],
+    extras:[{name:"Treadmill", note:"two of them"},{name:"Yoga mats", note:""}],
+    dumbbellMax:20, note:"Small room, no barbell.", summary:"Dumbbells to 20kg and a couple of benches — plenty for a full session." };
+}
+
 (async()=>{
   await new Promise(r=>server.listen(PORT,r));
   const browser = await chromium.launch({...launchOpts()});
@@ -85,7 +142,8 @@ function mockSession(){
     const schema = lastRequest.output_config?.format?.schema;
     let payload;
     const props = schema ? Object.keys(schema.properties||{}) : [];
-    if(props.includes("phases"))            payload = mockBlock();
+    if(props.includes("extras"))            payload = mockGym();
+    else if(props.includes("phases"))       payload = mockBlock();
     else if(props.includes("exercises"))    payload = mockSession();
     else if(props.includes("setup"))        payload = {setup:"Mock setup.",execution:"Mock execution.",mistakes:["Mock mistake one","Mock mistake two"],feel:"Mock feel.",why:"Mock why."};
     else if(props.includes("nextFocus"))    payload = {headline:"Mock headline.",body:"Mock **debrief** body.",nextFocus:"Mock next focus.",note:"Mock note."};
@@ -198,6 +256,89 @@ function mockSession(){
   await page.getByText("How to do it").first().click();
   await page.waitForTimeout(900);
   check("AI form coaching used", /Mock setup/.test(await page.locator("body").innerText()));
+
+  /* The photo path driven through the real UI. The mock returns a station that
+     doesn't exist, one duplicate and one "unsure" — so this also checks that the
+     review step is the safety net it's meant to be rather than a rubber stamp. */
+  console.log("\n── SCAN A GYM THROUGH THE UI ────────────────────");
+  apiMode = "ok";
+  await page.getByText("ABANDON").click(); await page.waitForTimeout(300);
+  await page.getByText("Abandon", {exact:true}).click(); await page.waitForTimeout(700);
+
+  await page.getByText("Your usual gym").click(); await page.waitForTimeout(400);
+  let g = await page.locator("body").innerText();
+  check("photo path is enabled with a key", /Your coach reads the equipment off the photos/.test(g), g.slice(0,500));
+  await page.getByText("📷 Photograph it").click(); await page.waitForTimeout(400);
+  g = await page.locator("body").innerText();
+  check("photo step opens", /PHOTOGRAPH THE GYM/.test(g), g.slice(0,300));
+  check("says photos aren't stored", /aren't stored anywhere/.test(g));
+  check("cannot scan with no photos",
+    await page.getByText("READ THE EQUIPMENT").first().isDisabled().catch(()=>false));
+
+  await page.locator('input[type="file"][accept="image/*"]').setInputFiles([
+    {name:"gym1.png", mimeType:"image/png", buffer:png(600,400)},
+    {name:"gym2.png", mimeType:"image/png", buffer:png(400,600)},
+  ]);
+  await page.waitForTimeout(900);
+  const thumbs = await page.locator('img[src^="data:image/jpeg"]').count();
+  check("both photos preview as thumbnails", thumbs===2, `${thumbs} thumbnails`);
+
+  await page.getByText("READ THE EQUIPMENT").first().click();
+  await page.waitForTimeout(1500);
+  g = await page.locator("body").innerText();
+  check("review step opens", /IS THIS RIGHT/.test(g), g.slice(0,300));
+  check("the scan summary is shown", /Dumbbells to 20kg/.test(g));
+  // These headers are uppercased by CSS, so innerText reports them that way.
+  check("clear finds are grouped", /clearly there/i.test(g));
+  check("guesses are grouped separately", /guesses/i.test(g));
+  check("what it saw is shown so you can check it", /saw: rack of dumbbells on the left/.test(g));
+  check("the invented station never reaches the UI", !/Linear Leg Press/.test(g) || /pillar/.test(g));
+  check("extras are surfaced", /Treadmill/.test(g));
+  check("dumbbell max is pre-filled from the photo",
+    (await page.locator('input[inputmode="decimal"]').last().inputValue()) === "20",
+    await page.locator('input[inputmode="decimal"]').last().inputValue());
+  check("venue name is pre-filled",
+    (await page.locator('input[placeholder="Hotel gym"]').first().inputValue()) === "Hotel gym");
+
+  /* An "unsure" match must start unticked. Ticking it by default is how you end
+     up at a hotel being told to use a leg press that was a pillar. */
+  const guessRow = page.getByText("might be a leg press behind the pillar").locator("..").locator("..");
+  const guessTicked = await guessRow.evaluate(el=>/✓/.test(el.innerText));
+  check("a guess starts unticked", guessTicked === false);
+  const sureTicked = await page.getByText("saw: rack of dumbbells on the left").locator("..").locator("..")
+    .evaluate(el=>/✓/.test(el.innerText));
+  check("a clear find starts ticked", sureTicked === true);
+
+  await page.getByText("TRAIN HERE TODAY").first().click();
+  await page.waitForTimeout(700);
+  const scanned = await page.evaluate(()=>JSON.parse(localStorage.getItem("snapfit_v2")).travel);
+  check("scanned gym applied", scanned?.active===true && scanned?.source==="photo", JSON.stringify(scanned));
+  check("only confirmed stations were kept",
+    scanned.stations.slice().sort().join(",")==="25,26,29", scanned.stations.join(","));
+  check("the unticked guess was excluded", !scanned.stations.includes("35"), scanned.stations.join(","));
+  check("the invented station was never stored", !scanned.stations.includes("999"));
+  check("the venue note came across", /Small room/.test(scanned.note||""), scanned.note);
+  check("dumbbell ceiling stored from the photo", scanned.dumbbellMax===20, `got ${scanned.dumbbellMax}`);
+
+  await page.getByText("BUILD TODAY'S SESSION").click();
+  await page.waitForTimeout(2500);
+  check("the away gym reached the AI request",
+    /TRAINING AWAY FROM THEIR USUAL GYM/.test(lastRequest?.system?.[0]?.text||""),
+    (lastRequest?.system?.[0]?.text||"").slice(0,200));
+  check("the AI was told the dumbbell ceiling",
+    /HEAVIEST DUMBBELL HERE: 20kg/.test(lastRequest?.system?.[0]?.text||""));
+
+  /* Back home, and back to an active session — coming home deliberately drops
+     the session built for the other gym, and the sections below expect one. */
+  await page.locator("text=⚙").click(); await page.waitForTimeout(500);
+  await page.getByText("BACK TO MY USUAL GYM").click(); await page.waitForTimeout(400);
+  await page.getByText("TODAY", {exact:true}).last().click(); await page.waitForTimeout(700);
+  check("back on the usual gym for the rest of the suite",
+    /Your usual gym/.test(await page.locator("body").innerText()));
+  await page.getByText("BUILD TODAY'S SESSION").click();
+  await page.waitForTimeout(2500);
+  check("a home-gym session rebuilds after coming back",
+    /SET 1/.test(await page.locator("body").innerText()));
 
   console.log("\n── AI FALLTHROUGH ───────────────────────────────");
   apiMode = "fail";
@@ -317,6 +458,175 @@ function mockSession(){
   check("skips the 10s cue too", !late.some(c=>c.at===10));
   check("still ticks down and whistles", late.some(c=>c.at===0) && late.some(c=>c.kind==="tick"),
     JSON.stringify(late.map(c=>c.at)));
+
+  /* ── AWAY GYM ──────────────────────────────────────────────────────── */
+
+  console.log("\n── AWAY GYM OVERRIDES THE STATION LIST ──────────");
+  const override = await page.evaluate(()=>{
+    const home = {...defaultState(), travel:null};
+    const away = {...defaultState(), travel:{name:"Hotel", stations:["29","25","26"], custom:[],
+      dumbbellMax:15, note:"", source:"manual", date:todayISO(), active:true}};
+    const off  = {...away, travel:{...away.travel, active:false}};
+    const yesterday = {...away, travel:{...away.travel, date:"2020-01-01"}};
+    return {
+      homeCount: availableExercises(home).length,
+      awayCount: availableExercises(away).length,
+      awayStations: [...new Set(availableExercises(away).flatMap(e=>e.stations))].sort(),
+      offCount: availableExercises(off).length,
+      expiredActive: normaliseTravel(yesterday.travel).active,
+      homeUntouched: home.equipment.enabled.length === away.equipment.enabled.length,
+      venue: [venueName(home), venueName(away)],
+      emptyIsNull: normaliseTravel({name:"x", stations:[], custom:[], active:true}) === null,
+      junkIsNull: normaliseTravel("not an object") === null,
+    };
+  });
+  check("away gym narrows the pool", override.awayCount < override.homeCount,
+    `${override.awayCount} away vs ${override.homeCount} home`);
+  check("only away stations survive the filter",
+    override.awayStations.every(n=>["29","25","26"].includes(n)), override.awayStations.join(","));
+  check("switching it off restores the whole gym", override.offCount === override.homeCount,
+    `${override.offCount} vs ${override.homeCount}`);
+  check("an away gym from another day is inactive", override.expiredActive === false);
+  check("the home gym is never edited", override.homeUntouched);
+  check("venue name follows the override", override.venue[0]==="Your gym" && override.venue[1]==="Hotel",
+    override.venue.join(" / "));
+  check("an empty equipment list is not a venue", override.emptyIsNull);
+  check("junk in storage is not a venue", override.junkIsNull);
+
+  console.log("\n── A BARE GYM STILL TRAINS EVERYTHING ───────────");
+  const bare = await page.evaluate(()=>{
+    const st = {...defaultState(), travel:{name:"Bare", stations:["29","25","26"], custom:[],
+      dumbbellMax:null, note:"", source:"manual", date:todayISO(), active:true}};
+    const pool = availableExercises(st);
+    return { patterns:[...new Set(pool.map(e=>e.pattern))].sort(), count:pool.length,
+             names:pool.map(e=>e.name) };
+  });
+  // Dumbbells and a bench have to cover legs and back, not just presses —
+  // otherwise an away session is upper-body push only and not worth doing.
+  for(const p of ["squat","hinge","push_h","push_v","pull_h","pull_v","core","calf"]){
+    check(`bare gym can train ${p}`, bare.patterns.includes(p), `patterns: ${bare.patterns.join(",")}`);
+  }
+  console.log(`     ${bare.count} exercises from dumbbells and a bench`);
+
+  console.log("\n── DUMBBELL CEILING ─────────────────────────────");
+  const cap = await page.evaluate(()=>{
+    const st = {...defaultState(), travel:{name:"Hotel", stations:["29","25","26"], custom:[],
+      dumbbellMax:12.5, note:"", source:"manual", date:todayISO(), active:true},
+      weights:{ db_bench:{weight:30,lastAvgReps:10,lastEffort:"good",inc:2.5},
+                db_row:{weight:34,lastAvgReps:10,lastEffort:"good",inc:2.5} },
+      block:{id:"b", name:"B", source:"rules", startedAt:todayISO(), totalWeeks:4,
+        phases:[{name:"Base",weeks:4,sets:3,repRange:[8,12],rpe:8,restMult:1,intent:"Go."}]},
+      goal:{type:"muscle", targetDate:null}};
+    const s = buildSessionRules(st, null);
+    const machine = capForVenue(EX_BY_ID.leg_press, 200, st);
+    const home = capForVenue(EX_BY_ID.db_bench, 30, {...st, travel:{...st.travel, active:false}});
+    return { weights:(s?.exercises||[]).map(e=>({name:e.name, kind:EX_BY_ID[e.exId].kind, w:e.weight})),
+             machine, home };
+  });
+  check("no dumbbell above the ceiling",
+    cap.weights.filter(e=>e.kind==="dumbbell").every(e=>e.w <= 12.5),
+    cap.weights.map(e=>`${e.name} ${e.w}kg`).join(", "));
+  check("the ceiling doesn't touch non-dumbbell weights", cap.machine === 200, `got ${cap.machine}`);
+  check("no ceiling at home", cap.home === 30, `got ${cap.home}`);
+
+  console.log("\n── AWAY GYM REACHES THE COACH ───────────────────");
+  const reach = await page.evaluate(()=>{
+    const st = {...defaultState(), travel:{name:"Hotel gym", stations:["29","25","26"], custom:[],
+      dumbbellMax:20, note:"Small room, no barbell.", source:"photo", date:todayISO(), active:true}};
+    const sys = buildSystemBlock(st, "");
+    return { away:/TRAINING AWAY FROM THEIR USUAL GYM/.test(sys),
+             ceiling:/HEAVIEST DUMBBELL HERE: 20kg/.test(sys),
+             note:/Small room, no barbell/.test(sys),
+             noLegPress:!/#35 Linear Leg Press/.test(sys),
+             stable: buildSystemBlock(st,"") === buildSystemBlock(st,"") };
+  });
+  check("the system block says they're away", reach.away);
+  check("the dumbbell ceiling is in the prompt", reach.ceiling);
+  check("the venue note is in the prompt", reach.note);
+  check("home-gym machines are not offered to the model", reach.noLegPress);
+  check("the block is still byte-stable for caching", reach.stable);
+
+  console.log("\n── READING A GYM OFF A PHOTO ────────────────────");
+  apiMode = "ok"; lastRequest = null;
+  const scan = await page.evaluate(async()=>{
+    const c = makeCoach(()=>defaultState(), ()=>"sk-ant-test", ()=>"claude-opus-5", ()=>{});
+    const photos = [{b64:"QUJD", mediaType:"image/jpeg"},{b64:"REVG", mediaType:"image/jpeg"}];
+    const r = await c.scanGym(photos);
+    return r;
+  });
+  check("scan returns a venue name", scan.name==="Hotel gym", scan.name);
+  check("unknown station numbers are dropped",
+    !scan.stations.some(s=>s.num==="999"), JSON.stringify(scan.stations.map(s=>s.num)));
+  check("duplicates are collapsed",
+    scan.stations.filter(s=>s.num==="29").length===1, JSON.stringify(scan.stations.map(s=>s.num)));
+  check("station names are filled in from the catalogue",
+    scan.stations.find(s=>s.num==="29")?.name === "Dumbbells & Rack",
+    JSON.stringify(scan.stations.find(s=>s.num==="29")));
+  check("confidence is carried through for the review step",
+    scan.stations.find(s=>s.num==="35")?.confidence === "unsure");
+  check("what it saw is carried through", /pillar/.test(scan.stations.find(s=>s.num==="35")?.seen||""));
+  check("extras are kept", scan.extras.length===2, JSON.stringify(scan.extras));
+  check("dumbbell max read off the photo", scan.dumbbellMax===20, `got ${scan.dumbbellMax}`);
+
+  const req = lastRequest;
+  const blocks = req?.messages?.[0]?.content || [];
+  check("both photos were sent", blocks.filter(b=>b.type==="image").length===2,
+    JSON.stringify(blocks.map(b=>b.type)));
+  check("photos go as base64 image blocks",
+    blocks[0]?.type==="image" && blocks[0]?.source?.type==="base64" && blocks[0]?.source?.data==="QUJD",
+    JSON.stringify(blocks[0]));
+  check("media type is declared", blocks[0]?.source?.media_type==="image/jpeg");
+  check("the station list is in the user turn, not the cached system block",
+    /29 = Dumbbells & Rack/.test(blocks.find(b=>b.type==="text")?.text||""));
+  check("a structured schema is demanded", !!req?.output_config?.format?.schema?.properties?.extras);
+  check("the system block is still cached", req?.system?.[0]?.cache_control?.type==="ephemeral");
+
+  console.log("\n── SCANNING WITHOUT A KEY ───────────────────────");
+  const noKey = await page.evaluate(async()=>{
+    const c = makeCoach(()=>defaultState(), ()=>"", ()=>"claude-opus-5", ()=>{});
+    try{ await c.scanGym([{b64:"QUJD", mediaType:"image/jpeg"}]); return {threw:false}; }
+    catch(e){ return {threw:true, kind:e.kind, msg:e.message}; }
+  });
+  // The one coach method with no offline twin: it must fail loudly rather than
+  // silently inventing a gym, because the UI offers the by-hand path instead.
+  check("scanning without a key throws rather than guessing", noKey.threw && noKey.kind==="nokey",
+    JSON.stringify(noKey));
+
+  console.log("\n── SCAN FAILURE LEAVES THE GYM ALONE ────────────");
+  apiMode = "fail";
+  const scanFail = await page.evaluate(async()=>{
+    const c = makeCoach(()=>defaultState(), ()=>"sk-ant-test", ()=>"claude-opus-5", ()=>{});
+    try{ await c.scanGym([{b64:"QUJD", mediaType:"image/jpeg"}]); return {threw:false}; }
+    catch(e){ return {threw:true, kind:e.kind}; }
+  });
+  check("a failed scan throws instead of falling through to a wrong gym",
+    scanFail.threw, JSON.stringify(scanFail));
+  apiMode = "ok";
+
+  console.log("\n── PHOTOS ARE SHRUNK BEFORE SENDING ─────────────");
+  const shrunk = await page.evaluate(async()=>{
+    // A 3000x2000 canvas stands in for a phone photo.
+    const c = document.createElement("canvas");
+    c.width = 3000; c.height = 2000;
+    const g = c.getContext("2d");
+    g.fillStyle = "#444"; g.fillRect(0,0,3000,2000);
+    g.fillStyle = "#ccc"; for(let i=0;i<40;i++) g.fillRect(i*70, 400, 40, 900);
+    const blob = await new Promise(r=>c.toBlob(r, "image/png"));
+    const file = new File([blob], "gym.png", {type:"image/png"});
+    const out = await shrinkImage(file);
+    let rejected = null;
+    try{ await shrinkImage(new File([new Blob(["x"])], "n.txt", {type:"text/plain"})); }
+    catch(e){ rejected = e.kind; }
+    return { w:out.w, h:out.h, bytes:out.bytes, type:out.mediaType,
+             origBytes:blob.size, rejected };
+  });
+  check("long edge capped at 1400px", shrunk.w===1400 && shrunk.h===933, `${shrunk.w}x${shrunk.h}`);
+  check("re-encoded as JPEG", shrunk.type==="image/jpeg");
+  check("well under the 5MB API limit", shrunk.bytes < 5_000_000, `${shrunk.bytes} bytes`);
+  check("actually smaller than the original", shrunk.bytes < shrunk.origBytes,
+    `${shrunk.bytes} vs ${shrunk.origBytes}`);
+  check("a non-image is rejected before it's sent", shrunk.rejected==="photo", String(shrunk.rejected));
+  console.log(`     3000x2000 PNG (${Math.round(shrunk.origBytes/1024)}KB) → 1400x933 JPEG (${Math.round(shrunk.bytes/1024)}KB)`);
 
   console.log("\n── FINAL CONSOLE ────────────────────────────────");
   check("zero uncaught errors", errors.length===0, errors.slice(0,5).join(" | "));

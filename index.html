@@ -174,6 +174,22 @@ const EX = [
       execution:"Sit down and slightly back, knees tracking over the toes. Down to at least parallel if your hips allow. Drive the floor away.",
       mistakes:["Knees caving inward on the way up","Heels lifting","Losing the brace and rounding the lower back at the bottom"],
       feel:"Quads and glutes together. Legs, not lower back."} },
+  { id:"goblet_squat", name:"Goblet Squat", stations:["29"], pattern:P.SQUAT, compound:true,
+    primary:"Quads", secondary:["Glutes","Core"], kind:"dumbbell", inc:2.5, start:16, reps:[8,15], tags:["lower","knee"],
+    why:"A full squat that needs nothing but one dumbbell, so it travels. Holding the weight at your chest forces an upright torso, which is why it's often the easiest squat to learn.",
+    cues:{
+      setup:"Hold one dumbbell vertically against your chest, both hands cupped under the top end. Elbows tucked in, feet shoulder-width, toes slightly out.",
+      execution:"Sit straight down between your feet, elbows tracking inside the knees. Go as deep as you can keep a flat back — usually thighs past parallel. Drive up through the whole foot.",
+      mistakes:["Letting the dumbbell drift away from the chest, which pulls you forward","Heels lifting","Cutting the depth short when you actually have more available"],
+      feel:"Quads and glutes, with your upper back working to hold the weight in place."} },
+  { id:"db_split_squat", name:"DB Split Squat", stations:["29"], pattern:P.SQUAT, compound:true,
+    primary:"Quads", secondary:["Glutes"], kind:"dumbbell", inc:2, start:10, reps:[8,12], tags:["lower","knee"],
+    why:"One leg at a time, so each side gets loaded honestly and you can't let the stronger leg cover for the weaker one. Half the weight builds the same leg.",
+    cues:{
+      setup:"A dumbbell in each hand, arms hanging. Step one foot back about a stride length, heel raised. Most of your weight stays on the front leg.",
+      execution:"Lower straight down until the back knee is just off the floor, front shin near vertical. Push through the front foot to stand. All reps on one leg, then swap.",
+      mistakes:["Stepping too short, which turns it into a knee-forward grind","Leaning forward onto the front thigh","Pushing off the back foot to help"],
+      feel:"Front quad and glute working hard, and your balance being tested. That's part of it."} },
 
   /* ── Hip-dominant ─────────────────────────────────────────────────────── */
   { id:"hip_thrust", name:"Glute Drive", stations:["36"], pattern:P.HINGE, compound:true,
@@ -208,6 +224,22 @@ const EX = [
       execution:"Push out smoothly, hold at the widest point for a beat, return slowly against the resistance.",
       mistakes:["Bouncing the stack","Letting the knees snap back in","Using so much weight you rock the whole torso"],
       feel:"Burn on the outer hip, just below the waistline."} },
+  { id:"db_rdl", name:"DB Romanian Deadlift", stations:["29"], pattern:P.HINGE, compound:true,
+    primary:"Hamstrings", secondary:["Glutes","Lower Back"], kind:"dumbbell", inc:2.5, start:14, reps:[8,12], tags:["lower","back"],
+    why:"The hinge pattern with nothing but dumbbells. It loads the hamstrings in the stretched position, which is where they grow, and it teaches the hip hinge that protects your lower back everywhere else.",
+    cues:{
+      setup:"A dumbbell in each hand in front of your thighs. Feet hip-width, knees softly bent and then kept that way — this is a hip movement, not a squat.",
+      execution:"Push your hips back and let the dumbbells travel down your legs, staying close. Stop when you feel a strong hamstring stretch, usually mid-shin. Back stays flat the whole way. Drive the hips forward to stand.",
+      mistakes:["Bending the knees more as you descend, which turns it into a squat","Letting the weights drift away from the legs","Rounding the lower back to chase depth","Leaning back at the top"],
+      feel:"A deep stretch up the back of the thighs, then the glutes finishing the movement."} },
+  { id:"db_hip_thrust", name:"DB Hip Thrust", stations:["29","26"], pattern:P.HINGE, compound:true,
+    primary:"Glutes", secondary:["Hamstrings"], kind:"dumbbell", inc:5, start:20, reps:[10,15], tags:["lower"],
+    why:"Direct glute work when there's no glute machine. Shoulders on a bench and a dumbbell across the hips gets you most of the way there.",
+    cues:{
+      setup:"Upper back across a flat bench, feet flat on the floor about shoulder-width. One dumbbell held across the hip crease with both hands — a towel under it if it digs in.",
+      execution:"Drive through the heels until your body is a straight line from knee to shoulder, squeeze hard for a second, then lower under control.",
+      mistakes:["Arching the lower back to get higher instead of extending the hip","Feet too far away, which shifts it to the hamstrings","Rushing so the glutes never actually squeeze"],
+      feel:"A hard squeeze in the glutes at the top. Ribs stay down."} },
 
   /* ── Horizontal press ─────────────────────────────────────────────────── */
   { id:"chest_press_mach", name:"Chest Press Machine", stations:["15"], pattern:P.PUSH_H, compound:true,
@@ -331,6 +363,14 @@ const EX = [
       execution:"Start from a full hang, pull the chest to the bar, lower all the way under control.",
       mistakes:["Kipping and swinging","Stopping short of a full hang"],
       feel:"Lats and biceps. Aim to reduce the assistance over the block."} },
+  { id:"db_pullover", name:"DB Pullover", stations:["29","26"], pattern:P.PULL_V, compound:true,
+    primary:"Lats", secondary:["Chest","Triceps"], kind:"dumbbell", inc:2.5, start:12, reps:[10,15], tags:["upper","back","shoulder"],
+    why:"The only way to train the lats in their overhead range with nothing but a dumbbell and a bench. It won't replace a pulldown, but it keeps the lats working when there's no cable in the room.",
+    cues:{
+      setup:"Lie along a flat bench, one dumbbell held over your chest with both hands cupping the top end. Ribs down, feet planted.",
+      execution:"Lower the dumbbell back over your head with the elbows only slightly bent, until you feel a stretch through the lats and ribs. Pull it back over your chest by driving the elbows toward your hips.",
+      mistakes:["Going so far back that the shoulders are forced past comfortable — range comes from the lats, not the joint","Bending the elbows so much it becomes a triceps extension","Letting the lower back arch off the bench"],
+      feel:"A wide stretch across the ribs and armpits on the way back, lats pulling on the way over."} },
 
   /* ── Delts ────────────────────────────────────────────────────────────── */
   { id:"lateral_raise_mach", name:"Lateral Raise Machine", stations:["13"], pattern:P.DELTS, compound:false,
@@ -415,6 +455,22 @@ const EX = [
       execution:"Drop the heels for a full stretch, pause, then rise to the highest point and hold for a second.",
       mistakes:["Short bouncy reps","Skipping the stretch at the bottom"],
       feel:"Stretch at the bottom, hard cramp at the top."} },
+  { id:"db_crunch", name:"Weighted Crunch", stations:["29"], pattern:P.CORE, compound:false,
+    primary:"Core", secondary:[], kind:"dumbbell", inc:2.5, start:5, reps:[12,20], tags:["core"],
+    why:"Loadable core work with one dumbbell. Abs respond to added resistance like any other muscle, and holding a weight is what stops you doing endless unproductive sit-ups.",
+    cues:{
+      setup:"On your back, knees bent, feet flat. Hold one dumbbell against your chest or just above it with both hands.",
+      execution:"Curl your ribs toward your hips — shoulder blades leave the floor, lower back stays down. Pause at the top, lower slowly.",
+      mistakes:["Sitting all the way up, which is hip flexor work rather than abs","Yanking the head forward with the arms","Rushing so there's no pause at the top"],
+      feel:"Abs shortening under the load. Neck relaxed."} },
+  { id:"db_calf_raise", name:"DB Calf Raise", stations:["29"], pattern:P.CALF, compound:false,
+    primary:"Calves", secondary:[], kind:"dumbbell", inc:2.5, start:12, reps:[15,25], tags:["lower","ankle"],
+    why:"Calves need a full stretch and high reps more than they need a machine. A dumbbell in one hand and a step gets that done anywhere.",
+    cues:{
+      setup:"One dumbbell in one hand, the other hand on a wall or rack for balance. Balls of the feet on a step or plate if you have one, so the heels can drop below.",
+      execution:"Drop the heels for a full stretch, pause, then rise as high as you can onto the toes and hold for a second at the top.",
+      mistakes:["Short bouncy reps that skip both ends of the range","Standing flat on the floor, which loses the stretch","Bending the knees to bounce the weight up"],
+      feel:"Stretch at the bottom, hard cramp at the top. Swap hands between sets."} },
 ];
 
 const EX_BY_ID = Object.fromEntries(EX.map(e=>[e.id,e]));
@@ -422,7 +478,9 @@ const EX_NAME  = Object.fromEntries(EX.map(e=>[e.id,e.name]));
 
 /* Free-weight preference: when the user asks for more free weights, these
    patterns swap toward dumbbell/barbell variants where available. */
-const FREE_WEIGHT_IDS = new Set(["db_bench","db_incline","db_row","db_shoulder_press","db_lateral_raise","db_curl","db_tricep_ext","squat_smith"]);
+const FREE_WEIGHT_IDS = new Set(["db_bench","db_incline","db_row","db_shoulder_press","db_lateral_raise","db_curl","db_tricep_ext","squat_smith",
+  "goblet_squat","db_split_squat","db_rdl","db_hip_thrust","db_pullover","db_crunch","db_calf_raise"]);
+
 
 /* ═══════════════════════════════════════════════════════════════════════════
    GOALS & BLOCK TEMPLATES
@@ -738,6 +796,7 @@ function defaultState(){
     profile:{...DEFAULT_PROFILE},
     limits:{...DEFAULT_LIMITS},
     equipment:{ enabled:SEED_STATIONS.map(s=>s.num), custom:[] },
+    travel:null,          // an away gym for today — see TRAVEL / AWAY GYM below
     block:null,
     weights:{},          // { [exId]: {weight,lastAvgReps,lastTargetReps,inc,lastEffort,updated} }
     exerciseHistory:{},  // { [exId]: [ {date,weight,avgReps,targetReps,setsLogged,totalSets,dayName} ] }
@@ -755,6 +814,7 @@ function migrate(raw){
   s.profile   = {...DEFAULT_PROFILE, ...(raw.profile||{})};
   s.limits    = {...DEFAULT_LIMITS,  ...(raw.limits||{})};
   s.equipment = {enabled:SEED_STATIONS.map(x=>x.num), custom:[], ...(raw.equipment||{})};
+  s.travel    = normaliseTravel(raw.travel);
   s.learn     = {read:[], quiz:{},  ...(raw.learn||{})};
   ["weights","exerciseHistory"].forEach(k=>{ if(!s[k]||typeof s[k]!=="object") s[k]={}; });
   ["sessions","checkins","bodyLog","chat","coachNotes"].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
@@ -842,12 +902,73 @@ function durationShape(mins){
   return       {maxEx:8, label:"Long",     emoji:"🏆", color:C.purple, note:"Eight exercises. Bring a drink."};
 }
 
+/* ── Away gym ─────────────────────────────────────────────────────────────
+   A travel venue overrides the home gym for one day: a hotel gym, a friend's
+   garage, whatever the photo found. It deliberately does NOT touch
+   state.equipment, so coming home is a single flag flip and nothing about the
+   real gym was ever edited.
+
+   `date` is the day it was set up for. An away gym goes inactive by itself
+   overnight — you should never walk into your own gym and be handed a hotel
+   session because you forgot to switch back. The record survives so a four
+   night stay is one tap a day rather than a rescan.                        */
+
+function normaliseTravel(raw){
+  if(!raw || typeof raw!=="object") return null;
+  const t = {
+    name: String(raw.name||"Away gym").slice(0,40),
+    stations: Array.isArray(raw.stations) ? raw.stations.map(String) : [],
+    custom: Array.isArray(raw.custom)
+      ? raw.custom.filter(c=>c&&c.num&&c.name).map(c=>({num:String(c.num), name:String(c.name), kind:"travel"}))
+      : [],
+    note: String(raw.note||"").slice(0,400),
+    dumbbellMax: Number(raw.dumbbellMax)>0 ? Number(raw.dumbbellMax) : null,
+    source: raw.source==="photo" ? "photo" : "manual",
+    date: typeof raw.date==="string" ? raw.date : todayISO(),
+    active: !!raw.active,
+  };
+  if(!t.stations.length && !t.custom.length) return null;
+  if(t.date !== todayISO()) t.active = false;    // expires overnight, but is kept
+  return t;
+}
+
+function travelOn(state){ return !!(state.travel && state.travel.active); }
+
+function venueName(state){
+  return travelOn(state) ? state.travel.name : "Your gym";
+}
+
+/* The dumbbell rack at an away gym has a ceiling, and being told to press 30s
+   when the heaviest pair is 15 is worse than useless. Every dumbbell weight in
+   the catalogue is the weight of ONE dumbbell, so the rack's heaviest pair is
+   the cap regardless of whether the exercise uses one hand or two. Capped here
+   rather than in the picker so it holds on both coach paths. */
+function capForVenue(ex, weight, state){
+  const max = travelOn(state) ? state.travel.dumbbellMax : null;
+  if(!max || ex.kind!=="dumbbell") return weight;
+  return Math.min(weight, max);
+}
+
 /* ── Equipment & exercise availability ────────────────────────────────────── */
 
+/* Every station this app knows about, wherever it came from. */
+function stationCatalogue(state){
+  return [...SEED_STATIONS, ...(state.equipment?.custom||[]), ...(state.travel?.custom||[])];
+}
+
+/* The stations available RIGHT NOW, as objects. Single choke point: the pool,
+   the digests sent to the AI and the equipment counts in the UI all read this,
+   so an away gym needs no special-casing anywhere downstream. */
+function activeStations(state){
+  const all = stationCatalogue(state);
+  const nums = travelOn(state)
+    ? new Set([...(state.travel.stations||[]), ...(state.travel.custom||[]).map(c=>c.num)])
+    : new Set([...(state.equipment.enabled||[]), ...(state.equipment.custom||[]).map(c=>c.num)]);
+  return all.filter(s=>nums.has(s.num));
+}
+
 function enabledStationSet(state){
-  const set = new Set(state.equipment.enabled||[]);
-  (state.equipment.custom||[]).forEach(s=>set.add(s.num));
-  return set;
+  return new Set(activeStations(state).map(s=>s.num));
 }
 
 function limitBlocks(ex, limits){
@@ -1006,7 +1127,7 @@ function buildSessionRules(state, checkin){
       sets,
       targetReps: reps,
       repRange: phase.repRange,
-      weight: round25(ww.weight * adj.loadMult),
+      weight: round25(capForVenue(ex, ww.weight * adj.loadMult, state)),
       inc: ex.inc,
       rpe: clamp(phase.rpe + (adj.key==="amber"?-1:adj.key==="red"?-2:0), 5, 10),
       rest: restSeconds(ex, phase),
@@ -1025,6 +1146,9 @@ function buildSessionRules(state, checkin){
     phaseName: phase.name,
     phaseIntent: phase.intent,
     shape: shape.label,
+    /* Recorded on the session so the log tells you why a week looks odd —
+       three sessions at 15kg dumbbells reads as a plateau otherwise. */
+    venue: travelOn(state) ? state.travel.name : null,
     source: "rules",
     readiness: adj,
     checkin: checkin||null,
@@ -1068,7 +1192,25 @@ function buildBriefRules(day, phase, prog, state, exercises){
     ? `You'll know you've done it right if you leave feeling like you could have done the whole thing again.`
     : `You'll know it worked if you reach ${hi} reps on most sets with your form intact. Get there and the weight goes up next time — that's the whole mechanism. If you can't hit ${lo} with clean reps, the weight's too heavy, and dropping it is the fast way forward rather than the slow one.${goal ? ` All of it is in service of ${goal.label.toLowerCase()}.` : ""}`;
 
-  return `${purpose}\n\n**What's required.** ${required}\n\n**The standard.** ${standard}`;
+  /* An away-gym session looks like a downgrade unless something says otherwise.
+     It gets the first paragraph, because "why is my session different today"
+     is the question you have before any of the rest of this matters. */
+  const away = travelOn(state) ? awayParagraph(state, exercises) : "";
+
+  return [away, purpose, `**What's required.** ${required}`, `**The standard.** ${standard}`]
+    .filter(Boolean).join("\n\n");
+}
+
+function awayParagraph(state, exercises){
+  const t = state.travel;
+  const missing = ["squat","hinge","pull_v","core","calf"]
+    .filter(p=>!exercises.some(e=>e.pattern===p));
+  const bits = [`**You're at ${t.name} today, not your usual gym**, so this is built from what's actually there.`];
+  if(t.dumbbellMax) bits.push(`The heaviest dumbbells are ${t.dumbbellMax}kg, so where that's lighter than your working weight the reps go up instead — a set of 15 at 15kg is a real stimulus, it's just a different one.`);
+  bits.push(missing.length
+    ? `Some patterns aren't trainable here, so they're missing rather than faked. Pick them back up at home; one session doesn't undo a block.`
+    : `Every movement pattern is still covered, so nothing is being skipped — the exercises are just different.`);
+  return bits.join(" ");
 }
 
 function focusTipFor(day, phase){
@@ -1224,11 +1366,15 @@ Where your remit ends:
 }
 
 function equipmentDigest(state){
-  const stations = enabledStationSet(state);
-  const list = [...SEED_STATIONS, ...(state.equipment.custom||[])]
-    .filter(s=>stations.has(s.num))
-    .map(s=>`#${s.num} ${s.name}`).join(" | ");
-  return `EQUIPMENT AVAILABLE (only ever program these):\n${list}`;
+  const list = activeStations(state).map(s=>`#${s.num} ${s.name}`).join(" | ");
+  let out = `EQUIPMENT AVAILABLE (only ever program these):\n${list}`;
+  if(travelOn(state)){
+    const t = state.travel;
+    out = `TRAINING AWAY FROM THEIR USUAL GYM TODAY: "${t.name}". Program only what's listed below — their home gym's machines are NOT available. Acknowledge this in what you write and treat it as a session worth doing rather than a compromise.\n\n` + out;
+    if(t.dumbbellMax) out += `\nHEAVIEST DUMBBELL HERE: ${t.dumbbellMax}kg. Never prescribe a dumbbell weight above it. If their working weight is higher, say so and add reps or slow the tempo instead.`;
+    if(t.note)        out += `\nNOTES ON THIS VENUE: ${t.note}`;
+  }
+  return out;
 }
 
 function catalogueDigest(state){
@@ -1395,6 +1541,37 @@ async function streamAnthropic({state, key, model, messages, onDelta, signal, sy
   return out;
 }
 
+/* ── Photos ───────────────────────────────────────────────────────────────
+   A phone camera hands you 8-12MB and 4000px of gym photo. Base64 inflates it
+   by a third on top of that, and the API caps an image at 5MB. Sending it raw
+   would fail on mobile data before it ever reached the model, so every photo is
+   drawn through a canvas at a sane size first — 1400px on the long edge is more
+   than enough to read a dumbbell rack, and lands around 200-400KB.          */
+
+const PHOTO_MAX_EDGE = 1400;
+const PHOTO_QUALITY  = 0.82;
+const PHOTO_MAX      = 3;      // one photo rarely captures a whole room
+
+async function shrinkImage(file, maxEdge=PHOTO_MAX_EDGE){
+  if(!/^image\//.test(file.type||"")) throw new CoachError("That's not an image file.","photo");
+  let bmp;
+  try{ bmp = await createImageBitmap(file); }
+  catch{ throw new CoachError("Couldn't read that image — try a JPEG or PNG.","photo"); }
+
+  const scale = Math.min(1, maxEdge/Math.max(bmp.width, bmp.height));
+  const w = Math.max(1, Math.round(bmp.width*scale));
+  const h = Math.max(1, Math.round(bmp.height*scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  canvas.getContext("2d").drawImage(bmp, 0, 0, w, h);
+  bmp.close?.();
+
+  const dataUrl = canvas.toDataURL("image/jpeg", PHOTO_QUALITY);
+  const b64 = dataUrl.split(",")[1] || "";
+  if(!b64) throw new CoachError("Couldn't process that image.","photo");
+  return { b64, mediaType:"image/jpeg", w, h, bytes: Math.round(b64.length*3/4), preview: dataUrl };
+}
+
 /* ── Schemas ──────────────────────────────────────────────────────────────── */
 
 const S_BLOCK = {
@@ -1465,6 +1642,34 @@ const S_REVIEW = {
     headline:{type:"string"},
     body:{type:"string", description:"Markdown. Progress against their goal, what's working, what to change. Reference real numbers."},
     note:{type:"string", description:"Optional observation to carry forward. Empty string if none."},
+  }};
+
+/* Reading a gym off a photo. `confidence` matters more than it looks: the user
+   confirms this list before it's used, and flagging the guesses is what makes
+   the confirmation step quick instead of a full audit. */
+const S_GYM = {
+  type:"object", additionalProperties:false,
+  required:["name","stations","summary"],
+  properties:{
+    name:{type:"string", description:"A short label for this place, 3-4 words max, e.g. 'Hotel gym' or 'Apartment gym'. Guess from what you can see. No punctuation."},
+    stations:{ type:"array", maxItems:40, items:{
+      type:"object", additionalProperties:false,
+      required:["num","confidence"],
+      properties:{
+        num:{type:"string", description:"The station number from the STATION LIST you were given. Only ever numbers from that list."},
+        confidence:{type:"string", enum:["sure","likely","unsure"], description:"'sure' means you can clearly see it. 'likely' means you can see part of it or it's partly obscured. 'unsure' means you're inferring it from context — say a bench you can only see the end of."},
+        seen:{type:"string", description:"What in the photo made you say this, max 12 words. The user reads this to check your work."},
+      }}},
+    extras:{ type:"array", maxItems:10, items:{
+      type:"object", additionalProperties:false,
+      required:["name"],
+      properties:{
+        name:{type:"string", description:"Equipment you can see that is NOT in the station list, e.g. 'Treadmill', 'Kettlebells', 'Resistance bands'."},
+        note:{type:"string", description:"Anything useful about it, max 12 words. Empty string if nothing to add."},
+      }}},
+    dumbbellMax:{type:"number", description:"The heaviest single dumbbell you can actually read a number on, in kg. 0 if you can't read any numbers — do not guess from size, a wrong ceiling is worse than none."},
+    note:{type:"string", description:"What a coach would want to know about training here that the equipment list doesn't say: how limited it is, what's conspicuously missing, cable or plate loading, anything about space. 1-2 sentences. Empty string if nothing to add."},
+    summary:{type:"string", description:"One or two sentences to the user about what you can see and what kind of session it supports. Second person, coach's voice, no list — they can already see the list."},
   }};
 
 /* ── The coach facade ─────────────────────────────────────────────────────── */
@@ -1614,6 +1819,64 @@ Cover: how the week went, progress against their goal specifically, what's worki
       const state = getState();
       return streamAnthropic({state, key:getKey(), model:getModel(), messages, onDelta, signal,
         systemExtra:`They are chatting with you now. Today is ${todayISO()}. Answer using their real history above. Keep replies tight — a few short paragraphs at most unless they ask for depth. Markdown is fine.`});
+    },
+
+    /* Read a gym off photos.
+
+       The only coach method with no rules twin: there is no offline way to
+       look at a picture, so this one throws rather than falling through to
+       something worse. The UI offers the by-hand path instead, which is why
+       the feature still works with no key at all.
+
+       The station list goes in the USER turn, not the system block. The system
+       block's equipment digest lists what's available *now* — which, if an away
+       gym is already active, is exactly the wrong list to match against, and
+       putting the full catalogue there would break the cache for every other
+       call. */
+    async scanGym(photos){
+      const state = getState();
+      const key = getKey();
+      if(!key) throw new CoachError("Reading a photo needs an API key.","nokey");
+      if(!photos?.length) throw new CoachError("No photo to look at.","photo");
+
+      const list = SEED_STATIONS.map(s=>`${s.num} = ${s.name} (${s.kind})`).join("\n");
+      const content = [
+        ...photos.slice(0,PHOTO_MAX).map(p=>({
+          type:"image", source:{type:"base64", media_type:p.mediaType, data:p.b64}})),
+        { type:"text", text:`${photos.length===1?"This photo shows":"These photos show"} a gym the user is training in today, away from their usual one. Work out what they can train with.
+
+STATION LIST — match what you see to these, and only these, by number:
+${list}
+
+How to do this well:
+- Only report a station if you can actually see something that is that piece of equipment. A room that "probably has" a leg press does not have one.
+- Match on function, not on brand or colour. Any adjustable bench is #25. Any rack of dumbbells is #29. A cable crossover or functional trainer is #17. A single cable tower is #24.
+- A "likely" or "unsure" is genuinely useful to the user, so use them rather than dropping a partly visible machine or promoting it to certain. They will confirm your list before it's used.
+- If you can read weight numbers on the dumbbells, give the heaviest. If you cannot read them, return 0. Guessing a ceiling from how big they look is worse than admitting you can't tell, because they'll be handed a weight they can't lift.
+- Put anything real but not on the list into extras — treadmills, kettlebells, bands, a mat. It won't be programmed, but the coach reads it.
+- If the photos show no gym equipment at all, return an empty stations list and say so plainly in the summary. Don't invent a gym to be helpful.` },
+      ];
+
+      const raw = await callAnthropic({
+        state, key, model:getModel(), schema:S_GYM, effort:"low", maxTokens:2000,
+        userText:content, timeoutMs:70000,
+      });
+
+      const valid = new Set(SEED_STATIONS.map(s=>s.num));
+      const seen  = new Set();
+      const stations = (raw.stations||[])
+        .filter(s=>valid.has(String(s.num)) && !seen.has(String(s.num)) && seen.add(String(s.num)))
+        .map(s=>({num:String(s.num), confidence:s.confidence||"likely", seen:s.seen||"",
+                  name:(SEED_STATIONS.find(x=>x.num===String(s.num))||{}).name||""}));
+
+      return {
+        name: (raw.name||"Away gym").trim().slice(0,40) || "Away gym",
+        stations,
+        extras: (raw.extras||[]).filter(e=>e?.name).map(e=>({name:String(e.name).slice(0,40), note:String(e.note||"")})),
+        dumbbellMax: Number(raw.dumbbellMax)>0 ? round25(Number(raw.dumbbellMax)) : null,
+        note: String(raw.note||""),
+        summary: String(raw.summary||""),
+      };
     },
 
     async testKey(key){
@@ -2210,6 +2473,404 @@ function RepPicker({exercise, setIndex, initial, lastWeight, onSave, onClose}){
    and it self-corrects the moment you come back.
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   AWAY GYM
+   Photograph a hotel gym, confirm what was found, train from it for the day.
+
+   Two paths on purpose. The photo path needs a key; the by-hand path needs
+   nothing, so travelling still works offline in a basement gym with no signal —
+   which is where you most often are when you need this.
+
+   Everything the photo produces is CONFIRMED before it applies. Vision misreads
+   equipment, and a silently wrong list means a session full of exercises you
+   can't do. Reviewing a ticked list takes ten seconds and removes that failure
+   mode entirely.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* A small hotel gym, as a starting point for the by-hand path. Dumbbells and a
+   couple of benches is the overwhelmingly common case. */
+const VENUE_PRESETS = [
+  {id:"hotel",   label:"Typical hotel gym", sub:"Dumbbells, benches, a cable stack",
+   stations:["29","25","26","17","37"]},
+  {id:"minimal", label:"Dumbbells and a bench", sub:"The bare minimum that still trains everything",
+   stations:["29","25","26"]},
+  {id:"machines",label:"Machine circuit",     sub:"A row of fixed machines, no free weights",
+   stations:["15","16","6","10","11","35","48"]},
+];
+
+const CONF_STYLE = {
+  sure:   {label:"clear",     color:C.green},
+  likely: {label:"likely",    color:C.yellow},
+  unsure: {label:"a guess",   color:C.orange},
+};
+
+function GymSheet({state, coach, apiKey, onApply, onClear, onForget, onClose}){
+  const t = state.travel;
+  const [mode,setMode]   = useState(t && !t.active ? "again" : "menu");
+  const [busy,setBusy]   = useState(false);
+  const [err,setErr]     = useState("");
+  const [photos,setPhotos] = useState([]);      // [{preview,b64,mediaType,bytes}]
+  const [found,setFound] = useState(null);      // scan result awaiting confirmation
+  const [ticked,setTicked] = useState(new Set());
+  const [name,setName]   = useState("");
+  const [dbMax,setDbMax] = useState("");
+  const fileRef = useRef(null);
+
+  const stationName = num => (SEED_STATIONS.find(s=>s.num===num)||{}).name || `#${num}`;
+
+  /* How much of a session a given station list can actually build, worked out
+     against the real pool so the number isn't a guess. This is the honest
+     answer to "is this enough to train?" and it's shown before you commit. */
+  function coverage(nums){
+    const probe = {...state, travel:{name:"probe", stations:nums, custom:[], active:true, date:todayISO()}};
+    const pool = availableExercises(probe);
+    const patterns = new Set(pool.map(e=>e.pattern));
+    const core = [P.SQUAT,P.HINGE,P.PUSH_H,P.PUSH_V,P.PULL_H,P.PULL_V];
+    return { count:pool.length, covered:core.filter(p=>patterns.has(p)),
+             missing:core.filter(p=>!patterns.has(p)) };
+  }
+
+  async function addPhotos(e){
+    const files = [...(e.target.files||[])];
+    e.target.value = "";
+    if(!files.length) return;
+    setErr("");
+    setBusy(true);
+    try{
+      const room = PHOTO_MAX - photos.length;
+      if(room <= 0) throw new CoachError(`Three photos is the limit — that's plenty for one room.`,"photo");
+      const shrunk = [];
+      for(const f of files.slice(0,room)) shrunk.push(await shrinkImage(f));
+      setPhotos(p=>[...p, ...shrunk]);
+    }catch(e2){ setErr(e2.message); }
+    finally{ setBusy(false); }
+  }
+
+  async function runScan(){
+    setErr(""); setBusy(true);
+    try{
+      const r = await coach.scanGym(photos);
+      setFound(r);
+      setName(r.name);
+      setDbMax(r.dumbbellMax ? String(r.dumbbellMax) : "");
+      // Guesses start unticked. An unsure match you never noticed is exactly
+      // the thing that produces an exercise you can't do.
+      setTicked(new Set(r.stations.filter(s=>s.confidence!=="unsure").map(s=>s.num)));
+      setMode("review");
+    }catch(e2){
+      setErr(e2.kind==="nokey" ? "Reading a photo needs an API key. Settings has the field, or pick your equipment by hand below."
+           : e2.kind==="auth"  ? "Your API key was rejected. Check it in Settings."
+           : `Couldn't read the photos: ${e2.message}`);
+    }
+    finally{ setBusy(false); }
+  }
+
+  /* Everything is passed in rather than read off the form fields, because the
+     reuse path has no form — reading `dbMax` there silently dropped the
+     dumbbell ceiling and handed you weights the rack doesn't have. */
+  function applyNow({stations, label, source, dumbbellMax, note}){
+    const list = [...stations];
+    if(!list.length){ setErr("Tick at least one thing you can train with."); return; }
+    onApply({
+      name: (label||"Away gym").trim() || "Away gym",
+      stations: list,
+      custom: [],
+      note: note || "",
+      dumbbellMax: Number(dumbbellMax)>0 ? Number(dumbbellMax) : null,
+      source: source || "manual",
+      date: todayISO(),
+      active: true,
+    });
+  }
+  const typedMax = () => Number(dbMax)>0 ? Number(dbMax) : null;
+
+  /* ── an away gym from a previous day, still on file ───────────────────── */
+  if(mode==="again" && t) {
+    const cov = coverage(t.stations);
+    return (<Sheet onClose={onClose} title="TRAINING AWAY AGAIN?"
+      sub={`You set up ${t.name} on ${t.date}. It's switched off because that was a different day.`}>
+      <Card accent={C.blue} style={{marginBottom:12}}>
+        <div style={{fontSize:"calc(.84rem * var(--ts, 1))",color:C.text,fontWeight:700,marginBottom:6}}>{t.name}</div>
+        <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,lineHeight:1.6}}>
+          {t.stations.length} stations · {cov.count} exercises available
+          {t.dumbbellMax ? ` · dumbbells to ${t.dumbbellMax}kg` : ""}
+        </div>
+      </Card>
+      <Btn size="lg" full onClick={()=>applyNow({stations:t.stations, label:t.name, source:t.source,
+        dumbbellMax:t.dumbbellMax, note:t.note})}>USE {t.name.toUpperCase()} TODAY</Btn>
+      <div style={{display:"flex",gap:8,marginTop:10}}>
+        {/* Somewhere new means starting clean — inheriting the last venue's
+            name and dumbbell ceiling would quietly mislabel the new one. */}
+        <Btn kind="solid" full onClick={()=>{ setName(""); setDbMax(""); setMode("menu"); }}>Somewhere new</Btn>
+        <Btn kind="ghost" full onClick={onForget}>Forget it</Btn>
+      </div>
+    </Sheet>);
+  }
+
+  /* ── the review step: correct the scan before it applies ─────────────── */
+  if(mode==="review" && found){
+    const cov = coverage([...ticked]);
+    const byConf = ["sure","likely","unsure"];
+    return (<Sheet onClose={onClose} title="IS THIS RIGHT?"
+      sub="Untick anything that isn't there. This is the list your session gets built from.">
+
+      {found.summary && <Card accent={C.blue} style={{marginBottom:12}}>
+        <Markdown text={found.summary}/>
+      </Card>}
+
+      {!found.stations.length && (<Card accent={C.orange} style={{marginBottom:12}}>
+        <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.text,lineHeight:1.6}}>
+          Nothing in the catalogue was recognised in those photos. Either it's equipment this app
+          doesn't know, or the photos didn't capture much. Pick by hand instead — it'll be quicker
+          than another round of photos.
+        </div>
+        <Btn kind="solid" full style={{marginTop:10}} onClick={()=>setMode("manual")}>PICK BY HAND →</Btn>
+      </Card>)}
+
+      {byConf.map(conf=>{
+        const rows = found.stations.filter(s=>s.confidence===conf);
+        if(!rows.length) return null;
+        const cs = CONF_STYLE[conf];
+        return (<div key={conf} style={{marginBottom:12}}>
+          <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:cs.color,fontWeight:700,
+            letterSpacing:".1em",textTransform:"uppercase",marginBottom:6}}>
+            {conf==="sure"?"Clearly there":conf==="likely"?"Probably there":"Guesses — ticked only if you say so"}
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {rows.map(s=>{
+              const on = ticked.has(s.num);
+              return (<button key={s.num} onClick={()=>setTicked(x=>{
+                  const n = new Set(x); n.has(s.num) ? n.delete(s.num) : n.add(s.num); return n; })}
+                style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:11,
+                  border:`1px solid ${on?`${C.green}55`:C.line}`, background:on?`${C.green}0d`:C.raised,
+                  cursor:"pointer",textAlign:"left",width:"100%"}}>
+                <span style={{width:20,height:20,borderRadius:6,flexShrink:0,display:"inline-flex",
+                  alignItems:"center",justifyContent:"center",fontSize:"calc(.7rem * var(--ts, 1))",
+                  border:`1.5px solid ${on?C.green:C.line}`,background:on?C.green:"transparent",
+                  color:"#06210f",fontWeight:900}}>{on?"✓":""}</span>
+                <span style={{flex:1,minWidth:0}}>
+                  <span style={{display:"block",fontSize:"calc(.78rem * var(--ts, 1))",
+                    color:on?C.text:C.dim,fontWeight:on?600:400}}>{s.name}</span>
+                  {s.seen && <span style={{display:"block",fontSize:"calc(.6rem * var(--ts, 1))",
+                    color:C.ghost,marginTop:2}}>saw: {s.seen}</span>}
+                </span>
+              </button>);
+            })}
+          </div>
+        </div>);
+      })}
+
+      {!!found.extras.length && (<div style={{marginBottom:12}}>
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.faint,fontWeight:700,
+          letterSpacing:".1em",textTransform:"uppercase",marginBottom:6}}>Also spotted</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {found.extras.map((x,i)=><Chip key={i} color={C.faint}>{x.name}</Chip>)}
+        </div>
+        <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,marginTop:6,lineHeight:1.5}}>
+          Not in the exercise catalogue, so nothing gets programmed on them — but your coach knows they're there if you ask.
+        </div>
+      </div>)}
+
+      <Field label="Call this place">
+        <Input value={name} onChange={e=>setName(e.target.value)} placeholder="Hotel gym"/>
+      </Field>
+
+      <Field label="Heaviest dumbbell" hint={found.dumbbellMax
+          ? "Read off your photo. Correct it if that's wrong — the coach won't prescribe above it."
+          : "Couldn't read the numbers off the photo. Worth filling in: nothing will be prescribed above it."}>
+        <Input value={dbMax} onChange={e=>setDbMax(e.target.value)} inputMode="decimal" placeholder="e.g. 20"/>
+      </Field>
+
+      <CoverageNote cov={cov}/>
+
+      <Btn size="lg" full disabled={!ticked.size}
+        onClick={()=>applyNow({stations:ticked, label:name, source:"photo",
+          dumbbellMax:typedMax(), note:found.note})}>
+        TRAIN HERE TODAY →</Btn>
+      <div style={{display:"flex",gap:8,marginTop:10}}>
+        <Btn kind="solid" full onClick={()=>{setFound(null);setPhotos([]);setMode("photo");}}>Retake photos</Btn>
+        <Btn kind="ghost" full onClick={()=>setMode("manual")}>Pick by hand</Btn>
+      </div>
+      {err && <ErrLine text={err}/>}
+    </Sheet>);
+  }
+
+  /* ── the photo step ──────────────────────────────────────────────────── */
+  if(mode==="photo"){
+    return (<Sheet onClose={onClose} title="PHOTOGRAPH THE GYM"
+      sub={`Up to ${PHOTO_MAX} photos. Wide shots of the walls beat close-ups of one machine.`}>
+
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" multiple
+        onChange={addPhotos} style={{display:"none"}}/>
+
+      {!!photos.length && (<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+        {photos.map((p,i)=>(<div key={i} style={{position:"relative",aspectRatio:"1",borderRadius:11,
+          overflow:"hidden",border:`1px solid ${C.line}`}}>
+          <img src={p.preview} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+          <button onClick={()=>setPhotos(x=>x.filter((_,j)=>j!==i))} style={{position:"absolute",top:4,right:4,
+            width:24,height:24,borderRadius:12,border:"none",background:"rgba(0,0,0,.75)",color:"#fff",
+            cursor:"pointer",fontSize:"calc(.66rem * var(--ts, 1))"}}>✕</button>
+        </div>))}
+      </div>)}
+
+      {photos.length < PHOTO_MAX && (
+        <Btn kind="solid" full onClick={()=>fileRef.current?.click()} disabled={busy}>
+          {busy ? <><Spinner/> PREPARING</> : photos.length ? "＋ ANOTHER PHOTO" : "📷 TAKE OR CHOOSE PHOTOS"}
+        </Btn>)}
+
+      <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.ghost,margin:"10px 0 14px",lineHeight:1.6}}>
+        Photos are resized on your phone and sent straight to Anthropic to be read, exactly like
+        everything else the coach does. They aren't stored anywhere — not on a server, not in the app.
+        Once you've confirmed the equipment list, the photos are gone.
+      </div>
+
+      <Btn size="lg" full onClick={runScan} disabled={busy || !photos.length}>
+        {busy ? <><Spinner color="#fff"/> READING THE ROOM</> : "READ THE EQUIPMENT →"}
+      </Btn>
+      <Btn kind="ghost" full style={{marginTop:10}} onClick={()=>setMode("menu")}>Back</Btn>
+      {err && <ErrLine text={err}/>}
+    </Sheet>);
+  }
+
+  /* ── the by-hand step ────────────────────────────────────────────────── */
+  if(mode==="manual"){
+    const cov = coverage([...ticked]);
+    return (<Sheet onClose={onClose} title="WHAT'S IN THERE?"
+      sub="Start from a preset, then tick and untick. No key or signal needed.">
+
+      <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
+        {VENUE_PRESETS.map(p=>(
+          <button key={p.id} onClick={()=>{setTicked(new Set(p.stations)); if(!name) setName(p.label);}}
+            style={{padding:"11px 13px",borderRadius:11,border:`1px solid ${C.line}`,background:C.raised,
+              cursor:"pointer",textAlign:"left",width:"100%"}}>
+            <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.text,fontWeight:600}}>{p.label}</div>
+            <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,marginTop:2}}>{p.sub}</div>
+          </button>))}
+      </div>
+
+      <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.dim,fontWeight:700,letterSpacing:".1em",
+        textTransform:"uppercase",marginBottom:8}}>Everything · {ticked.size} ticked</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:14}}>
+        {SEED_STATIONS.map(s=>{
+          const on = ticked.has(s.num);
+          return (<button key={s.num} onClick={()=>setTicked(x=>{
+              const n = new Set(x); n.has(s.num) ? n.delete(s.num) : n.add(s.num); return n; })}
+            style={{padding:"9px 10px",borderRadius:10,cursor:"pointer",textAlign:"left",
+              border:`1px solid ${on?`${C.green}55`:C.line}`, background:on?`${C.green}0d`:C.raised,
+              color:on?C.text:C.ghost, fontSize:"calc(.68rem * var(--ts, 1))", fontWeight:on?600:400}}>
+            {on?"✓ ":""}{s.name}
+          </button>);
+        })}
+      </div>
+
+      <Field label="Call this place">
+        <Input value={name} onChange={e=>setName(e.target.value)} placeholder="Hotel gym"/>
+      </Field>
+      <Field label="Heaviest dumbbell" hint="Optional, and worth it — nothing gets prescribed above it.">
+        <Input value={dbMax} onChange={e=>setDbMax(e.target.value)} inputMode="decimal" placeholder="e.g. 20"/>
+      </Field>
+
+      <CoverageNote cov={cov}/>
+
+      <Btn size="lg" full disabled={!ticked.size}
+        onClick={()=>applyNow({stations:ticked, label:name, source:"manual", dumbbellMax:typedMax()})}>
+        TRAIN HERE TODAY →</Btn>
+      <Btn kind="ghost" full style={{marginTop:10}} onClick={()=>setMode("menu")}>Back</Btn>
+      {err && <ErrLine text={err}/>}
+    </Sheet>);
+  }
+
+  /* ── the menu ────────────────────────────────────────────────────────── */
+  return (<Sheet onClose={onClose} title="WHERE ARE YOU TRAINING?"
+    sub={travelOn(state) ? `Currently set to ${t.name}.` : "Your usual gym, unless you say otherwise."}>
+
+    {travelOn(state) && (<Card accent={C.orange} style={{marginBottom:12}}>
+      <div style={{fontSize:"calc(.8rem * var(--ts, 1))",color:C.text,fontWeight:700,marginBottom:4}}>
+        📍 {t.name}</div>
+      <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,lineHeight:1.6,marginBottom:10}}>
+        {t.stations.length} stations{t.dumbbellMax?` · dumbbells to ${t.dumbbellMax}kg`:""}.
+        Switches off by itself tomorrow, so you can't accidentally train a hotel session at home.
+      </div>
+      <Btn kind="solid" full onClick={onClear}>BACK TO MY USUAL GYM</Btn>
+    </Card>)}
+
+    <button onClick={()=>setMode("photo")} disabled={!apiKey}
+      style={{width:"100%",padding:"15px 15px",borderRadius:14,textAlign:"left",marginBottom:8,
+        border:`1px solid ${apiKey?`${C.red}55`:C.line}`, background:apiKey?`${C.red}0d`:C.raised,
+        cursor:apiKey?"pointer":"not-allowed", opacity:apiKey?1:.55}}>
+      <div style={{fontSize:"calc(.86rem * var(--ts, 1))",color:C.text,fontWeight:700,marginBottom:3}}>
+        📷 Photograph it</div>
+      <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.faint,lineHeight:1.55}}>
+        {apiKey
+          ? "Your coach reads the equipment off the photos. You confirm the list before anything changes."
+          : "Needs an API key — there's no way to read a photo offline. Pick by hand instead, it works the same."}
+      </div>
+    </button>
+
+    <button onClick={()=>{setTicked(new Set()); setMode("manual");}}
+      style={{width:"100%",padding:"15px 15px",borderRadius:14,textAlign:"left",
+        border:`1px solid ${C.line}`, background:C.raised, cursor:"pointer"}}>
+      <div style={{fontSize:"calc(.86rem * var(--ts, 1))",color:C.text,fontWeight:700,marginBottom:3}}>
+        ✋ Pick by hand</div>
+      <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.faint,lineHeight:1.55}}>
+        Presets for the usual hotel setups, then tick what's actually there. Works with no key and no signal.
+      </div>
+    </button>
+
+    <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.ghost,marginTop:14,lineHeight:1.65}}>
+      Either way your real gym is left exactly as it is — an away gym only applies to today, and your
+      block, history and working weights carry straight on.
+    </div>
+  </Sheet>);
+}
+
+function CoverageNote({cov}){
+  const enough = cov.missing.length <= 2 && cov.count >= 4;
+  const col = cov.count < 4 ? C.orange : enough ? C.green : C.yellow;
+  return (<Card accent={col} style={{marginBottom:12,padding:13}}>
+    <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:4}}>
+      {cov.count} exercises available here
+    </div>
+    <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.faint,lineHeight:1.6}}>
+      {cov.count < 4
+        ? "That's not really enough to build a session from. Tick a few more things — dumbbells and a bench alone will do it."
+        : cov.missing.length
+          ? `Covers ${cov.covered.length} of 6 main movement patterns. Missing: ${cov.missing.map(p=>PATTERN_LABEL[p].toLowerCase()).join(", ")}. Those get left out rather than faked.`
+          : "Every main movement pattern is covered. This is a full session, just with different exercises."}
+    </div>
+  </Card>);
+}
+
+function ErrLine({text}){
+  return (<div style={{marginTop:10,padding:"10px 12px",borderRadius:10,background:`${C.red}12`,
+    border:`1px solid ${C.red}40`,color:C.red,fontSize:"calc(.7rem * var(--ts, 1))",lineHeight:1.55}}>{text}</div>);
+}
+
+/* The row on the Today screen. Deliberately quiet when you're at your usual
+   gym and loud when you aren't, because "why does today look different" needs
+   answering at a glance. */
+function VenueRow({state, onOpen}){
+  const away = travelOn(state);
+  const t = state.travel;
+  return (<button onClick={onOpen} style={{width:"100%",display:"flex",alignItems:"center",gap:10,
+    padding:"11px 13px",borderRadius:12,marginBottom:12,cursor:"pointer",textAlign:"left",
+    border:`1px solid ${away?`${C.orange}55`:C.line}`, background:away?`${C.orange}0d`:C.raised}}>
+    <span style={{fontSize:"calc(.9rem * var(--ts, 1))"}}>{away?"📍":"🏠"}</span>
+    <span style={{flex:1,minWidth:0}}>
+      <span style={{display:"block",fontSize:"calc(.76rem * var(--ts, 1))",
+        color:away?C.text:C.dim,fontWeight:away?700:400}}>
+        {away ? t.name : "Your usual gym"}
+      </span>
+      <span style={{display:"block",fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,marginTop:2}}>
+        {away
+          ? `${t.stations.length} stations${t.dumbbellMax?` · dumbbells to ${t.dumbbellMax}kg`:""} · just for today`
+          : "Somewhere else today? Photograph it and the session adapts."}
+      </span>
+    </span>
+    <span style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,flexShrink:0}}>Change</span>
+  </button>);
+}
+
 function RestBar({rest, onSkip}){
   const [now,setNow] = useState(()=>Date.now());
 
@@ -2731,12 +3392,19 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
    ═══════════════════════════════════════════════════════════════════════════ */
 
 function TodayView({state, session, setSession, generating, onGenerate, onFinish, coach, aiOn,
-                    rest, startRest, skipRest}){
+                    rest, startRest, skipRest, apiKey, setTravel, clearTravel, forgetTravel}){
   const [picker,setPicker]   = useState(null);   // {exIdx,setIdx}
   const [explain,setExplain] = useState({});     // exId -> explanation
   const [explaining,setExplaining] = useState({});
   const [confirmEnd,setConfirmEnd] = useState(false);
+  const [venue,setVenue]     = useState(false);  // away-gym sheet open
   const prog = blockProgress(state);
+
+  const gymSheet = venue ? (<GymSheet state={state} coach={coach} apiKey={apiKey}
+    onApply={t=>{ setTravel(t); setVenue(false); }}
+    onClear={()=>{ clearTravel(); setVenue(false); }}
+    onForget={()=>{ forgetTravel(); setVenue(false); }}
+    onClose={()=>setVenue(false)}/>) : null;
 
   async function doExplain(exId){
     if(explain[exId] || explaining[exId]) return;
@@ -2809,7 +3477,13 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
   </div>);
 
   /* ── check-in gate ────────────────────────────────────────────────────── */
-  if(!session) return (<CheckIn onSubmit={ci=>onGenerate(ci)} onSkip={()=>onGenerate(null)}/>);
+  /* The venue goes here, above the check-in, because it has to be settled
+     BEFORE the session is built — it decides which exercises exist. */
+  if(!session) return (<>
+    <VenueRow state={state} onOpen={()=>setVenue(true)}/>
+    <CheckIn onSubmit={ci=>onGenerate(ci)} onSkip={()=>onGenerate(null)}/>
+    {gymSheet}
+  </>);
 
   /* ── the session ──────────────────────────────────────────────────────── */
   const readiness = session.readiness;
@@ -2821,6 +3495,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
         <Chip color={C.red}>WEEK {session.week} / {prog.total}</Chip>
         <Chip color={C.purple}>{session.phaseName}</Chip>
         {readiness && <Chip color={readiness.color}>{readiness.label}</Chip>}
+        {session.venue && <Chip color={C.orange}>📍 {session.venue}</Chip>}
         {session.source==="ai" ? <Chip color={C.green}>🤖 coached</Chip> : <Chip color={C.faint}>built-in plan</Chip>}
       </div>
       <h1 style={{fontSize:"2.2rem",color:C.text,lineHeight:1,marginBottom:6}}>{session.dayName.toUpperCase()}</h1>
@@ -3830,7 +4505,7 @@ function LogView({state, setState, onRestore}){
    SETTINGS
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coach, onReset}){
+function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coach, onReset, clearTravel}){
   const [draftKey,setDraftKey] = useState(apiKey);
   const [keyState,setKeyState] = useState("idle");
   const [keyMsg,setKeyMsg]     = useState("");
@@ -4025,12 +4700,39 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
       </Field>
     </Card>
 
+    {/* ── away gym ────────────────────────────────────────────────────── */}
+    {state.travel && (<>
+      <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>
+        AWAY GYM</div>
+      <Card accent={travelOn(state)?C.orange:C.faint} style={{marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+          <div style={{fontSize:"calc(.82rem * var(--ts, 1))",color:C.text,fontWeight:700}}>
+            📍 {state.travel.name}</div>
+          <Chip color={travelOn(state)?C.orange:C.faint} style={{marginLeft:"auto"}}>
+            {travelOn(state)?"ACTIVE TODAY":"OFF"}</Chip>
+        </div>
+        <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,lineHeight:1.6}}>
+          {state.travel.stations.length} stations
+          {state.travel.dumbbellMax?` · dumbbells to ${state.travel.dumbbellMax}kg`:""}
+          {" · set up "}{state.travel.date}.
+          {travelOn(state)
+            ? " Today's sessions are built from this instead of your usual gym. It switches itself off tomorrow."
+            : " Switched off — you're back on your usual gym. Change the venue on the Today screen to use it again."}
+        </div>
+        {/* Same handler the Today screen uses, so coming home here also drops a
+            session built for the other gym rather than leaving you holding it. */}
+        {travelOn(state) && <Btn kind="solid" full style={{marginTop:11}}
+          onClick={clearTravel}>BACK TO MY USUAL GYM</Btn>}
+      </Card>
+    </>)}
+
     {/* ── equipment ───────────────────────────────────────────────────── */}
     <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>
       YOUR GYM · {state.equipment.enabled.length} of {allStations.length}</div>
     <Card style={{marginBottom:14}}>
       <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,lineHeight:1.6,marginBottom:12}}>
         Only ticked equipment gets programmed. Untick what your gym doesn't have, or add your own below.
+        {travelOn(state) && " This is your real gym — the away gym above is what today is actually using."}
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:14}}>
         {allStations.map(s=>{
@@ -4269,6 +4971,27 @@ function App(){
     setView("today");
   }
 
+  /* ── away gym ───────────────────────────────────────────────────────────
+     Changing venue changes which exercises exist, so any session already built
+     for the old venue is discarded. It hasn't been logged against yet — the
+     venue row only appears before a session starts — so nothing is lost, and
+     silently keeping a session built for the wrong gym would be worse. */
+  function setTravel(t){
+    setState(s=>({...s, travel:normaliseTravel(t)}));
+    setSession(null);
+  }
+  function clearTravel(){
+    setState(s=>({...s, travel: s.travel ? {...s.travel, active:false} : null}));
+    setSession(null);
+  }
+  /* Distinct from clearTravel: that comes home but keeps the venue on file so a
+     multi-night stay is one tap a day. This throws the record away, so it stops
+     offering itself back. */
+  function forgetTravel(){
+    setState(s=>({...s, travel:null}));
+    setSession(null);
+  }
+
   /* ── onboarding ─────────────────────────────────────────────────────── */
   if(!state.onboarded){
     return (<><style>{APP_CSS}</style>
@@ -4339,7 +5062,9 @@ function App(){
                                       if(prog?.complete) buildBlock(); else generate(ci);
                                     }}
                                     onFinish={finishSession} coach={coach} aiOn={aiOn}
-                                    rest={rest} startRest={startRest} skipRest={skipRest}/>
+                                    rest={rest} startRest={startRest} skipRest={skipRest}
+                                    apiKey={apiKey} setTravel={setTravel} clearTravel={clearTravel}
+                                    forgetTravel={forgetTravel}/>
             : view==="plan"     ? <PlanView state={state} onReplan={()=>buildBlock()} replanning={replanning} aiOn={aiOn}/>
             : view==="goal"     ? <GoalView state={state} setState={setState} review={review}
                                     reviewLoading={reviewLoading} onReview={runReview} aiOn={aiOn}/>
@@ -4348,7 +5073,8 @@ function App(){
             : view==="learn"    ? <LearnView state={state} setState={setState}/>
             : view==="log"      ? <LogView state={state} setState={setState} onRestore={restoreState}/>
             : <SettingsView state={state} setState={setState} apiKey={apiKey} setApiKey={setApiKey}
-                model={model} setModel={setModel} coach={coach} onReset={resetAll}/>}
+                model={model} setModel={setModel} coach={coach} onReset={resetAll}
+                clearTravel={clearTravel}/>}
         </div>
       </div>
 

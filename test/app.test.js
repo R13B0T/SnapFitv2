@@ -110,6 +110,134 @@ function check(name, ok, detail){
   check("reaches check-in", /HOW ARE YOU TODAY/i.test(bodyText), bodyText.slice(0,200));
   check("no errors through onboarding", errors.length===0, errors.slice(0,3).join(" | "));
 
+  /* The away gym, on the path that needs no API key. The photo path can't run
+     here — there's no real vision call — but the by-hand path is the one that
+     has to work in a hotel basement with no signal, so it's the one that gets
+     driven through the real UI. */
+  console.log("\n── AWAY GYM BY HAND (no key) ────────────────────");
+  check("venue row sits above the check-in", /Your usual gym/.test(bodyText), bodyText.slice(0,200));
+  await page.getByText("Your usual gym").click();
+  await page.waitForTimeout(400);
+  let vt = await page.locator("body").innerText();
+  check("venue sheet opens", /WHERE ARE YOU TRAINING/.test(vt), vt.slice(0,300));
+  check("photo path is offered", /Photograph it/.test(vt));
+  check("photo path explains it needs a key", /no way to read a photo offline/.test(vt), vt.slice(0,600));
+
+  await page.getByText("✋ Pick by hand").click();
+  await page.waitForTimeout(400);
+  vt = await page.locator("body").innerText();
+  check("by-hand step opens", /WHAT'S IN THERE/.test(vt), vt.slice(0,300));
+  check("presets offered", /Dumbbells and a bench/.test(vt));
+
+  // Nothing ticked yet, so it must refuse to apply rather than build an
+  // impossible session.
+  const applyBtn = page.getByText("TRAIN HERE TODAY").first();
+  check("cannot apply an empty gym", await applyBtn.isDisabled().catch(()=>false));
+
+  await page.getByText("Dumbbells and a bench").first().click();
+  await page.waitForTimeout(350);
+  vt = await page.locator("body").innerText();
+  check("preset reports how much it can build", /exercises available here/.test(vt), vt.slice(0,400));
+  check("preset is honest about what's missing", /Missing:|Every main movement pattern/.test(vt));
+
+  const dbField = page.locator('input[inputmode="decimal"]').last();
+  await dbField.click();
+  for(const ch of "15"){ await dbField.press(ch); }
+  await page.waitForTimeout(150);
+  check("dumbbell ceiling takes typing", (await dbField.inputValue()) === "15",
+    `got "${await dbField.inputValue()}"`);
+
+  await applyBtn.click();
+  await page.waitForTimeout(600);
+  vt = await page.locator("body").innerText();
+  check("away gym now shown on Today", /Dumbbells and a bench/.test(vt), vt.slice(0,300));
+  check("away gym says it's only for today", /just for today/.test(vt));
+  const travel = await page.evaluate(()=>JSON.parse(localStorage.getItem("snapfit_v2")).travel);
+  check("away gym persisted and active", travel?.active === true, JSON.stringify(travel));
+  check("dumbbell ceiling stored", travel?.dumbbellMax === 15, `got ${travel?.dumbbellMax}`);
+  check("home gym left untouched", (await page.evaluate(
+    ()=>JSON.parse(localStorage.getItem("snapfit_v2")).equipment.enabled.length)) > 20);
+
+  await page.getByText("BUILD TODAY'S SESSION").click();
+  await page.waitForTimeout(2500);
+  const awayText = await page.locator("body").innerText();
+  check("session built at the away gym", /SET 1/.test(awayText), awayText.slice(0,300));
+  check("venue chip on the session", /📍 Dumbbells and a bench/.test(awayText), awayText.slice(0,400));
+  check("brief explains the venue", /not your usual gym/.test(awayText), awayText.slice(0,900));
+
+  /* The real test of the feature: only equipment that exists got programmed. */
+  const allowed = new Set(["29","25","26"]);
+  const awayEx = await page.evaluate(()=>{
+    const s = JSON.parse(localStorage.getItem("snapfit_v2_active")||"null");
+    return s ? s.exercises.map(e=>({name:e.name, stations:e.stations, weight:e.weight})) : null;
+  });
+  check("away session readable", Array.isArray(awayEx) && awayEx.length >= 2,
+    `got ${awayEx ? awayEx.length : "null"}`);
+  check("only away-gym stations programmed",
+    awayEx.every(e=>(e.stations||[]).every(n=>allowed.has(n))),
+    awayEx.map(e=>`${e.name}@${(e.stations||[]).join("+")}`).join(", "));
+  check("nothing prescribed above the dumbbell ceiling",
+    awayEx.every(e=>e.weight <= 15), awayEx.map(e=>`${e.name} ${e.weight}kg`).join(", "));
+  console.log("     away session: " + awayEx.map(e=>`${e.name} ${e.weight}kg`).join(" · "));
+
+  // Back home. The session built for the hotel must not survive the switch.
+  await page.locator("text=⚙").click();
+  await page.waitForTimeout(500);
+  vt = await page.locator("body").innerText();
+  check("settings shows the away gym", /AWAY GYM/.test(vt), vt.slice(0,400));
+  check("settings marks it active", /ACTIVE TODAY/.test(vt));
+  await page.getByText("BACK TO MY USUAL GYM").click();
+  await page.waitForTimeout(400);
+  await page.getByText("TODAY", {exact:true}).last().click();
+  await page.waitForTimeout(700);
+  vt = await page.locator("body").innerText();
+  check("back on the usual gym", /Your usual gym/.test(vt), vt.slice(0,300));
+  check("hotel session discarded on venue change", /HOW ARE YOU TODAY/i.test(vt), vt.slice(0,300));
+  const cleared = await page.evaluate(()=>JSON.parse(localStorage.getItem("snapfit_v2")).travel);
+  check("away gym deactivated but remembered", cleared && cleared.active===false, JSON.stringify(cleared));
+
+  /* A four-night stay should be one tap a day, not a rescan a day — so a
+     remembered gym offers itself back rather than making you start over. */
+  await page.getByText("Your usual gym").click();
+  await page.waitForTimeout(400);
+  vt = await page.locator("body").innerText();
+  check("a remembered gym offers itself back", /TRAINING AWAY AGAIN/.test(vt), vt.slice(0,300));
+  check("reuse says why it's switched off", /different day/.test(vt));
+  check("reuse offers somewhere new too", /Somewhere new/.test(vt));
+  await page.getByText(/USE .* TODAY/).click();
+  await page.waitForTimeout(500);
+  const reused = await page.evaluate(()=>JSON.parse(localStorage.getItem("snapfit_v2")).travel);
+  check("reuse reactivates without a rescan", reused?.active===true, JSON.stringify(reused));
+  check("reuse keeps the same equipment", reused.stations.slice().sort().join(",")==="25,26,29",
+    reused.stations.join(","));
+  check("reuse keeps the dumbbell ceiling", reused.dumbbellMax===15, `got ${reused.dumbbellMax}`);
+  check("reuse stamps today's date", reused.date === new Date().toISOString().slice(0,10), reused.date);
+
+  // And forget it entirely, so the row goes back to the plain home-gym state.
+  await page.getByText("Your usual gym", {exact:false}).click().catch(()=>{});
+  await page.waitForTimeout(300);
+  await page.getByText("Dumbbells and a bench").first().click();
+  await page.waitForTimeout(400);
+  vt = await page.locator("body").innerText();
+  check("an active away gym can be dropped from the sheet", /BACK TO MY USUAL GYM/.test(vt), vt.slice(0,400));
+  await page.getByText("BACK TO MY USUAL GYM").click();
+  await page.waitForTimeout(500);
+
+  /* "Forget it" has to actually forget, or the venue keeps offering itself back
+     every day after a trip you've finished. */
+  await page.getByText("Your usual gym").click();
+  await page.waitForTimeout(400);
+  await page.getByText("Forget it").click();
+  await page.waitForTimeout(500);
+  const forgotten = await page.evaluate(()=>JSON.parse(localStorage.getItem("snapfit_v2")).travel);
+  check("forget it removes the venue entirely", forgotten === null, JSON.stringify(forgotten));
+  await page.getByText("Your usual gym").click();
+  await page.waitForTimeout(400);
+  vt = await page.locator("body").innerText();
+  check("a forgotten venue stops offering itself", /WHERE ARE YOU TRAINING/.test(vt), vt.slice(0,250));
+  await page.locator("text=✕").last().click();
+  await page.waitForTimeout(400);
+
   await page.getByText("BUILD TODAY'S SESSION").click();
   await page.waitForTimeout(2500);
 
