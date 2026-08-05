@@ -37,6 +37,10 @@ keeps counting when you switch tabs, and it survives a reload mid-workout.
 **Every exercise shows what the coach prescribed** alongside what you're actually lifting, so
 overriding a weight never loses track of the target.
 
+**Exercise cards stay out of your way.** They start compact with the lift and target visible;
+tap one to reveal *Coach Says*, set logging, and the Why/How coaching. Finishing its last set
+folds the card closed again and gives it a light-green background, so what's done is obvious.
+
 **Photograph a strange gym and it adapts.** In a hotel, at a friend's place, anywhere that
 isn't your gym: take up to three photos and the coach reads what's there. You confirm the list
 — it flags what it's sure about and what it's guessing — and the day's session is built from
@@ -108,6 +112,18 @@ light values all land at 5:1 or better. Dark mode is byte-for-byte unchanged.
 **Text size.** Five steps, defaulting to Comfortable. It scales body text and deliberately
 leaves the big display headings alone. Implemented as a CSS custom property, so the change is
 instant — no re-render.
+
+**Coach personality.** Two five-step controls tune every AI-written plan, session brief,
+debrief, weekly review and chat reply. *Sass* runs from straight coaching to a full playful
+roast; *Hard truth* runs from gentle delivery to no sugar-coating. The defaults are Cheeky
+(3/5) and Blunt (4/5). Both scales keep fixed guardrails: no fake praise, personal insults,
+body-shaming, invented failures or unsafe training advice.
+
+**Voice summaries.** Session debriefs and weekly reviews include a Listen button when the
+browser supports speech synthesis. The AI returns a separate short script written to be heard
+aloud, while the phone reads it with its best available English voice. That keeps the feature
+free of a second API key and sends no audio to another service; voice quality depends on the
+voices installed on the device.
 
 **Rest timer sounds.** On by default, with a *Test the cues* button so you can check your
 volume before you're mid-session. The whole cue sequence is scheduled against the audio clock
@@ -259,7 +275,7 @@ npm install
 npm test
 ```
 
-311 checks.
+316 checks.
 
 - **`test/app.test.js`** — the no-key path end to end: onboarding, check-in, session
   generation, logging a set, form coaching, finishing, the debrief, every tab, persistence
