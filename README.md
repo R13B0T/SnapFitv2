@@ -20,7 +20,8 @@ phase is for.
 **It teaches at the rack.** Every exercise card carries a *Why this?* line explaining its
 job in today's session, and a *How to do it* panel with setup cues, how to execute the rep,
 the mistakes people actually make on that exercise, and what it should feel like when it's
-right.
+right. Opening *How to do it* makes one coaching call when AI is enabled. The same panel has
+a direct YouTube Shorts search for the exercise; that link does not use the AI or spend credits.
 
 **It briefs you before you start.** What today's session is for, what's required of you to
 make it count, and how you'll know you got it right — at the top of the Today screen, before
@@ -128,16 +129,17 @@ voices installed on the device.
 **Rest timer sounds.** On by default, with a *Test the cues* button so you can check your
 volume before you're mid-session. The whole cue sequence is scheduled against the audio clock
 the moment rest starts rather than fired from a JavaScript timer, because timers get throttled
-to once a minute in a backgrounded tab and the audio clock doesn't.
+to once a minute in a backgrounded tab and the audio clock doesn't. The timer no longer plays
+a silent keepalive track, so it does not take over the phone's media session or stop music from
+another app. A cue may briefly mix with or duck the music when it actually sounds.
 
 **Keep the screen awake during a session.** On by default. Uses the Screen Wake Lock API
 (Chrome/Android, Safari 16.4+), and the toggle says so where it isn't supported.
 
 > **On lock-screen audio, honestly:** scheduling on the audio clock gets the cues through the
-> app being backgrounded. A *locked* screen is different — iOS Safari suspends the audio
-> context outright, and the silent-keepalive workaround this app uses works on some iOS
-> versions and not others. It's reliable on Android. Keeping the screen awake is the way to be
-> sure, which is why that setting exists and defaults to on.
+> app being backgrounded. A *locked* screen is different — phones may suspend the audio
+> context. SnapFit deliberately does not fight that with a silent audio track because doing so
+> interrupts your music. Keeping the screen awake is the way to make cues reliable.
 
 ## Coming from v1
 
@@ -148,9 +150,10 @@ your real numbers instead of starting you at zero.
 
 **Moving between devices, or restoring after a reset:** use **Log → Data → Export JSON**, then
 **Restore JSON** on the other device. A restore replaces everything, so it shows you what's in
-the file — goal, block, session count, date range — and asks you to confirm first. A file that
-isn't a valid backup is rejected with the actual reason, and nothing on the device is touched.
-The API key is never in an export and is never altered by an import.
+the file — goal, block, session count, date range and whether it has an API key — and asks you
+to confirm first. A file that isn't a valid backup is rejected with the actual reason, and
+nothing on the device is touched. The API key is included in plain text, so treat the backup
+like a password and do not leave it on a shared computer.
 
 ---
 
@@ -201,8 +204,8 @@ that was built for the other place rather than leaving you holding it.
 | `test/` | Browser test harnesses (see below) |
 
 React 18 + Babel standalone from unpkg, compiled in the browser. State lives in
-`localStorage` under `snapfit_v2`; the API key sits in its own key so exports never
-include it.
+`localStorage` under `snapfit_v2`; the API key sits in its own runtime key and is copied into
+JSON backups only when the user explicitly exports one.
 
 **Colour is CSS custom properties.** The `C` object holds `var(--c-*)` references rather than
 hex, so the ~620 inline styles that use it need no knowledge of the theme and switching one is a

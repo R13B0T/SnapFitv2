@@ -149,7 +149,7 @@ h1,h2,h3{font-family:'Bebas Neue',sans-serif;font-weight:400;letter-spacing:0.04
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const STORE_KEY   = "snapfit_v2";
-const APIKEY_KEY  = "snapfit_v2_apikey";   // kept separate so exports never include it
+const APIKEY_KEY  = "snapfit_v2_apikey";   // separate at runtime; explicitly included in JSON backups
 const MODEL_KEY   = "snapfit_v2_model";
 
 const DEFAULT_MODEL = "claude-opus-5";
@@ -2179,7 +2179,7 @@ const CUE_PLAN = [
 ];
 
 const cues = (()=>{
-  let ctx = null, live = [], keepEl = null, keepURI = null;
+  let ctx = null, live = [];
 
   function context(){
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -2224,46 +2224,6 @@ const cues = (()=>{
     if(kind==="whistle") return blip(c, at, {freq:2000, dur:0.45, type:"square", peak:0.34, warble:260});
   }
 
-  /* A silent looping <audio> element holds the OS audio session open, which is
-     what gives the scheduled cues a chance of surviving a locked screen. It
-     works on Android and on some iOS versions — see the README; it is not a
-     guarantee, which is why the wake lock below is the reliable route. */
-  function silentWav(){
-    if(keepURI) return keepURI;
-    const rate = 8000, n = rate, bytes = 44 + n*2;
-    const buf = new ArrayBuffer(bytes), v = new DataView(buf);
-    const str = (o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); };
-    str(0,"RIFF"); v.setUint32(4, bytes-8, true); str(8,"WAVEfmt ");
-    v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
-    v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
-    str(36,"data"); v.setUint32(40, n*2, true);
-    let s = ""; const u8 = new Uint8Array(buf);
-    for(let i=0;i<u8.length;i++) s += String.fromCharCode(u8[i]);
-    keepURI = "data:audio/wav;base64," + btoa(s);
-    return keepURI;
-  }
-  function keepAwake(on){
-    try{
-      if(on){
-        if(!keepEl){
-          keepEl = new Audio(silentWav());
-          keepEl.loop = true; keepEl.volume = 0.001;
-          keepEl.setAttribute("playsinline","");
-        }
-        keepEl.play().catch(()=>{});
-        if("mediaSession" in navigator && window.MediaMetadata){
-          navigator.mediaSession.metadata = new window.MediaMetadata({
-            title:"Rest timer", artist:"SnapFit", album:"Training",
-          });
-          navigator.mediaSession.playbackState = "playing";
-        }
-      } else if(keepEl){
-        keepEl.pause();
-        if("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
-      }
-    }catch{}
-  }
-
   return {
     enabled: ()=>prefOn(SOUND_KEY),
     setEnabled(on){ setPref(SOUND_KEY,on); if(!on){ this.cancel(); } },
@@ -2286,14 +2246,12 @@ const cues = (()=>{
         play(c, cue.kind, now + offset);
         used.push({at:cue.at, kind:cue.kind, offset:Math.round(offset*100)/100});
       });
-      keepAwake(true);
       return used;
     },
 
     cancel(){
       live.forEach(n=>{ try{ n.stop(0); }catch{} });
       live = [];
-      keepAwake(false);
     },
 
     /* Settings preview: the same sequence compressed so you can check volume. */
@@ -3538,6 +3496,7 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
   const done  = logs.filter(l=>l&&l.reps!=null).length;
   const all   = done >= ex.sets;
   const avg   = done ? Math.round((logs.filter(l=>l&&l.reps!=null).reduce((n,l)=>n+l.reps,0)/done)*10)/10 : null;
+  const videoURL = `https://www.youtube.com/results?search_query=${encodeURIComponent(`${ex.name} exercise technique shorts`)}`;
 
   useEffect(()=>{
     if(all){ setExpanded(false); setOpen(null); }
@@ -3643,6 +3602,16 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
       background:C.raised,borderRadius:10,padding:"11px 12px"}}>{ex.why}</div>)}
 
     {open==="how" && (<div className="fade" style={{marginTop:10,background:C.raised,borderRadius:10,padding:"12px 13px"}}>
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:11}}>
+        <a href={videoURL} target="_blank" rel="noopener noreferrer"
+          aria-label={`Search YouTube Shorts for ${ex.name}`} style={{
+          flex:"1 1 170px",display:"flex",alignItems:"center",justifyContent:"center",minHeight:38,
+          padding:"8px 10px",borderRadius:9,border:`1px solid ${tint(C.red,0x66)}`,
+          background:tint(C.red,0x12),color:C.red,textDecoration:"none",fontWeight:700,
+          fontSize:"calc(.65rem * var(--ts, 1))",letterSpacing:".04em",textAlign:"center"}}>
+          WATCH A YOUTUBE SHORT ↗
+        </a>
+      </div>
       {explaining && !explanation && <div style={{display:"flex",gap:8,alignItems:"center",color:C.faint,fontSize:"calc(.72rem * var(--ts, 1))"}}>
         <Spinner size={13}/> Getting the coaching notes…</div>}
       {explanation && (<div style={{display:"flex",flexDirection:"column",gap:11}}>
@@ -4453,8 +4422,9 @@ function exportCSV(state){
   URL.revokeObjectURL(url);
 }
 
-function exportJSON(state){
-  const blob = new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
+function exportJSON(state, apiKey){
+  const backup = {...state, apiKey:String(apiKey||"")};
+  const blob = new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = `snapfit-backup-${todayISO()}.json`; a.click();
@@ -4481,11 +4451,18 @@ function inspectJSON(text){
     throw new Error("The `exerciseHistory` field is corrupt — it should be an object keyed by exercise.");
   if(raw.weights != null && (typeof raw.weights !== "object" || Array.isArray(raw.weights)))
     throw new Error("The `weights` field is corrupt — it should be an object keyed by exercise.");
+  if(Object.prototype.hasOwnProperty.call(raw,"apiKey") && typeof raw.apiKey !== "string")
+    throw new Error("The `apiKey` field is corrupt — it should be text.");
 
-  const state = migrate(raw);          // an older backup gains newer fields
+  const hasApiKey = Object.prototype.hasOwnProperty.call(raw,"apiKey");
+  const apiKey = hasApiKey && typeof raw.apiKey === "string" ? raw.apiKey.trim() : null;
+  const stateRaw = {...raw};
+  delete stateRaw.apiKey;               // keep the credential out of the main state blob
+  const state = migrate(stateRaw);      // an older backup gains newer fields
   const dates = (state.sessions||[]).map(s=>s.date).filter(Boolean).sort();
   return {
     state,
+    apiKey,
     summary:{
       goal: state.goal ? (GOAL_BY_ID[state.goal.type]?.label || state.goal.type) : "none set",
       sessions: (state.sessions||[]).length,
@@ -4493,6 +4470,7 @@ function inspectJSON(text){
       from: dates[0] || null,
       to: dates[dates.length-1] || null,
       block: state.block ? state.block.name : "none",
+      apiKey: apiKey === null ? "not in this older backup" : apiKey ? "included" : "no key saved",
     },
   };
 }
@@ -4558,7 +4536,7 @@ function importCSV(text, state){
   return {hist, weights, imported, skipped};
 }
 
-function LogView({state, setState, onRestore}){
+function LogView({state, setState, onRestore, apiKey}){
   const [detail,setDetail] = useState(null);   // exId
   const [session,setSession] = useState(null);
   const [tab,setTab] = useState("sessions");
@@ -4674,12 +4652,12 @@ function LogView({state, setState, onRestore}){
       <Card style={{marginBottom:12}}>
         <div style={{fontSize:"calc(.82rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:6}}>Backup and restore</div>
         <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.faint,lineHeight:1.7,marginBottom:12}}>
-          A JSON backup holds everything — goal, plan, history, settings — except your API key,
-          which never leaves storage. Restoring one replaces what's on this device, so you'll see
-          what's in the file and be asked to confirm first.
+          A JSON backup holds everything — goal, plan, history, settings and your API key.
+          The key is stored in the file as plain text, so keep the backup private. Restoring one
+          replaces what's on this device, and you'll be asked to confirm first.
         </div>
         <div style={{display:"flex",gap:8}}>
-          <Btn kind="solid" size="md" full onClick={()=>exportJSON(state)}>EXPORT JSON</Btn>
+          <Btn kind="solid" size="md" full onClick={()=>exportJSON(state,apiKey)}>EXPORT JSON</Btn>
           <Btn kind="solid" size="md" full onClick={()=>jsonRef.current?.click()}>RESTORE JSON</Btn>
         </div>
         <input ref={jsonRef} type="file" accept=".json,application/json" onChange={onJSON} style={{display:"none"}}/>
@@ -4709,6 +4687,7 @@ function LogView({state, setState, onRestore}){
           ["Block", pending.summary.block],
           ["Sessions", String(pending.summary.sessions)],
           ["Exercises tracked", String(pending.summary.exercises)],
+          ["API key", pending.summary.apiKey],
           ["Date range", pending.summary.from ? `${pending.summary.from} → ${pending.summary.to}` : "no dated sessions"],
         ].map(([k,v])=>(
           <div key={k} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"6px 0",
@@ -4727,8 +4706,8 @@ function LogView({state, setState, onRestore}){
         <Btn kind="danger" size="lg" full onClick={()=>{
           const s = pending.state;
           setPending(null);
-          onRestore(s);
-          setMsg(`Restored ${(s.sessions||[]).length} sessions and ${Object.keys(s.exerciseHistory||{}).length} exercises.`);
+          onRestore(s,pending.apiKey);
+          setMsg(`Restored ${(s.sessions||[]).length} sessions, ${Object.keys(s.exerciseHistory||{}).length} exercises${pending.apiKey?" and the API key":""}.`);
         }}>Replace everything</Btn>
       </div>
     </Sheet>)}
@@ -4983,7 +4962,7 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
     <Card style={{marginBottom:14}}>
       <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
         <Toggle on={sound} label="Rest timer sounds"
-          sub="Beep at 20 and 10 seconds, a tick each second after that, whistle when rest is up"
+          sub="Short cues only — the timer does not play a silent track or take over your music"
           onChange={v=>{ setSound(v); cues.setEnabled(v); }}/>
         <Toggle on={wake} label="Keep the screen awake during a session"
           sub={wakeLock.supported()
@@ -4996,9 +4975,9 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
       </Btn>
       <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.ghost,lineHeight:1.7,marginTop:11,
         borderTop:`1px solid ${C.lineSoft}`,paddingTop:11}}>
-        Cues are scheduled on the audio clock the moment rest starts, so they survive the phone
-        backgrounding the app. Whether they survive a <em>locked</em> screen depends on the phone —
-        it's reliable on Android, and hit-and-miss on iOS. Keeping the screen awake is the way to be sure.
+        Cues are scheduled on the audio clock the moment rest starts. They may briefly mix with or
+        duck music when they sound, but the countdown itself leaves other audio alone. A locked phone
+        may suspend the cues; keeping the screen awake is the way to make them reliable.
       </div>
     </Card>
 
@@ -5307,8 +5286,12 @@ function App(){
   /* Restoring a backup swaps the whole state out, so anything derived from the
      old one — the in-progress session, a running rest, a stale debrief — has to
      go with it. */
-  function restoreState(next){
+  function restoreState(next, restoredApiKey=null){
     skipRest(); setSession(null); setDebrief(null); setReview(null);
+    if(restoredApiKey !== null){
+      setApiKey(restoredApiKey);
+      saveKey(restoredApiKey);
+    }
     setState(next);
     setView("today");
   }
@@ -5413,7 +5396,7 @@ function App(){
             : view==="coach"    ? <ChatView state={state} setState={setState} coach={coach} aiOn={aiOn}
                                     onGoSettings={()=>setView("settings")}/>
             : view==="learn"    ? <LearnView state={state} setState={setState}/>
-            : view==="log"      ? <LogView state={state} setState={setState} onRestore={restoreState}/>
+            : view==="log"      ? <LogView state={state} setState={setState} onRestore={restoreState} apiKey={apiKey}/>
             : <SettingsView state={state} setState={setState} apiKey={apiKey} setApiKey={setApiKey}
                 model={model} setModel={setModel} coach={coach} onReset={resetAll}
                 clearTravel={clearTravel}/>}
