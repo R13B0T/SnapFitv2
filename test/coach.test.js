@@ -33,6 +33,7 @@ const VENDOR = {
 // What the mock API returns next. Mutated per test.
 let apiMode = "ok";
 let lastRequest = null;
+let requestCount = 0;
 
 function mockBlock(){
   return { name:"Test 6 week block", rationale:"Built for the test.", phases:[
@@ -128,6 +129,7 @@ function mockGym(){
 
   await ctx.route("**/api.anthropic.com/**", route=>{
     const req = route.request();
+    requestCount++;
     lastRequest = JSON.parse(req.postData()||"{}");
     if(apiMode==="fail")  return route.fulfill({status:500, contentType:"application/json", body:JSON.stringify({error:{message:"upstream boom"}})});
     if(apiMode==="auth")  return route.fulfill({status:401, contentType:"application/json", body:JSON.stringify({error:{message:"invalid x-api-key"}})});
@@ -146,8 +148,8 @@ function mockGym(){
     else if(props.includes("phases"))       payload = mockBlock();
     else if(props.includes("exercises"))    payload = mockSession();
     else if(props.includes("setup"))        payload = {setup:"Mock setup.",execution:"Mock execution.",mistakes:["Mock mistake one","Mock mistake two"],feel:"Mock feel.",why:"Mock why."};
-    else if(props.includes("nextFocus"))    payload = {headline:"Mock headline.",body:"Mock **debrief** body.",nextFocus:"Mock next focus.",note:"Mock note."};
-    else if(props.includes("headline"))     payload = {headline:"Mock review.",body:"Mock review body.",note:""};
+    else if(props.includes("nextFocus"))    payload = {headline:"Mock headline.",body:"Mock **debrief** body.",nextFocus:"Mock next focus.",voiceSummary:"Mock spoken debrief.",note:"Mock note."};
+    else if(props.includes("headline"))     payload = {headline:"Mock review.",body:"Mock review body.",voiceSummary:"Mock spoken weekly review.",note:""};
     else                                    payload = {ok:true};
     return route.fulfill({status:200, contentType:"application/json", body:JSON.stringify({
       content:[{type:"thinking",thinking:""},{type:"text",text:JSON.stringify(payload)}],
@@ -236,6 +238,9 @@ function mockGym(){
 
   check("system prompt is cached", !!lastRequest?.system?.[0]?.cache_control, JSON.stringify(lastRequest?.system?.[0]?.cache_control));
   check("system prompt carries the catalogue", /EXERCISE CATALOGUE/.test(lastRequest?.system?.[0]?.text||""));
+  check("system prompt carries coach personality", /SASS 3\/5 \(Cheeky\)/.test(lastRequest?.system?.[0]?.text||"")
+    && /HARD TRUTH 4\/5 \(Blunt\)/.test(lastRequest?.system?.[0]?.text||""));
+  check("coach is explicitly non-sycophantic", /Do not flatter, fawn/.test(lastRequest?.system?.[0]?.text||""));
   check("system prompt has no timestamp", !/\d{4}-\d{2}-\d{2}T\d{2}:/.test(lastRequest?.system?.[0]?.text||""));
   check("structured output requested", !!lastRequest?.output_config?.format?.schema);
   check("direct-browser header sent", true);
@@ -253,9 +258,16 @@ function mockGym(){
   check("AI brief rendered", /Mock brief paragraph one/.test(t), t.slice(0,300));
   check("AI brief keeps its markdown structure", /What's required/.test(t) && /The standard/.test(t));
 
+  await page.locator('button[aria-label$=" exercise details"]').first().click();
+  await page.waitForTimeout(250);
+  const beforeHowRequests = requestCount;
   await page.getByText("How to do it").first().click();
   await page.waitForTimeout(900);
   check("AI form coaching used", /Mock setup/.test(await page.locator("body").innerText()));
+  check("opening How-to makes one AI call", requestCount === beforeHowRequests + 1,
+    `${requestCount-beforeHowRequests} calls`);
+  check("YouTube search is a normal link, not another AI request",
+    /youtube\.com\/results\?search_query=/.test(await page.getByRole("link", {name:/Search YouTube Shorts/}).first().getAttribute("href")||""));
 
   /* The photo path driven through the real UI. The mock returns a station that
      doesn't exist, one duplicate and one "unsure" — so this also checks that the
@@ -338,7 +350,7 @@ function mockGym(){
   await page.getByText("BUILD TODAY'S SESSION").click();
   await page.waitForTimeout(2500);
   check("a home-gym session rebuilds after coming back",
-    /SET 1/.test(await page.locator("body").innerText()));
+    await page.locator('button[aria-label$=" exercise details"]').count() >= 2);
 
   console.log("\n── AI FALLTHROUGH ───────────────────────────────");
   apiMode = "fail";
@@ -349,7 +361,7 @@ function mockGym(){
   t = await page.locator("body").innerText();
   check("falls back to built-in plan", /built-in plan/.test(t), t.slice(0,220));
   check("offline warning surfaced", /Couldn't reach the coach/.test(t), t.slice(0,300));
-  check("session still generated", /SET 1/.test(t));
+  check("session still generated", await page.locator('button[aria-label$=" exercise details"]').count() >= 2);
   check("no crash on API failure", errors.length===0, errors.slice(0,3).join(" | "));
 
   console.log("\n── AUTH FAILURE ─────────────────────────────────");
@@ -360,10 +372,12 @@ function mockGym(){
   await page.waitForTimeout(2200);
   t = await page.locator("body").innerText();
   check("bad key message is specific", /API key rejected/.test(t), t.slice(0,260));
-  check("still produces a session", /SET 1/.test(t));
+  check("still produces a session", await page.locator('button[aria-label$=" exercise details"]').count() >= 2);
 
   console.log("\n── NETWORK DROP MID-SESSION ─────────────────────");
   apiMode = "abort";
+  await page.locator('button[aria-label$=" exercise details"]').first().click();
+  await page.waitForTimeout(250);
   await page.getByText("How to do it").first().click();
   await page.waitForTimeout(1500);
   t = await page.locator("body").innerText();

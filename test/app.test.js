@@ -180,7 +180,9 @@ function check(name, ok, detail){
   await page.getByText("BUILD TODAY'S SESSION").click();
   await page.waitForTimeout(2500);
   const awayText = await page.locator("body").innerText();
-  check("session built at the away gym", /SET 1/.test(awayText), awayText.slice(0,300));
+  check("session built at the away gym",
+    await page.locator('button[aria-label$=" exercise details"]').count() >= 2,
+    awayText.slice(0,300));
   check("venue chip on the session", /📍 Dumbbells and a bench/.test(awayText), awayText.slice(0,400));
   check("brief explains the venue", /not your usual gym/.test(awayText), awayText.slice(0,900));
 
@@ -261,25 +263,34 @@ function check(name, ok, detail){
   await page.waitForTimeout(2500);
 
   const sessText = await page.locator("body").innerText();
-  check("session generated", /SET 1/.test(sessText), sessText.slice(0,300));
-  const setBtns = await page.getByText("SET 1", {exact:true}).count();
-  check("multiple exercises", setBtns >= 3, `found ${setBtns} exercises`);
-  check("Why this? present", /Why this\?/.test(sessText));
-  check("How to do it present", /How to do it/.test(sessText));
+  const exerciseHeaders = page.locator('button[aria-label$=" exercise details"]');
+  const exerciseCount = await exerciseHeaders.count();
+  check("session generated", exerciseCount >= 3, `found ${exerciseCount} exercises`);
+  check("exercise details start hidden",
+    !/COACH SAYS|SET 1|Why this\?|How to do it/.test(sessText), sessText.slice(0,500));
+  check("compact exercise invites a tap", /OPEN/.test(sessText));
+
+  await exerciseHeaders.first().click();
+  await page.waitForTimeout(250);
+  const expandedText = await page.locator("body").innerText();
+  check("tap reveals coach and logging details",
+    /COACH SAYS/.test(expandedText) && /SET 1/.test(expandedText)
+      && /Why this\?/.test(expandedText) && /How to do it/.test(expandedText),
+    expandedText.slice(0,600));
 
   console.log("\n── BRIEF & PRESCRIPTION ─────────────────────────");
   check("today's brief renders", /TODAY'S BRIEF/.test(sessText), sessText.slice(0,300));
   check("brief says what's required", /What's required/.test(sessText));
   check("brief sets a standard", /The standard/.test(sessText));
-  check("prescription row present", /COACH SAYS/.test(sessText));
+  check("prescription row present", /COACH SAYS/.test(expandedText));
   const coachRows = await page.getByText("COACH SAYS", {exact:true}).count();
-  check("one prescription per exercise", coachRows === setBtns, `${coachRows} rows vs ${setBtns} exercises`);
+  check("only the opened exercise reveals its prescription", coachRows === 1, `${coachRows} rows visible`);
   // The brief must not push the first exercise off the screen entirely.
   const firstCardTop = await page.locator("text=COACH SAYS").first().evaluate(el=>el.getBoundingClientRect().top);
   check("first exercise reachable without a long scroll", firstCardTop < 1400, `top at ${Math.round(firstCardTop)}px`);
 
   console.log("\n── LOGGING A SET ────────────────────────────────");
-  const prescribed = Number((sessText.match(/COACH SAYS\s*\n?\s*([\d.]+)kg/) || [])[1]);
+  const prescribed = Number((expandedText.match(/COACH SAYS\s*\n?\s*([\d.]+)kg/) || [])[1]);
   await page.getByText("SET 1", {exact:true}).first().click();
   await page.waitForTimeout(400);
   check("rep picker opens", /REPS COMPLETED/.test(await page.locator("body").innerText()));
@@ -347,11 +358,36 @@ function check(name, ok, detail){
   await page.waitForTimeout(400);
   check("skip clears it", (await readRest()) === null);
 
+  await page.evaluate(()=>{
+    const s = JSON.parse(localStorage.getItem("snapfit_v2_active")||"null");
+    if(!s?.exercises?.length) return;
+    const ex = s.exercises[0];
+    ex.log = Array.from({length:ex.sets}, (_,i)=>ex.log?.[i] || ({
+      reps:ex.targetReps, weight:ex.weight, effort:"good"
+    }));
+    localStorage.setItem("snapfit_v2_active", JSON.stringify(s));
+  });
+  await page.reload({waitUntil:"networkidle"});
+  await page.waitForTimeout(1200);
+  const completeHeader = page.locator('button[aria-label$=" exercise details"]').first();
+  check("completed exercise is collapsed", /COMPLETE/.test(await completeHeader.innerText())
+    && (await completeHeader.getAttribute("aria-expanded")) === "false");
+  const cardBackgrounds = await page.locator('button[aria-label$=" exercise details"]').evaluateAll(btns=>
+    btns.slice(0,2).map(b=>getComputedStyle(b.parentElement).backgroundColor));
+  check("completed exercise gets a light green background",
+    cardBackgrounds.length > 1 && cardBackgrounds[0] !== cardBackgrounds[1], JSON.stringify(cardBackgrounds));
+
   console.log("\n── FORM COACHING ────────────────────────────────");
+  await completeHeader.click();
+  await page.waitForTimeout(250);
   await page.getByText("How to do it").first().click();
   await page.waitForTimeout(600);
   const howText = await page.locator("body").innerText();
   check("cues render", /SET UP/.test(howText) && /COMMON MISTAKES/.test(howText), howText.slice(0,200));
+  const videoLink = page.getByRole("link", {name:/Search YouTube Shorts/}).first();
+  const videoHref = await videoLink.getAttribute("href");
+  check("how-to offers a credit-free YouTube Shorts search",
+    /youtube\.com\/results\?search_query=/.test(videoHref||"") && /technique/.test(videoHref||""), videoHref);
 
   console.log("\n── FINISH & DEBRIEF ─────────────────────────────");
   await page.getByText("FINISH SESSION").click();
@@ -359,6 +395,8 @@ function check(name, ok, detail){
   const dbText = await page.locator("body").innerText();
   check("debrief renders", /SESSION DONE/.test(dbText), dbText.slice(0,200));
   check("debrief has progression rows", /WHAT MOVES NEXT TIME/.test(dbText));
+  const ttsSupported = await page.evaluate(()=>"speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
+  check("debrief offers a voice summary when speech is supported", !ttsSupported || /Listen/.test(dbText));
   await page.getByText("DONE", {exact:true}).click();
   await page.waitForTimeout(600);
 
@@ -581,6 +619,25 @@ function check(name, ok, detail){
   await page.locator("text=⚙").click();
   await page.waitForTimeout(600);
 
+  console.log("\n-- COACH PERSONALITY ---------------------------");
+  let settingsText = await page.locator("body").innerText();
+  check("personality controls render", /SASS.+CHEEKY/i.test(settingsText) && /HARD TRUTH.+BLUNT/i.test(settingsText), settingsText.slice(0,500));
+  const personalityRanges = page.locator('input[type="range"]');
+  await personalityRanges.nth(0).fill("5");
+  await personalityRanges.nth(1).fill("2");
+  await page.waitForTimeout(300);
+  const storedStyle = await page.evaluate(()=>JSON.parse(localStorage.getItem("snapfit_v2")).coachStyle);
+  check("personality choices persist", storedStyle.sass===5 && storedStyle.hardTruth===2, JSON.stringify(storedStyle));
+  await page.evaluate(()=>{
+    const s=JSON.parse(localStorage.getItem("snapfit_v2"));
+    s.coachStyle={sass:3,hardTruth:4};
+    localStorage.setItem("snapfit_v2",JSON.stringify(s));
+  });
+  await page.reload({waitUntil:"networkidle"});
+  await page.waitForTimeout(1800);
+  await page.locator("text=⚙").click();
+  await page.waitForTimeout(600);
+
   /* A silently invalid style is the failure mode here: `${C.red}55` on a var()
      produces no border and no error. Guard the source itself. */
   console.log("\n── NO HEX-ALPHA CONCATENATION LEFT ──────────────");
@@ -590,6 +647,8 @@ function check(name, ok, detail){
   check("no colour is built by appending hex alpha", leftovers.length===0,
     leftovers.slice(0,4).join(" | "));
   check("tint() is used instead", /function tint\(/.test(appSrc) && /tint\(C\./.test(appSrc));
+  check("rest timer does not claim the phone's media session",
+    !/new Audio\(|navigator\.mediaSession|silentWav\(/.test(appSrc));
 
   console.log("\n── TEXT SIZE ────────────────────────────────────");
   // Body text scales; the big headings deliberately do not.
@@ -628,10 +687,21 @@ function check(name, ok, detail){
   await page.evaluate(()=>{ localStorage.setItem("snapfit_v2_textscale","comfortable"); });
 
   console.log("\n── JSON BACKUP ROUND-TRIP ───────────────────────");
-  const backup = await page.evaluate(()=>localStorage.getItem("snapfit_v2"));
+  await page.evaluate(()=>localStorage.setItem("snapfit_v2_apikey","sk-ant-backup-test"));
+  await page.reload({waitUntil:"networkidle"});
+  await page.waitForTimeout(1200);
+  await page.getByText("LOG", {exact:true}).last().click();
+  await page.waitForTimeout(350);
+  await page.getByText("Data", {exact:true}).click();
+  await page.waitForTimeout(250);
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByText("EXPORT JSON").click(),
+  ]);
+  const backup = fs.readFileSync(await download.path(),"utf8");
   const parsed = JSON.parse(backup);
   check("backup has the training data", Array.isArray(parsed.sessions) && !!parsed.block);
-  check("backup never contains the API key", !/snapfit_v2_apikey|sk-ant/.test(backup));
+  check("backup includes the API key", parsed.apiKey === "sk-ant-backup-test");
 
   const restore = async (text) => {
     await page.locator("text=📋").last().click();
@@ -658,13 +728,17 @@ function check(name, ok, detail){
   check("corrupt field rejected specifically", /`sessions` field is corrupt/.test(await page.locator("body").innerText()));
 
   // Now wipe and restore for real.
-  await page.evaluate(()=>{ localStorage.setItem("snapfit_v2", JSON.stringify({v:2,onboarded:true,goal:{type:"lose_fat"},sessions:[],exerciseHistory:{},weights:{}})); });
+  await page.evaluate(()=>{
+    localStorage.setItem("snapfit_v2", JSON.stringify({v:2,onboarded:true,goal:{type:"lose_fat"},sessions:[],exerciseHistory:{},weights:{}}));
+    localStorage.setItem("snapfit_v2_apikey","sk-ant-wrong-key");
+  });
   await page.reload({waitUntil:"networkidle"});
   await page.waitForTimeout(1800);
   await restore(backup);
   rt = await page.locator("body").innerText();
   check("restore shows what's in the file first", /WHAT'S IN THE FILE/.test(rt), rt.slice(0,300));
   check("preview counts the sessions", new RegExp(`${parsed.sessions.length}`).test(rt));
+  check("preview says the API key is included", /API key\s+included/.test(rt), rt.slice(0,500));
   await page.getByText("Replace everything").click();
   await page.waitForTimeout(1200);
   const restored = await page.evaluate(()=>JSON.parse(localStorage.getItem("snapfit_v2")));
@@ -675,6 +749,8 @@ function check(name, ok, detail){
     Object.keys(restored.exerciseHistory||{}).length === Object.keys(parsed.exerciseHistory||{}).length);
   check("working weights came back",
     Object.keys(restored.weights||{}).length === Object.keys(parsed.weights||{}).length);
+  check("API key came back", await page.evaluate(()=>localStorage.getItem("snapfit_v2_apikey")) === parsed.apiKey);
+  check("API key stays out of the main state blob", !("apiKey" in restored));
 
   console.log("\n── PERSISTENCE ──────────────────────────────────");
   await page.reload({waitUntil:"networkidle"});
