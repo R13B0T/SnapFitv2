@@ -204,6 +204,7 @@ const SEED_STATIONS = [
   {num:"25",name:"Adjustable Bench",     kind:"bench"},
   {num:"26",name:"Flat Bench",           kind:"bench"},
   {num:"29",name:"Dumbbells & Rack",     kind:"dumbbell"},
+  {num:"SB",name:"Functional Sandbags (5–25kg)",kind:"sandbag"},
   {num:"32",name:"Back Extension",       kind:"machine"},
   {num:"33",name:"Preacher Curl",        kind:"machine"},
   {num:"35",name:"Linear Leg Press",     kind:"machine"},
@@ -276,6 +277,22 @@ const EX = [
       execution:"Lower straight down until the back knee is just off the floor, front shin near vertical. Push through the front foot to stand. All reps on one leg, then swap.",
       mistakes:["Stepping too short, which turns it into a knee-forward grind","Leaning forward onto the front thigh","Pushing off the back foot to help"],
       feel:"Front quad and glute working hard, and your balance being tested. That's part of it."} },
+  { id:"sandbag_front_squat", name:"Sandbag Front Squat", stations:["SB"], pattern:P.SQUAT, compound:true,
+    primary:"Quads", secondary:["Glutes","Core","Upper Back"], kind:"sandbag", inc:5, start:15, reps:[8,15], tags:["lower","knee"],
+    why:"The front-loaded bag keeps you upright and makes the core and upper back earn their place while the legs do the main work.",
+    cues:{
+      setup:"Bear-hug the bag high against your chest or hold the end handles at shoulder height. Feet around shoulder-width, toes slightly out, ribs stacked over hips.",
+      execution:"Sit down between your feet while keeping the bag tight to you. Reach the deepest position you can hold without the heels lifting, then drive the floor away to stand.",
+      mistakes:["Letting the bag sag away from the body","Folding forward instead of sitting down","Knees collapsing inward","Rushing the bottom and losing the brace"],
+      feel:"Quads and glutes with the abs and upper back working hard to stop the bag pulling you forward."} },
+  { id:"sandbag_reverse_lunge", name:"Sandbag Reverse Lunge", stations:["SB"], pattern:P.SQUAT, compound:true,
+    primary:"Quads", secondary:["Glutes","Core"], kind:"sandbag", inc:5, start:10, reps:[8,12], tags:["lower","knee"],
+    why:"Single-leg strength with a forgiving load. Stepping backward is usually easier to control than stepping forward, while the bag makes the trunk stay honest.",
+    cues:{
+      setup:"Bear-hug the bag at chest height. Stand tall with feet hip-width and brace before each rep.",
+      execution:"Step one foot back and lower that knee toward the floor. Keep most of your pressure through the front foot, then drive back to standing. Alternate sides or complete one side at a time.",
+      mistakes:["Taking such a short step that the front heel lifts","Pushing hard from the back foot","Letting the torso twist under the bag","Dropping onto the back knee"],
+      feel:"Front-leg quad and glute, with the trunk resisting the bag's movement."} },
 
   /* ── Hip-dominant ─────────────────────────────────────────────────────── */
   { id:"hip_thrust", name:"Glute Drive", stations:["36"], pattern:P.HINGE, compound:true,
@@ -326,6 +343,14 @@ const EX = [
       execution:"Drive through the heels until your body is a straight line from knee to shoulder, squeeze hard for a second, then lower under control.",
       mistakes:["Arching the lower back to get higher instead of extending the hip","Feet too far away, which shifts it to the hamstrings","Rushing so the glutes never actually squeeze"],
       feel:"A hard squeeze in the glutes at the top. Ribs stay down."} },
+  { id:"sandbag_deadlift", name:"Sandbag Deadlift", stations:["SB"], pattern:P.HINGE, compound:true,
+    primary:"Hamstrings", secondary:["Glutes","Upper Back","Grip"], kind:"sandbag", inc:5, start:20, reps:[8,15], tags:["lower","back"],
+    why:"A simple loaded hinge that builds the whole back of the body. The shifting bag also makes grip and trunk control work harder than a perfectly balanced weight.",
+    cues:{
+      setup:"Bag on the floor between your feet. Hinge back, bend the knees just enough to reach the handles, brace the trunk and pull the bag's slack out before lifting.",
+      execution:"Push the floor away and stand tall with the bag close to the legs. Send the hips back first on the way down and place the bag under control.",
+      mistakes:["Squatting straight down with the knees crowding the bag","Rounding the lower back to reach it","Jerking the bag off the floor","Leaning backward at the top"],
+      feel:"Hamstrings and glutes driving the lift, upper back and hands keeping the bag close."} },
 
   /* ── Horizontal press ─────────────────────────────────────────────────── */
   { id:"chest_press_mach", name:"Chest Press Machine", stations:["15"], pattern:P.PUSH_H, compound:true,
@@ -375,6 +400,14 @@ const EX = [
       execution:"Press out and control the return through a full range.",
       mistakes:["Cutting the range short","Shrugging up into the press"],
       feel:"Lower chest, along the line under the pec."} },
+  { id:"single_cable_fly", name:"Single-Arm Cable Fly", stations:["17","24"], stationMode:"any", pattern:P.PUSH_H, compound:false,
+    primary:"Chest", secondary:["Front Delts","Core"], kind:"cable", inc:2.5, start:7.5, reps:[10,15], tags:["upper","chest","shoulder"],
+    why:"The adjustable pulley keeps tension on the chest through the whole arc, one side at a time, while the trunk resists being rotated.",
+    cues:{
+      setup:"Set one pulley around chest height. Stand side-on and slightly forward of it, handle in the outside hand, shoulder blade gently back, elbow softly bent.",
+      execution:"Sweep the arm across the chest in a hugging arc without turning the torso. Pause when the hand crosses the midline, then return slowly into a comfortable stretch.",
+      mistakes:["Twisting the whole body to move the handle","Turning it into a press by repeatedly bending the elbow","Letting the shoulder roll forward","Using too much weight to control the return"],
+      feel:"Chest shortening across the front, with the abs holding the torso still."} },
 
   /* ── Vertical press ───────────────────────────────────────────────────── */
   { id:"shoulder_press_mach", name:"Shoulder Press Machine", stations:["16"], pattern:P.PUSH_V, compound:true,
@@ -400,6 +433,14 @@ const EX = [
       execution:"Press up and slightly together without banging them. Lower to ear height under control.",
       mistakes:["Arching the lower back","Letting the elbows drift behind the body at the bottom","Pressing in a wide arc"],
       feel:"Shoulders working, core braced to stop you leaning back."} },
+  { id:"sandbag_clean_press", name:"Sandbag Clean & Press", stations:["SB"], pattern:P.PUSH_V, compound:true,
+    primary:"Shoulders", secondary:["Glutes","Hamstrings","Triceps","Core"], kind:"sandbag", inc:5, start:10, reps:[6,10], tags:["upper","lower","shoulder","back"],
+    why:"A full-body power movement that turns the sandbag into useful conditioning without abandoning progressive strength work.",
+    cues:{
+      setup:"Bag on the floor between the feet. Grip the handles, hinge with a braced trunk and set the shoulders before the first pull.",
+      execution:"Drive through the legs and hips, guide the bag smoothly to the chest, reset your brace, then press it overhead. Lower to the chest and floor under control.",
+      mistakes:["Curling the bag slowly with the arms instead of driving with the hips","Catching it with a rounded back","Pressing before the bag is stable","Overarching the lower back overhead"],
+      feel:"A strong leg and hip drive into a controlled shoulder press; breathing should climb without technique falling apart."} },
 
   /* ── Horizontal pull ──────────────────────────────────────────────────── */
   { id:"seated_row", name:"Seated Row", stations:["6"], pattern:P.PULL_H, compound:true,
@@ -432,9 +473,17 @@ const EX = [
       execution:"Let the arm hang and the shoulder blade stretch down. Pull the elbow up toward the ceiling and back toward your hip. Lower all the way.",
       mistakes:["Twisting the torso to lift the weight","Pulling the elbow out wide","Short reps that skip the stretch"],
       feel:"Along the side of the back, from the armpit to the hip."} },
+  { id:"cable_row", name:"Multi-Jungle Cable Row", stations:["17","24"], stationMode:"any", pattern:P.PULL_H, compound:true,
+    primary:"Mid Back", secondary:["Lats","Biceps"], kind:"cable", inc:2.5, start:30, reps:[8,12], tags:["upper","back"],
+    why:"The Multi-Jungle row gives a full reach and a smooth, loadable pull. It builds the mid-back while balancing all the pressing in the plan.",
+    cues:{
+      setup:"Use the row station and handle, feet planted, knees softly bent and torso tall. Start with the arms long and shoulder blades allowed to reach forward.",
+      execution:"Drive the elbows back toward the lower ribs, squeeze the shoulder blades for a beat, then return slowly to a full controlled reach.",
+      mistakes:["Rocking the torso back to turn it into a heave","Shrugging the shoulders","Pulling only with the biceps","Letting the stack slam between reps"],
+      feel:"A strong squeeze through the middle of the back, with the lats and biceps helping."} },
 
   /* ── Vertical pull ────────────────────────────────────────────────────── */
-  { id:"lat_pulldown", name:"Lat Pulldown", stations:["24","17"], pattern:P.PULL_V, compound:true,
+  { id:"lat_pulldown", name:"Lat Pulldown", stations:["17","24"], stationMode:"any", pattern:P.PULL_V, compound:true,
     primary:"Lats", secondary:["Biceps","Mid Back"], kind:"cable", inc:2.5, start:35, reps:[8,12], tags:["upper","back"],
     why:"The main lat builder — the muscle that gives the back its width. Also the closest thing to a pull-up you can load precisely.",
     cues:{
@@ -481,9 +530,25 @@ const EX = [
       execution:"Sweep the arms back in a wide arc, squeeze the shoulder blades, return slowly.",
       mistakes:["Bending the elbows and rowing","Going too heavy and shrugging"],
       feel:"Back of the shoulder and across the upper back."} },
+  { id:"face_pull", name:"Cable Face Pull", stations:["17","24"], stationMode:"any", pattern:P.DELTS, compound:false,
+    primary:"Rear Delts", secondary:["Upper Back","External Rotators"], kind:"cable", inc:2.5, start:10, reps:[12,20], tags:["upper","shoulder"],
+    why:"Rear-deltoid and upper-back work that also trains the shoulder to rotate well—the useful counterweight to a press-heavy week.",
+    cues:{
+      setup:"Set a rope around upper-chest to face height. Take one end in each hand, step back, stand tall and start with the arms long.",
+      execution:"Pull the rope toward the bridge of the nose while spreading the ends apart. Finish with elbows high and hands beside the ears, then return slowly.",
+      mistakes:["Turning it into a low row","Leaning back to move the stack","Shrugging the shoulders","Letting the wrists collapse inward"],
+      feel:"Rear shoulders and upper back, not the neck or lower back."} },
+  { id:"cable_lateral_raise", name:"Single-Arm Cable Lateral Raise", stations:["17","24"], stationMode:"any", pattern:P.DELTS, compound:false,
+    primary:"Side Delts", secondary:[], kind:"cable", inc:2.5, start:5, reps:[12,20], tags:["upper","shoulder"],
+    why:"Unlike a dumbbell, the low pulley challenges the side delt from the start of the rep instead of only near the top.",
+    cues:{
+      setup:"Pulley at its lowest setting. Stand side-on with the working arm away from the stack and the cable passing in front of the body.",
+      execution:"Lead the elbow out to shoulder height with a soft fixed bend, pause, and lower under control until the arm crosses slightly in front.",
+      mistakes:["Swinging the hips","Shrugging the weight up","Raising far above shoulder height","Turning the thumb sharply down"],
+      feel:"Continuous tension on the outside cap of the shoulder."} },
 
   /* ── Arms ─────────────────────────────────────────────────────────────── */
-  { id:"tricep_pushdown", name:"Tricep Pushdown", stations:["24","14"], pattern:P.ARMS, compound:false,
+  { id:"tricep_pushdown", name:"Tricep Pushdown", stations:["17","24","14"], stationMode:"any", pattern:P.ARMS, compound:false,
     primary:"Triceps", secondary:[], kind:"cable", inc:2.5, start:15, reps:[10,15], tags:["upper"],
     why:"Triceps are most of your upper arm and they finish every press. Direct work here makes your pressing stronger too.",
     cues:{ setup:"Elbows pinned to your sides, slight forward lean, wrists straight.",
@@ -511,6 +576,14 @@ const EX = [
       execution:"Curl up and turn the palm up as you go. Squeeze at the top, lower slowly all the way.",
       mistakes:["Swinging the torso","Elbows drifting forward into a front raise","Stopping halfway down"],
       feel:"Biceps, with the peak of the squeeze at the top."} },
+  { id:"cable_curl", name:"Cable Curl", stations:["17","24"], stationMode:"any", pattern:P.ARMS, compound:false,
+    primary:"Biceps", secondary:["Forearms"], kind:"cable", inc:2.5, start:12.5, reps:[10,15], tags:["upper"],
+    why:"The cable keeps tension on the biceps at the top where a dumbbell becomes easier, making it a useful rotation rather than another copy of the same curl.",
+    cues:{
+      setup:"Pulley low with a straight or angled bar. Stand tall, elbows at the sides, wrists neutral and arms nearly straight.",
+      execution:"Curl without moving the upper arms, squeeze hard at the top, then lower for a controlled full stretch.",
+      mistakes:["Leaning back to start each rep","Elbows travelling forward","Letting the stack crash","Bending the wrists back"],
+      feel:"Biceps under tension through the entire rep, strongest at the top."} },
   { id:"preacher_curl", name:"Preacher Curl", stations:["33"], pattern:P.ARMS, compound:false,
     primary:"Biceps", secondary:[], kind:"machine", inc:2.5, start:15, reps:[10,15], tags:["upper"],
     why:"The pad removes momentum entirely, so the biceps get no help. Strict by design.",
@@ -549,6 +622,22 @@ const EX = [
       execution:"Curl your ribs toward your hips — shoulder blades leave the floor, lower back stays down. Pause at the top, lower slowly.",
       mistakes:["Sitting all the way up, which is hip flexor work rather than abs","Yanking the head forward with the arms","Rushing so there's no pause at the top"],
       feel:"Abs shortening under the load. Neck relaxed."} },
+  { id:"pallof_press", name:"Cable Pallof Press", stations:["17","24"], stationMode:"any", pattern:P.CORE, compound:false,
+    primary:"Core", secondary:["Obliques"], kind:"cable", inc:2.5, start:10, reps:[8,15], tags:["core"],
+    why:"This trains the core's real job—stopping unwanted movement. The cable tries to rotate you and the trunk refuses.",
+    cues:{
+      setup:"Pulley at chest height. Stand side-on, hold the handle at the sternum with both hands, feet shoulder-width and knees soft.",
+      execution:"Press the hands straight out without letting the shoulders or hips turn. Pause at full reach, return to the chest, then face the other direction after the set.",
+      mistakes:["Choosing so much weight the torso twists","Shrugging the shoulders","Leaning away from the stack","Rushing through the full-reach pause"],
+      feel:"The abs and obliques bracing hard while the body stays completely square."} },
+  { id:"sandbag_russian_twist", name:"Sandbag Russian Twist", stations:["SB"], pattern:P.CORE, compound:false,
+    primary:"Core", secondary:["Obliques","Hip Flexors"], kind:"sandbag", inc:5, start:5, reps:[10,20], tags:["core","back"],
+    why:"A controllable rotational core movement using the lightest bags. It belongs late in the session, never as an excuse to sling a heavy bag around.",
+    cues:{
+      setup:"Sit with knees bent and heels down. Hold a light bag close to the chest, lean back only as far as you can keep the spine long and ribs down.",
+      execution:"Rotate the ribcage and bag together toward one hip, return through centre and move to the other side. One touch each side is one full rep.",
+      mistakes:["Only waving the arms while the torso stays still","Using a heavy bag and rounding the lower back","Moving too fast to control the end range","Holding the breath"],
+      feel:"Obliques controlling the rotation; reduce the lean or load if the lower back takes over."} },
   { id:"db_calf_raise", name:"DB Calf Raise", stations:["29"], pattern:P.CALF, compound:false,
     primary:"Calves", secondary:[], kind:"dumbbell", inc:2.5, start:12, reps:[15,25], tags:["lower","ankle"],
     why:"Calves need a full stretch and high reps more than they need a machine. A dumbbell in one hand and a step gets that done anywhere.",
@@ -565,7 +654,8 @@ const EX_NAME  = Object.fromEntries(EX.map(e=>[e.id,e.name]));
 /* Free-weight preference: when the user asks for more free weights, these
    patterns swap toward dumbbell/barbell variants where available. */
 const FREE_WEIGHT_IDS = new Set(["db_bench","db_incline","db_row","db_shoulder_press","db_lateral_raise","db_curl","db_tricep_ext","squat_smith",
-  "goblet_squat","db_split_squat","db_rdl","db_hip_thrust","db_pullover","db_crunch","db_calf_raise"]);
+  "goblet_squat","db_split_squat","db_rdl","db_hip_thrust","db_pullover","db_crunch","db_calf_raise",
+  "sandbag_front_squat","sandbag_reverse_lunge","sandbag_deadlift","sandbag_clean_press","sandbag_russian_twist"]);
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -914,6 +1004,7 @@ function coachStylePreview(style){
 function defaultState(){
   return {
     v:2,
+    equipmentCatalogueVersion:2,
     onboarded:false,
     goal:null,
     profile:{...DEFAULT_PROFILE},
@@ -941,6 +1032,12 @@ function migrate(raw){
   s.coachStyle.sass = clamp(Number(s.coachStyle.sass)||DEFAULT_COACH_STYLE.sass, 1, 5);
   s.coachStyle.hardTruth = clamp(Number(s.coachStyle.hardTruth)||DEFAULT_COACH_STYLE.hardTruth, 1, 5);
   s.equipment = {enabled:SEED_STATIONS.map(x=>x.num), custom:[], ...(raw.equipment||{})};
+  /* Catalogue v2 adds the gym's functional sandbags. Add them once for an
+     existing install; after that the user's equipment toggle is respected. */
+  if((Number(raw.equipmentCatalogueVersion)||1) < 2 && !s.equipment.enabled.includes("SB")){
+    s.equipment.enabled = [...s.equipment.enabled, "SB"];
+  }
+  s.equipmentCatalogueVersion = 2;
   s.travel    = normaliseTravel(raw.travel);
   s.learn     = {read:[], quiz:{},  ...(raw.learn||{})};
   ["weights","exerciseHistory"].forEach(k=>{ if(!s[k]||typeof s[k]!=="object") s[k]={}; });
@@ -1109,8 +1206,26 @@ function limitBlocks(ex, limits){
 function availableExercises(state){
   const stations = enabledStationSet(state);
   return EX.filter(ex =>
-    ex.stations.every(n => stations.has(n)) && !limitBlocks(ex, state.limits)
+    (ex.stationMode === "any"
+      ? ex.stations.some(n => stations.has(n))
+      : ex.stations.every(n => stations.has(n)))
+    && !limitBlocks(ex, state.limits)
   );
+}
+
+/* Most exercises require every listed item (dumbbells + a bench). Cable
+   movements marked `any` can use either suitable tower; show and save the
+   first one that is actually available instead of pretending both are needed. */
+function stationsForExercise(ex, state){
+  if(ex.stationMode !== "any") return ex.stations;
+  const enabled = enabledStationSet(state);
+  const station = ex.stations.find(n=>enabled.has(n));
+  return station ? [station] : [];
+}
+
+function stationRequirement(ex){
+  const joiner = ex.stationMode === "any" ? " or #" : "+#";
+  return `#${ex.stations.join(joiner)}`;
 }
 
 /* Pick the best exercise for a pattern slot, avoiding repeats and honouring
@@ -1282,7 +1397,7 @@ function buildSessionRules(state, checkin, {bonus=false}={}){
     exercises.push({
       exId: ex.id,
       name: ex.name,
-      stations: ex.stations,
+      stations: stationsForExercise(ex, state),
       pattern: ex.pattern,
       primary: ex.primary,
       compound: ex.compound,
@@ -1587,7 +1702,7 @@ function equipmentDigest(state){
 function catalogueDigest(state){
   const pool = availableExercises(state);
   return `EXERCISE CATALOGUE (use these ids exactly):\n` + pool.map(e =>
-    `${e.id} — "${e.name}" @#${e.stations.join("+#")} · ${PATTERN_LABEL[e.pattern]} · ${e.primary} · ${e.compound?"compound":"isolation"} · increment ${e.inc}kg`
+    `${e.id} — "${e.name}" @${stationRequirement(e)} · ${PATTERN_LABEL[e.pattern]} · ${e.primary} · ${e.compound?"compound":"isolation"} · increment ${e.inc}kg`
   ).join("\n");
 }
 
@@ -1959,7 +2074,7 @@ Rules:
           if(!ex) return null;
           const seed = byId[r.exId] || {};
           const requestedWeight = round25(Math.max(0, r.weight));
-          return { exId:ex.id, name:ex.name, stations:ex.stations, pattern:ex.pattern, primary:ex.primary,
+          return { exId:ex.id, name:ex.name, stations:stationsForExercise(ex, state), pattern:ex.pattern, primary:ex.primary,
             compound:ex.compound,
             sets:clamp(r.sets,1,6),
             targetReps:clamp(r.targetReps,1,30),
@@ -1982,7 +2097,7 @@ Rules:
         const entry = state.weights[exId];
         const raw = await callAnthropic({
           state, key, model:getModel(), schema:S_EXPLAIN, effort:"low", maxTokens:2500,
-          userText:`Coach them through "${ex.name}" (station #${ex.stations.join(", #")}).
+          userText:`Coach them through "${ex.name}" (${stationRequirement(ex)}).
 ${entry ? `They're currently working at ${entry.weight}kg for about ${entry.lastAvgReps} reps and last logged it as "${entry.lastEffort}".` : "They haven't logged this one before."}
 
 Write it as if you're standing at the machine with them. Setup, then how to execute the rep, the mistakes you actually see people make on this exercise, and what it should feel like when it's right. Then why it's in their plan specifically.`,
@@ -2069,7 +2184,7 @@ ${list}
 
 How to do this well:
 - Only report a station if you can actually see something that is that piece of equipment. A room that "probably has" a leg press does not have one.
-- Match on function, not on brand or colour. Any adjustable bench is #25. Any rack of dumbbells is #29. A cable crossover or functional trainer is #17. A single cable tower is #24.
+- Match on function, not on brand or colour. Any adjustable bench is #25. Any rack of dumbbells is #29. A cable crossover or functional trainer is #17. A single cable tower is #24. Functional sandbags, power bags or Life Fitness Core Bags are #SB.
 - A "likely" or "unsure" is genuinely useful to the user, so use them rather than dropping a partly visible machine or promoting it to certain. They will confirm your list before it's used.
 - If you can read weight numbers on the dumbbells, give the heaviest. If you cannot read them, return 0. Guessing a ceiling from how big they look is worse than admitting you can't tell, because they'll be handed a weight they can't lift.
 - Put anything real but not on the list into extras — treadmills, kettlebells, bands, a mat. It won't be programmed, but the coach reads it.
