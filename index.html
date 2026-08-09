@@ -2232,6 +2232,7 @@ const cues = (()=>{
     long:"./assets/sounds/start-whistle.mp3",
   };
   let ctx = null, live = [], samples = null, loading = null;
+  let ready = Promise.resolve(null), scheduleToken = 0;
 
   function loadVolume(){
     try{
@@ -2245,21 +2246,63 @@ const cues = (()=>{
   function context(){
     const AC = window.AudioContext || window.webkitAudioContext;
     if(!AC) return null;
-    if(!ctx) ctx = new AC();
+    if(!ctx || ctx.state === "closed") ctx = new AC();
     return ctx;
   }
 
-  /* Must be called from inside a user gesture or iOS leaves the context
-     suspended and nothing ever plays. */
-  function unlock(){
-    const c = context();
-    if(c && c.state === "suspended") c.resume().catch(()=>{});
+  /* "ambient" is the mix-with-other-apps category. Safari versions without
+     AudioSession simply ignore this and keep using their normal Web Audio
+     policy. Never use "playback" here: it would take over from the music app. */
+  function configureAudioSession(){
+    try{
+      if(navigator.audioSession && "type" in navigator.audioSession){
+        navigator.audioSession.type = "ambient";
+      }
+    }catch{}
+  }
+
+  /* Starting a one-frame buffer during the tap gives iOS the explicit user
+     activation it requires. This is not a looping keepalive track and cannot
+     keep or claim the phone's media session after the tap has finished. */
+  function prime(c){
+    try{
+      if(!c || typeof c.createBuffer !== "function" || typeof c.createBufferSource !== "function") return;
+      const source = c.createBufferSource();
+      source.buffer = c.createBuffer(1, 1, c.sampleRate || 44100);
+      source.connect(c.destination);
+      source.start(0);
+    }catch{}
+  }
+
+  async function recover(c){
+    if(!c) return null;
+    try{
+      /* iOS/WebKit has a non-standard "interrupted" state when another app,
+         a call, or Control Centre has held audio focus. A suspend/resume cycle
+         is the reliable way out; resume alone can leave a silent context. */
+      if(c.state === "interrupted" && typeof c.suspend === "function"){
+        await c.suspend();
+      }
+      if(c.state !== "running" && typeof c.resume === "function") await c.resume();
+    }catch{
+      try{ if(typeof c.resume === "function") await c.resume(); }catch{}
+    }
     return c;
   }
 
-  async function preload(){
+  /* Must be called from inside a user gesture or iOS leaves the context
+     suspended/interrupted and nothing ever plays. */
+  function unlock(){
+    configureAudioSession();
+    const c = context();
+    prime(c);
+    ready = c && c.state !== "running" ? recover(c) : Promise.resolve(c);
+    return c;
+  }
+
+  async function preload(existingContext=null){
     if(samples) return true;
-    const c = unlock();
+    const c = existingContext || unlock();
     if(!c || typeof c.decodeAudioData !== "function") return false;
     if(!loading){
       loading = Promise.all(Object.entries(SAMPLE_URLS).map(async ([name,url])=>{
@@ -2319,6 +2362,33 @@ const cues = (()=>{
     if(kind==="long")    return clip(c, samples?.long, at) || blip(c, at, {freq:2000, dur:0.7, type:"square", peak:0.34, warble:260});
   }
 
+  function plannedCues(endsAt){
+    const secsLeft = (endsAt - Date.now()) / 1000;
+    return CUE_PLAN.flatMap(cue=>{
+      const offset = secsLeft - cue.at;
+      return offset < 0.05 ? [] : [{
+        at:cue.at, kind:cue.kind, offset:Math.round(offset*100)/100,
+      }];
+    });
+  }
+
+  function scheduleNow(c, endsAt){
+    if(!c || c.state !== "running") return [];
+    const now = c.currentTime;
+    const used = plannedCues(endsAt);
+    used.forEach(cue=> play(c, cue.kind, now + cue.offset));
+    return used;
+  }
+
+  if(typeof document !== "undefined"){
+    document.addEventListener("visibilitychange", ()=>{
+      if(document.visibilityState === "visible" && ctx && ctx.state === "interrupted"){
+        configureAudioSession();
+        ready = recover(ctx);
+      }
+    });
+  }
+
   return {
     enabled: ()=>prefOn(SOUND_KEY),
     setEnabled(on){ setPref(SOUND_KEY,on); if(!on){ this.cancel(); } },
@@ -2337,22 +2407,22 @@ const cues = (()=>{
     schedule(endsAt){
       this.cancel();
       if(!prefOn(SOUND_KEY)) return [];
+      const token = scheduleToken;
       const c = unlock();
       if(!c) return [];
-      if(!samples) preload(); // ready for the next rest if this one started too quickly
-      const secsLeft = (endsAt - Date.now()) / 1000;
-      const now = c.currentTime;
-      const used = [];
-      CUE_PLAN.forEach(cue=>{
-        const offset = secsLeft - cue.at;
-        if(offset < 0.05) return;              // already past, don't fire late
-        play(c, cue.kind, now + offset);
-        used.push({at:cue.at, kind:cue.kind, offset:Math.round(offset*100)/100});
-      });
-      return used;
+      if(!samples) preload(c); // ready for the next rest if this one started too quickly
+      const planned = plannedCues(endsAt);
+      const queue = ()=>{
+        if(token !== scheduleToken || !prefOn(SOUND_KEY)) return;
+        scheduleNow(c, endsAt);
+      };
+      if(c.state === "running") queue();
+      else ready.then(queue).catch(()=>{});
+      return planned;
     },
 
     cancel(){
+      scheduleToken += 1;
       live.forEach(n=>{ try{ n.stop(0); }catch{} });
       live = [];
     },
@@ -2362,12 +2432,15 @@ const cues = (()=>{
       this.cancel();
       const c = unlock();
       if(!c) return;
-      await preload();
-      const now = c.currentTime + 0.05;
-      play(c, "short",   now);
-      play(c, "double",  now + 0.8);
-      [0,1,2,3].forEach(i=> play(c, "tick", now + 1.7 + i*0.28));
-      play(c, "long",    now + 3.1);
+      await ready;
+      await preload(c);
+      if(c.state === "running"){
+        const now = c.currentTime + 0.05;
+        play(c, "short",   now);
+        play(c, "double",  now + 0.8);
+        [0,1,2,3].forEach(i=> play(c, "tick", now + 1.7 + i*0.28));
+        play(c, "long",    now + 3.1);
+      }
     },
   };
 })();
