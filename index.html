@@ -1178,18 +1178,53 @@ function blockProgress(state){
   const b = state.block;
   if(!b) return null;
   const dpw   = Math.max(1, state.profile.daysPerWeek||3);
-  const done  = state.sessions.filter(s=>s.blockId===b.id).length;
+  const blockSessions = state.sessions.filter(s=>s.blockId===b.id);
+  /* An optional extra session is still a real session from this block. It
+     advances the rotation; `bonus` only distinguishes it from the weekly
+     attendance target in the log and review. */
+  const done  = blockSessions.length;
+  const bonusDone = blockSessions.filter(s=>s.bonus).length;
   const total = b.totalWeeks;
-  const rawWeek = Math.floor(done/dpw)+1;
+  /* A frequency change stores an anchor at the user's current point. Sessions
+     after it use the new cadence without sending the block backwards or back
+     to week one. Older blocks simply use the original count-based path. */
+  const anchor = b.scheduleAnchor;
+  let rawWeek, dayIdx;
+  if(anchor && anchor.dpw===dpw && Number.isFinite(anchor.done)
+      && Number.isFinite(anchor.week) && Number.isFinite(anchor.dayIdx)){
+    const absoluteDay = Math.max(0, anchor.dayIdx + Math.max(0, done-anchor.done));
+    rawWeek = anchor.week + Math.floor(absoluteDay/dpw);
+    dayIdx = absoluteDay % dpw;
+  } else {
+    rawWeek = Math.floor(done/dpw)+1;
+    dayIdx = done % dpw;
+  }
   const complete = rawWeek > total;
   const week  = clamp(rawWeek, 1, total);
+  const progressWeeks = complete ? total : Math.max(0,(rawWeek-1)+(dayIdx/dpw));
   return {
-    done, dpw, total, week, complete,
-    dayIdx: done % dpw,
+    done, bonusDone, dpw, total, week, complete,
+    dayIdx,
     phase: phaseForWeek(b, week),
     phaseIdx: phaseIndexForWeek(b, week),
     weekInPhase: (()=>{ let acc=0; for(const p of b.phases){ if(week<=acc+p.weeks) return week-acc; acc+=p.weeks; } return 1; })(),
-    pct: Math.round(clamp(done/(total*dpw),0,1)*100),
+    pct: Math.round(clamp(progressWeeks/total,0,1)*100),
+  };
+}
+
+function changeTrainingDays(state, daysPerWeek){
+  const v = clamp(Number(daysPerWeek)||state.profile.daysPerWeek||3,2,5);
+  if(v===state.profile.daysPerWeek) return state;
+  const prog = blockProgress(state);
+  if(!state.block || !prog || prog.complete){
+    return {...state, profile:{...state.profile,daysPerWeek:v}};
+  }
+  /* Keep the same block week and approximately the same point inside it,
+     then use the new split and cadence from the next generated session. */
+  const mappedDay = clamp(Math.floor((prog.dayIdx/prog.dpw)*v),0,v-1);
+  return {...state,
+    profile:{...state.profile,daysPerWeek:v},
+    block:{...state.block, scheduleAnchor:{done:prog.done,week:prog.week,dayIdx:mappedDay,dpw:v}},
   };
 }
 
@@ -1218,7 +1253,7 @@ function readinessAdjustment(ci){
 
 /* ── Session generation ───────────────────────────────────────────────────── */
 
-function buildSessionRules(state, checkin){
+function buildSessionRules(state, checkin, {bonus=false}={}){
   const prog = blockProgress(state);
   if(!prog) return null;
   const dpw    = prog.dpw;
@@ -1260,13 +1295,14 @@ function buildSessionRules(state, checkin){
       rest: restSeconds(ex, phase),
       decisionLabel: ww.decision.label,
       decisionColor: ww.decision.color,
-      why: buildWhy(ex, phase, prog, state),
+      why: buildWhy(ex, phase, prog, state, bonus),
     });
   }
 
   return {
     id: uid(),
     blockId: state.block.id,
+    bonus,
     date: todayISO(),
     dayName: day.name,
     week: prog.week,
@@ -1280,18 +1316,18 @@ function buildSessionRules(state, checkin){
     readiness: adj,
     checkin: checkin||null,
     focusTip: focusTipFor(day, phase),
-    brief: buildBriefRules(day, phase, prog, state, exercises),
+    brief: buildBriefRules(day, phase, prog, state, exercises, bonus),
     exercises,
   };
 }
 
-function buildWhy(ex, phase, prog, state){
+function buildWhy(ex, phase, prog, state, bonus=false){
   const goalLabel = (GOAL_BY_ID[state.goal?.type]||{}).label || "your goal";
   const patt = PATTERN_LABEL[ex.pattern] || ex.pattern;
   const role = ex.compound
     ? `It's the ${patt.toLowerCase()} anchor for this session — the exercise carrying the most of the load.`
     : `It's here as focused work for the ${ex.primary.toLowerCase()}, which the compound lifts don't fully finish off.`;
-  return `${role} ${phase.name==="Deload"
+  return `${bonus ? "This is an extra opportunity to complete the next workout in your block, with the same phase targets. " : ""}${role} ${phase.name==="Deload"
     ? "This week is a deload, so the weight is deliberately light."
     : `In the ${phase.name.toLowerCase()} phase you're working ${phase.repRange[0]}–${phase.repRange[1]} reps at around ${phase.rpe}/10 effort.`} Serves ${goalLabel.toLowerCase()}.`;
 }
@@ -1299,7 +1335,7 @@ function buildWhy(ex, phase, prog, state){
 /* The coach's brief: what today is for, what's required of you, and how you'll
    know you got it right. Composed rather than templated — it should read like
    someone talking, not like a form with the slots showing. */
-function buildBriefRules(day, phase, prog, state, exercises){
+function buildBriefRules(day, phase, prog, state, exercises, bonus=false){
   const goal = GOAL_BY_ID[state.goal?.type];
   const [lo,hi] = phase.repRange;
   const deload = /deload/i.test(phase.name);
@@ -1307,7 +1343,9 @@ function buildBriefRules(day, phase, prog, state, exercises){
   const groups = [...new Set(exercises.map(e=>e.primary))];
   const totalSets = exercises.reduce((n,e)=>n+e.sets,0);
 
-  const purpose = deload
+  const purpose = bonus
+    ? `You found time for an extra session, so this is the next workout in your block: ${day.name.toLowerCase()}. It follows the current ${phase.name.toLowerCase()} phase exactly — ${exercises.length} exercises, ${totalSets} sets, working ${groups.slice(0,4).join(", ").toLowerCase()}. It advances the block normally, while your weekly target stays at ${prog.dpw}.`
+    : deload
     ? `This is your deload week, and today is meant to feel easy. The weights are about 60% of what you've been lifting. The work of the last few weeks is already done — this week is when it turns into progress, and the only way to get that wrong is to push.`
     : `Today is ${day.name.toLowerCase()} — ${exercises.length} exercises, ${totalSets} sets, working ${groups.slice(0,4).join(", ").toLowerCase()}. You're in week ${prog.week} of ${prog.total}, the ${phase.name.toLowerCase()} phase, and the job of this phase is ${phase.intent.charAt(0).toLowerCase()+phase.intent.slice(1).replace(/\.$/,"")}.`;
 
@@ -1414,8 +1452,10 @@ function weeklyReviewRules(state){
   const prog = blockProgress(state);
   if(!prog) return null;
   const since = state.sessions.filter(s=>daysBetween(s.date, todayISO()) <= 7);
+  const planned = since.filter(s=>!s.bonus);
+  const extras = since.filter(s=>s.bonus);
   const target = prog.dpw;
-  const adherence = Math.round(clamp(since.length/target,0,1)*100);
+  const adherence = Math.round(clamp(planned.length/target,0,1)*100);
 
   const e1rms = [];
   Object.entries(state.weights).forEach(([id,w])=>{
@@ -1429,7 +1469,8 @@ function weeklyReviewRules(state){
   e1rms.sort((x,y)=>y.delta-x.delta);
 
   const lines = [];
-  lines.push(`**${since.length} of ${target} sessions** completed in the last seven days.`);
+  lines.push(`**${planned.length} of ${target} planned sessions** completed in the last seven days.`);
+  if(extras.length) lines.push(`Plus **${extras.length} optional extra session${extras.length===1?"":"s"}** — useful additional work, kept outside the plan's attendance count.`);
   if(adherence===100) lines.push("Full attendance. That's the single biggest driver of the result you're after.");
   else if(adherence>=66) lines.push("Solid attendance. One missed session in a week costs you very little.");
   else lines.push("Attendance slipped this week. If the schedule isn't realistic, lower the days per week rather than keep missing — a plan you complete beats a plan you don't.");
@@ -1450,7 +1491,8 @@ function weeklyReviewRules(state){
     body,
     voiceSummary: plainCoachText(`${headline}. ${body}`),
     adherence,
-    sessions: since.length,
+    sessions: planned.length,
+    bonusSessions: extras.length,
     target,
   };
 }
@@ -1597,7 +1639,7 @@ function historyDigest(state, n=6){
       const avg = Math.round((logged.reduce((n,y)=>n+y.reps,0)/logged.length)*10)/10;
       return `${EX_NAME[e.exId]||e.exId} ${e.weight}kg ${logged.length}×${avg}`;
     }).filter(Boolean).join("; ");
-    return `${x.date} [${x.dayName}${x.readiness?`, felt ${x.readiness.label.toLowerCase()}`:""}]: ${ex||"nothing logged"}`;
+    return `${x.date} [${x.bonus?"BONUS · ":""}${x.dayName}${x.readiness?`, felt ${x.readiness.label.toLowerCase()}`:""}]: ${ex||"nothing logged"}`;
   }).join("\n");
 }
 
@@ -1883,9 +1925,9 @@ Requirements:
       }, ()=>buildBlockRules(state), "block");
     },
 
-    async todaysSession(checkin){
+    async todaysSession(checkin, {bonus=false}={}){
       const state = getState();
-      const rules = ()=>buildSessionRules(state, checkin);
+      const rules = ()=>buildSessionRules(state, checkin, {bonus});
       const base  = rules();
       if(!base) return null;
       return tryAI(async key=>{
@@ -1896,11 +1938,13 @@ Requirements:
           : "They skipped the check-in today.";
         const raw = await callAnthropic({
           state, key, model:getModel(), schema:S_SESSION, effort:"low", maxTokens:4000,
-          userText:`Build today's session. Today is ${todayISO()}.
+          userText:`Build today's ${bonus?"optional bonus":"planned"} session. Today is ${todayISO()}.
 
 It's week ${prog.week} of ${prog.total}, phase "${prog.phase.name}". The planned shape for today is "${base.dayName}" covering these movement patterns: ${base.exercises.map(e=>PATTERN_LABEL[e.pattern]).join(", ")}.
 
 ${ci}
+
+${bonus?`They found an extra training window. This must still be the NEXT workout in their current block and follow the ${prog.phase.name} phase's normal sets, rep range, RPE and progression. It advances the block normally; only their weekly target remains ${prog.dpw}.`:"This is the next scheduled day in their weekly split."}
 
 Rules:
 - Exactly ${base.exercises.length} exercises, using ids from the catalogue only.
@@ -1914,10 +1958,13 @@ Rules:
           const ex = EX_BY_ID[r.exId];
           if(!ex) return null;
           const seed = byId[r.exId] || {};
+          const requestedWeight = round25(Math.max(0, r.weight));
           return { exId:ex.id, name:ex.name, stations:ex.stations, pattern:ex.pattern, primary:ex.primary,
-            compound:ex.compound, sets:clamp(r.sets,1,6), targetReps:clamp(r.targetReps,1,30),
+            compound:ex.compound,
+            sets:clamp(r.sets,1,6),
+            targetReps:clamp(r.targetReps,1,30),
             repRange: base.exercises[0]?.repRange || prog.phase.repRange,
-            weight: round25(Math.max(0, r.weight)), inc: ex.inc, rpe: prog.phase.rpe,
+            weight:requestedWeight, inc:ex.inc, rpe:prog.phase.rpe,
             rest: clamp(r.rest, 30, 240),
             decisionLabel: seed.decisionLabel || "", decisionColor: seed.decisionColor || C.faint,
             why: r.why };
@@ -1955,7 +2002,7 @@ Write it as if you're standing at the machine with them. Setup, then how to exec
         }).join("\n");
         const raw = await callAnthropic({
           state, key, model:getModel(), schema:S_DEBRIEF, effort:"medium", maxTokens:3000,
-          userText:`They just finished this session (${session.dayName}, week ${session.week}, ${session.phaseName} phase). Today is ${todayISO()}.
+          userText:`They just finished this ${session.bonus?"optional bonus":"planned"} session (${session.dayName}, week ${session.week}, ${session.phaseName} phase). Today is ${todayISO()}.
 
 ${lines}
 
@@ -1977,7 +2024,7 @@ Debrief it. What actually happened, what it means for their goal, and what chang
         const r = rules();
         const raw = await callAnthropic({
           state, key, model:getModel(), schema:S_REVIEW, effort:"medium", maxTokens:3000,
-          userText:`Write their weekly review. Today is ${todayISO()}. They completed ${r.sessions} of ${r.target} planned sessions in the last seven days.
+          userText:`Write their weekly review. Today is ${todayISO()}. They completed ${r.sessions} of ${r.target} planned sessions in the last seven days${r.bonusSessions?`, plus ${r.bonusSessions} optional extra session${r.bonusSessions===1?"":"s"}`:""}.
 
 Cover: how the week went, progress against their goal specifically, what's working, and one thing to change. Reference real lifts and numbers from their history. Be honest if the week was poor.`,
         });
@@ -2073,6 +2120,7 @@ How to do this well:
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const SOUND_KEY = "snapfit_v2_sound";
+const SOUND_VOLUME_KEY = "snapfit_v2_sound_volume";
 const WAKE_KEY  = "snapfit_v2_wake";
 const SCALE_KEY = "snapfit_v2_textscale";
 const THEME_KEY = "snapfit_v2_theme";
@@ -2166,20 +2214,33 @@ try{
 /* ── Audio cues ───────────────────────────────────────────────────────────
    The whole sequence is scheduled against the AudioContext clock the moment
    rest starts, rather than fired from a JS timer. Timers get throttled to once
-   a minute in a backgrounded tab; the audio clock does not. Everything is
-   synthesised, so there's nothing to download and it works offline.          */
+   a minute in a backgrounded tab; the audio clock does not. The two whistle
+   samples are bundled in the app cache, with synthesised cues as a fallback. */
 
 const CUE_PLAN = [
-  {at:20, kind:"beep"},
+  {at:20, kind:"short"},
   {at:10, kind:"double"},
   {at:9,  kind:"tick"}, {at:8, kind:"tick"}, {at:7, kind:"tick"}, {at:6, kind:"tick"},
   {at:5,  kind:"tick"}, {at:4, kind:"tick"}, {at:3, kind:"tick"}, {at:2, kind:"tick"},
   {at:1,  kind:"tick"},
-  {at:0,  kind:"whistle"},
+  {at:0,  kind:"long"},
 ];
 
 const cues = (()=>{
-  let ctx = null, live = [];
+  const SAMPLE_URLS = {
+    short:"./assets/sounds/countdown-whistle.mp3",
+    long:"./assets/sounds/start-whistle.mp3",
+  };
+  let ctx = null, live = [], samples = null, loading = null;
+
+  function loadVolume(){
+    try{
+      const raw = localStorage.getItem(SOUND_VOLUME_KEY);
+      if(raw === null) return 100;
+      const v = Number(raw);
+      return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 100;
+    }catch{ return 100; }
+  }
 
   function context(){
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -2196,6 +2257,37 @@ const cues = (()=>{
     return c;
   }
 
+  async function preload(){
+    if(samples) return true;
+    const c = unlock();
+    if(!c || typeof c.decodeAudioData !== "function") return false;
+    if(!loading){
+      loading = Promise.all(Object.entries(SAMPLE_URLS).map(async ([name,url])=>{
+        const res = await fetch(url);
+        if(!res.ok) throw new Error(`Couldn't load ${name} whistle`);
+        return [name, await c.decodeAudioData(await res.arrayBuffer())];
+      })).then(entries=>{
+        samples = Object.fromEntries(entries);
+        return true;
+      }).catch(()=>{
+        loading = null;
+        return false;
+      });
+    }
+    return loading;
+  }
+
+  function clip(c, buffer, at, peak=1){
+    if(!buffer || typeof c.createBufferSource !== "function") return false;
+    const source = c.createBufferSource(), g = c.createGain();
+    source.buffer = buffer;
+    g.gain.setValueAtTime((loadVolume()/100) * peak, at);
+    source.connect(g).connect(c.destination);
+    source.start(at);
+    live.push(source);
+    return true;
+  }
+
   function blip(c, at, {freq, dur, type="sine", peak=0.3, warble=0}){
     const osc = c.createOscillator(), g = c.createGain();
     osc.type = type;
@@ -2209,7 +2301,7 @@ const cues = (()=>{
     }
     // Envelope, or it clicks at both ends.
     g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(peak, at + Math.min(0.02, dur/4));
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0001, peak * loadVolume()/100), at + Math.min(0.02, dur/4));
     g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
     osc.connect(g).connect(c.destination);
     osc.start(at);
@@ -2218,17 +2310,27 @@ const cues = (()=>{
   }
 
   function play(c, kind, at){
-    if(kind==="beep")    return blip(c, at, {freq:880, dur:0.12});
-    if(kind==="double"){ blip(c, at, {freq:880, dur:0.10}); return blip(c, at+0.19, {freq:880, dur:0.10}); }
+    if(kind==="short")   return clip(c, samples?.short, at) || blip(c, at, {freq:880, dur:0.12});
+    if(kind==="double"){
+      if(samples?.short){ clip(c, samples.short, at); return clip(c, samples.short, at+0.35); }
+      blip(c, at, {freq:880, dur:0.10}); return blip(c, at+0.19, {freq:880, dur:0.10});
+    }
     if(kind==="tick")    return blip(c, at, {freq:660, dur:0.055, peak:0.2});
-    if(kind==="whistle") return blip(c, at, {freq:2000, dur:0.45, type:"square", peak:0.34, warble:260});
+    if(kind==="long")    return clip(c, samples?.long, at) || blip(c, at, {freq:2000, dur:0.7, type:"square", peak:0.34, warble:260});
   }
 
   return {
     enabled: ()=>prefOn(SOUND_KEY),
     setEnabled(on){ setPref(SOUND_KEY,on); if(!on){ this.cancel(); } },
+    volume: loadVolume,
+    setVolume(v){
+      const safe = Math.max(0, Math.min(100, Number(v)||0));
+      try{ localStorage.setItem(SOUND_VOLUME_KEY, String(safe)); }catch{}
+      return safe;
+    },
     supported: ()=>!!(window.AudioContext || window.webkitAudioContext),
     unlock,
+    preload,
 
     /* Schedule every cue for a rest ending at `endsAt` (epoch ms). Returns the
        offsets in seconds it scheduled, which is what the tests assert on. */
@@ -2237,6 +2339,7 @@ const cues = (()=>{
       if(!prefOn(SOUND_KEY)) return [];
       const c = unlock();
       if(!c) return [];
+      if(!samples) preload(); // ready for the next rest if this one started too quickly
       const secsLeft = (endsAt - Date.now()) / 1000;
       const now = c.currentTime;
       const used = [];
@@ -2255,15 +2358,16 @@ const cues = (()=>{
     },
 
     /* Settings preview: the same sequence compressed so you can check volume. */
-    test(){
+    async test(){
       this.cancel();
       const c = unlock();
       if(!c) return;
+      await preload();
       const now = c.currentTime + 0.05;
-      play(c, "beep",    now);
+      play(c, "short",   now);
       play(c, "double",  now + 0.8);
       [0,1,2,3].forEach(i=> play(c, "tick", now + 1.7 + i*0.28));
-      play(c, "whistle", now + 3.1);
+      play(c, "long",    now + 3.1);
     },
   };
 })();
@@ -3439,11 +3543,25 @@ const SCALE = {
   stress:  {label:"Stress",   icon:"🌀", low:"Calm",   high:"Fried",  invert:true,  hint:"Life in general"},
 };
 
-function CheckIn({onSubmit, onSkip}){
+function CheckIn({onSubmit, onSkip, bonus=false, onCancel}){
   const [v,setV] = useState({sleep:3, energy:3, soreness:2, stress:2});
   const adj = readinessAdjustment(v);
   return (<div className="rise" style={{paddingTop:8,paddingBottom:24}}>
-    <SectionTitle sub="Thirty seconds. It changes what today looks like.">HOW ARE YOU TODAY?</SectionTitle>
+    <SectionTitle sub={bonus
+      ? "The next workout in your current block, added outside your weekly target."
+      : "Thirty seconds. It changes what today looks like."}>
+      {bonus ? "EXTRA SESSION" : "HOW ARE YOU TODAY?"}
+    </SectionTitle>
+
+    {bonus && (<Card accent={C.green} style={{marginBottom:14}}>
+      <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.text,fontWeight:700,marginBottom:5}}>
+        Extra day. Same plan.
+      </div>
+      <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,lineHeight:1.65}}>
+        The coach will build the next workout in your current split using the same phase, sets,
+        rep range and progression. It advances the block, but your usual weekly target does not change.
+      </div>
+    </Card>)}
 
     <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:18}}>
       {Object.entries(SCALE).map(([k,cfg])=>(
@@ -3480,9 +3598,11 @@ function CheckIn({onSubmit, onSkip}){
       <div style={{fontSize:"calc(.73rem * var(--ts, 1))",color:C.faint,lineHeight:1.65}}>{adj.note}</div>
     </Card>
 
-    <Btn size="lg" full onClick={()=>onSubmit(v)}>BUILD TODAY'S SESSION →</Btn>
+    <Btn size="lg" full onClick={()=>onSubmit(v)}>{bonus?"BUILD EXTRA SESSION →":"BUILD TODAY'S SESSION →"}</Btn>
     <button onClick={onSkip} style={{width:"100%",marginTop:10,background:"transparent",border:"none",
       color:C.ghost,fontSize:"calc(.72rem * var(--ts, 1))",cursor:"pointer",padding:8}}>Skip — just give me the session</button>
+    {bonus && <button onClick={onCancel} style={{width:"100%",background:"transparent",border:"none",
+      color:C.faint,fontSize:"calc(.7rem * var(--ts, 1))",cursor:"pointer",padding:8}}>Cancel extra session</button>}
   </div>);
 }
 
@@ -3644,7 +3764,8 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
    ═══════════════════════════════════════════════════════════════════════════ */
 
 function TodayView({state, session, setSession, generating, onGenerate, onFinish, coach, aiOn,
-                    rest, startRest, skipRest, apiKey, setTravel, clearTravel, forgetTravel}){
+                    rest, startRest, skipRest, apiKey, setTravel, clearTravel, forgetTravel,
+                    bonusPending=false, onCancelBonus}){
   const [picker,setPicker]   = useState(null);   // {exIdx,setIdx}
   const [explain,setExplain] = useState({});     // exId -> explanation
   const [explaining,setExplaining] = useState({});
@@ -3720,10 +3841,14 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     <div style={{display:"inline-flex",flexDirection:"column",alignItems:"center",gap:14}}>
       <Spinner size={28}/>
       <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.2rem",color:C.dim,letterSpacing:".08em"}}>
-        {aiOn ? "YOUR COACH IS WRITING TODAY'S SESSION" : "BUILDING TODAY'S SESSION"}
+        {bonusPending
+          ? (aiOn ? "YOUR COACH IS WRITING AN EXTRA SESSION" : "BUILDING EXTRA SESSION")
+          : (aiOn ? "YOUR COACH IS WRITING TODAY'S SESSION" : "BUILDING TODAY'S SESSION")}
       </div>
       <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.ghost,maxWidth:260,lineHeight:1.6}}>
-        {aiOn ? "Reading your last few sessions and today's check-in." : "Working from your block targets and logged weights."}
+        {bonusPending
+          ? "Using the next workout and current phase from your existing block."
+          : (aiOn ? "Reading your last few sessions and today's check-in." : "Working from your block targets and logged weights.")}
       </div>
     </div>
   </div>);
@@ -3733,7 +3858,8 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
      BEFORE the session is built — it decides which exercises exist. */
   if(!session) return (<>
     <VenueRow state={state} onOpen={()=>setVenue(true)}/>
-    <CheckIn onSubmit={ci=>onGenerate(ci)} onSkip={()=>onGenerate(null)}/>
+    <CheckIn bonus={bonusPending} onCancel={onCancelBonus}
+      onSubmit={ci=>onGenerate(ci)} onSkip={()=>onGenerate(null)}/>
     {gymSheet}
   </>);
 
@@ -3744,6 +3870,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     {/* header */}
     <div style={{marginBottom:14}}>
       <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,flexWrap:"wrap"}}>
+        {session.bonus && <Chip color={C.green}>BONUS SESSION</Chip>}
         <Chip color={C.red}>WEEK {session.week} / {prog.total}</Chip>
         <Chip color={C.purple}>{session.phaseName}</Chip>
         {readiness && <Chip color={readiness.color}>{readiness.label}</Chip>}
@@ -3797,7 +3924,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
 
     {session.exercises.map((ex,i)=>(
       <ExerciseCard key={ex.exId+i} ex={ex} idx={i} logs={ex.log||Array(ex.sets).fill(null)}
-        onLogSet={si=>setPicker({exIdx:i,setIdx:si})}
+        onLogSet={si=>{ cues.preload(); setPicker({exIdx:i,setIdx:si}); }}
         onExplain={()=>doExplain(ex.exId)}
         explanation={explain[ex.exId]} explaining={explaining[ex.exId]} aiOn={aiOn}/>
     ))}
@@ -3896,7 +4023,7 @@ function DebriefView({debrief, loading, onDone, aiOn}){
    PLAN
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function PlanView({state, onReplan, replanning, aiOn}){
+function PlanView({state, onReplan, replanning, aiOn, onAddBonus, currentSession}){
   const b = state.block;
   const prog = blockProgress(state);
   const [confirm,setConfirm] = useState(false);
@@ -3908,7 +4035,7 @@ function PlanView({state, onReplan, replanning, aiOn}){
   let weekCursor = 0;
 
   return (<div className="fade" style={{paddingTop:8,paddingBottom:20}}>
-    <SectionTitle sub={`${prog.done} sessions done · ${prog.dpw} per week`}>YOUR BLOCK</SectionTitle>
+    <SectionTitle sub={`${prog.done} block sessions done${prog.bonusDone?` · ${prog.bonusDone} added extra`:""} · ${prog.dpw} per week`}>YOUR BLOCK</SectionTitle>
 
     <Card accent={C.red} style={{marginBottom:14}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:10}}>
@@ -3994,6 +4121,29 @@ function PlanView({state, onReplan, replanning, aiOn}){
         </Card>);
       })}
     </div>
+
+    {!prog.complete && (<Card accent={C.green} style={{marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7,flexWrap:"wrap"}}>
+        <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.green,fontWeight:700,letterSpacing:".09em"}}>
+          OPTIONAL EXTRA SESSION
+        </div>
+        <Chip color={C.green}>BONUS</Chip>
+      </div>
+      <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.text,fontWeight:650,marginBottom:5}}>
+        Found another training window?
+      </div>
+      <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,lineHeight:1.65,marginBottom:12}}>
+        Add the next workout from this block whenever you have extra time. It uses the current phase,
+        targets and progression and moves the <strong style={{color:C.text}}>NEXT</strong> marker normally,
+        without changing your usual {prog.dpw}-session weekly target.
+      </div>
+      <Btn kind={currentSession?"solid":"green"} size="md" full onClick={onAddBonus}>
+        {currentSession ? "GO TO CURRENT SESSION" : "ADD AN EXTRA SESSION +"}
+      </Btn>
+      {currentSession && <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,lineHeight:1.5,marginTop:7,textAlign:"center"}}>
+        Finish or abandon the session already open before adding another.
+      </div>}
+    </Card>)}
 
     <Btn kind="ghost" size="md" full onClick={()=>setConfirm(true)} disabled={replanning}>
       {replanning ? <><Spinner size={13}/> BUILDING…</> : "REBUILD THIS BLOCK"}
@@ -4604,6 +4754,7 @@ function LogView({state, setState, onRestore, apiKey}){
                   <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
                     <Chip color={C.faint}>{s.date}</Chip>
                     <Chip color={C.purple}>wk {s.week}</Chip>
+                    {s.bonus && <Chip color={C.green}>BONUS</Chip>}
                     {s.readiness && <Chip color={s.readiness.color}>{s.readiness.label}</Chip>}
                   </div>
                 </div>
@@ -4794,6 +4945,7 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
     return ()=>{ mq.removeEventListener ? mq.removeEventListener("change", sync) : mq.removeListener(sync); };
   },[]);
   const [sound,setSound]       = useState(()=>cues.enabled());
+  const [soundVolume,setSoundVolume] = useState(()=>cues.volume());
   const [wake,setWake]         = useState(()=>wakeLock.enabled());
 
   const allStations = [...SEED_STATIONS, ...(state.equipment.custom||[])];
@@ -4837,6 +4989,7 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
   const p = state.profile, l = state.limits;
   const coachStyle = {...DEFAULT_COACH_STYLE, ...(state.coachStyle||{})};
   const setP = (k,v) => setState(s=>({...s, profile:{...s.profile,[k]:v}}));
+  const setDaysPerWeek = v => setState(s=>changeTrainingDays(s,v));
   const setL = (k,v) => setState(s=>({...s, limits:{...s.limits,[k]:v}}));
   const setCoachStyle = (k,v) => setState(s=>({...s,
     coachStyle:{...DEFAULT_COACH_STYLE, ...(s.coachStyle||{}), [k]:v}}));
@@ -4962,8 +5115,13 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
     <Card style={{marginBottom:14}}>
       <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
         <Toggle on={sound} label="Rest timer sounds"
-          sub="Short cues only — the timer does not play a silent track or take over your music"
+          sub="Short whistle at 20 seconds, double at 10, ticks to zero, then a long whistle"
           onChange={v=>{ setSound(v); cues.setEnabled(v); }}/>
+        <Field label={`Timer volume — ${soundVolume}%`}
+          hint="Controls only SnapFit's timer cues, not your music app.">
+          <Slider min={0} max={100} step={5} value={soundVolume}
+            onChange={v=>{ setSoundVolume(v); cues.setVolume(v); }} format={v=>`${v}%`}/>
+        </Field>
         <Toggle on={wake} label="Keep the screen awake during a session"
           sub={wakeLock.supported()
             ? "Stops the phone sleeping mid-workout — and a screen that stays on is what makes the sounds reliable"
@@ -4971,7 +5129,7 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
           onChange={v=>{ setWake(v); wakeLock.setEnabled(v); }}/>
       </div>
       <Btn kind="solid" size="sm" onClick={()=>cues.test()} disabled={!sound || !cues.supported()}>
-        ▶ Test the cues
+        ▶ Test short + long whistles
       </Btn>
       <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.ghost,lineHeight:1.7,marginTop:11,
         borderTop:`1px solid ${C.lineSoft}`,paddingTop:11}}>
@@ -4985,8 +5143,8 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
     <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>TRAINING</div>
     <Card style={{marginBottom:14}}>
       <Field label={`Days per week — ${p.daysPerWeek}`}
-        hint={`Split: ${(SPLITS[p.daysPerWeek]||SPLITS[3]).map(d=>d.name).join(" · ")}. Changing this takes effect on your next session.`}>
-        <Slider min={2} max={5} value={p.daysPerWeek} onChange={v=>setP("daysPerWeek",v)} format={v=>`${v} days`}/>
+        hint={`Split: ${(SPLITS[p.daysPerWeek]||SPLITS[3]).map(d=>d.name).join(" · ")}. Changing this takes effect on your next session while keeping your current block, week and phase.`}>
+        <Slider min={2} max={5} value={p.daysPerWeek} onChange={setDaysPerWeek} format={v=>`${v} days`}/>
       </Field>
       <Field label="Session length" hint={durationShape(p.sessionMinutes).note}>
         <Slider min={20} max={90} step={5} value={p.sessionMinutes}
@@ -5143,6 +5301,7 @@ function App(){
   const [review,setReview]         = useState(null);
   const [reviewLoading,setReviewLoading]   = useState(false);
   const [offline,setOffline]       = useState(null);
+  const [bonusPending,setBonusPending] = useState(false);
 
   /* Rest timer lives here, not in TodayView, so it survives tab changes.
      Persisted so a reload mid-workout resumes it rather than losing it. */
@@ -5224,12 +5383,15 @@ function App(){
   }
 
   /* ── session ────────────────────────────────────────────────────────── */
-  async function generate(checkin){
+  async function generate(checkin, {bonus=false}={}){
     setGenerating(true);
     try{
       if(checkin) setState(s=>({...s, checkins:[{date:todayISO(), ...checkin}, ...s.checkins].slice(0,60)}));
-      const sess = await coach.todaysSession(checkin);
-      if(sess) setSession({...sess, exercises: sess.exercises.map(e=>({...e, log:Array(e.sets).fill(null)}))});
+      const sess = await coach.todaysSession(checkin, {bonus});
+      if(sess){
+        setSession({...sess, exercises: sess.exercises.map(e=>({...e, log:Array(e.sets).fill(null)}))});
+        if(bonus) setBonusPending(false);
+      }
     } finally { setGenerating(false); }
   }
 
@@ -5279,6 +5441,7 @@ function App(){
   function resetAll(){
     try{ localStorage.removeItem(STORE_KEY); localStorage.removeItem(ACTIVE_KEY); }catch{}
     skipRest(); setSession(null); setDebrief(null); setReview(null);
+    setBonusPending(false);
     setStateRaw(defaultState()); stateRef.current = defaultState();
     setView("today");
   }
@@ -5288,6 +5451,7 @@ function App(){
      go with it. */
   function restoreState(next, restoredApiKey=null){
     skipRest(); setSession(null); setDebrief(null); setReview(null);
+    setBonusPending(false);
     if(restoredApiKey !== null){
       setApiKey(restoredApiKey);
       saveKey(restoredApiKey);
@@ -5384,13 +5548,19 @@ function App(){
                 onDone={()=>{ setDebrief(null); setReview(null); }}/>
             : view==="today"    ? <TodayView state={state} session={session} setSession={setSession}
                                     generating={generating} onGenerate={ci=>{
-                                      if(prog?.complete) buildBlock(); else generate(ci);
+                                      if(prog?.complete && !bonusPending) buildBlock();
+                                      else generate(ci,{bonus:bonusPending});
                                     }}
                                     onFinish={finishSession} coach={coach} aiOn={aiOn}
                                     rest={rest} startRest={startRest} skipRest={skipRest}
                                     apiKey={apiKey} setTravel={setTravel} clearTravel={clearTravel}
-                                    forgetTravel={forgetTravel}/>
-            : view==="plan"     ? <PlanView state={state} onReplan={()=>buildBlock()} replanning={replanning} aiOn={aiOn}/>
+                                    forgetTravel={forgetTravel} bonusPending={bonusPending}
+                                    onCancelBonus={()=>setBonusPending(false)}/>
+            : view==="plan"     ? <PlanView state={state} onReplan={()=>buildBlock()} replanning={replanning} aiOn={aiOn}
+                                    currentSession={session} onAddBonus={()=>{
+                                      if(!session) setBonusPending(true);
+                                      setView("today");
+                                    }}/>
             : view==="goal"     ? <GoalView state={state} setState={setState} review={review}
                                     reviewLoading={reviewLoading} onReview={runReview} aiOn={aiOn}/>
             : view==="coach"    ? <ChatView state={state} setState={setState} coach={coach} aiOn={aiOn}

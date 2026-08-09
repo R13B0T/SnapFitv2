@@ -38,6 +38,15 @@ keeps counting when you switch tabs, and it survives a reload mid-workout.
 **Every exercise shows what the coach prescribed** alongside what you're actually lifting, so
 overriding a weight never loses track of the target.
 
+**Extra session when life unexpectedly cooperates.** The Plan page can add the next workout
+from the current block without permanently changing the weekly target. It uses the same split,
+phase, sets, rep range, effort and progression as the rest of the plan, and advances the block
+normally when finished. The log and weekly review label it as an extra so attendance stays honest.
+
+**Changing weekly frequency keeps the block intact.** Moving from three sessions to four (or
+back again) applies the new split from the next generated session while preserving the current
+block, week, phase, history and weights. It does not silently send the plan back to week one.
+
 **Exercise cards stay out of your way.** They start compact with the lift and target visible;
 tap one to reveal *Coach Says*, set logging, and the Why/How coaching. Finishing its last set
 folds the card closed again and gives it a light-green background, so what's done is obvious.
@@ -126,12 +135,14 @@ aloud, while the phone reads it with its best available English voice. That keep
 free of a second API key and sends no audio to another service; voice quality depends on the
 voices installed on the device.
 
-**Rest timer sounds.** On by default, with a *Test the cues* button so you can check your
-volume before you're mid-session. The whole cue sequence is scheduled against the audio clock
-the moment rest starts rather than fired from a JavaScript timer, because timers get throttled
-to once a minute in a backgrounded tab and the audio clock doesn't. The timer no longer plays
-a silent keepalive track, so it does not take over the phone's media session or stop music from
-another app. A cue may briefly mix with or duck the music when it actually sounds.
+**Rest timer sounds.** On by default, with a saved 0–100% volume control and a *Test short +
+long whistles* button. A short whistle sounds at 20 seconds, twice at 10 seconds, ticks count
+down from 9, and a long whistle announces the next set. Both Mixkit samples are bundled for
+offline use ([whistle collection](https://mixkit.co/free-sound-effects/whistle/),
+[free sound-effects licence](https://mixkit.co/free-sound-effects/)). The sequence is scheduled
+against the audio clock rather than a JavaScript timer, which can be throttled in a backgrounded
+tab. The timer does not play a silent keepalive track, so it does not take over the phone's media
+session or stop music from another app. A cue may briefly mix with or duck the music when it sounds.
 
 **Keep the screen awake during a session.** On by default. Uses the Screen Wake Lock API
 (Chrome/Android, Safari 16.4+), and the toggle says so where it isn't supported.
@@ -278,7 +289,7 @@ npm install
 npm test
 ```
 
-316 checks.
+Three browser-driven test suites cover the app journey, coaching paths and full-block simulation.
 
 - **`test/app.test.js`** — the no-key path end to end: onboarding, check-in, session
   generation, logging a set, form coaching, finishing, the debrief, every tab, persistence

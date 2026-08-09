@@ -7,12 +7,14 @@
    stale-while-revalidate, so without a bump an installed app serves the old
    index.html on first open and only picks up the new one on the launch after
    that — which looks exactly like the update having failed. */
-const CACHE = "snapfit-v2-5";
+const CACHE = "snapfit-v2-7";
 
 const SHELL = [
   "./",
   "./index.html",
   "./manifest.json",
+  "./assets/sounds/countdown-whistle.mp3",
+  "./assets/sounds/start-whistle.mp3",
   "https://unpkg.com/react@18/umd/react.production.min.js",
   "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js",
   "https://unpkg.com/@babel/standalone/babel.min.js",
