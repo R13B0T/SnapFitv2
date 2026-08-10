@@ -7,7 +7,7 @@ const { vendor, launchOpts } = require("./helpers");
 const ROOT = path.join(__dirname, "..");
 const PORT = 8899;
 
-const MIME = {".html":"text/html",".js":"application/javascript",".json":"application/json",".css":"text/css"};
+const MIME = {".html":"text/html",".js":"application/javascript",".json":"application/json",".css":"text/css",".mp3":"audio/mpeg"};
 
 const server = http.createServer((req,res)=>{
   let p = decodeURIComponent(req.url.split("?")[0]);
@@ -400,6 +400,41 @@ function check(name, ok, detail){
   await page.getByText("DONE", {exact:true}).click();
   await page.waitForTimeout(600);
 
+  console.log("\n── OPTIONAL EXTRA SESSION ───────────────────────");
+  await page.getByText("PLAN", {exact:true}).last().click();
+  await page.waitForTimeout(400);
+  let planText = await page.locator("body").innerText();
+  check("Plan offers an extra-session button", /ADD AN EXTRA SESSION/.test(planText), planText.slice(-500));
+  const progressBeforeExtra = await page.evaluate(()=>{
+    const st = JSON.parse(localStorage.getItem("snapfit_v2"));
+    const p = blockProgress(st);
+    return {done:p.done,dayIdx:p.dayIdx,phaseRpe:p.phase.rpe,
+      expectedDay:(SPLITS[p.dpw]||SPLITS[3])[p.dayIdx].name};
+  });
+  await page.getByText("ADD AN EXTRA SESSION +", {exact:true}).click();
+  await page.waitForTimeout(350);
+  const extraGate = await page.locator("body").innerText();
+  check("extra session gets its own check-in",
+    /EXTRA SESSION/.test(extraGate) && /next workout in your current block/i.test(extraGate), extraGate.slice(0,500));
+  await page.getByText("Skip — just give me the session", {exact:true}).click();
+  await page.waitForTimeout(900);
+  const generatedExtra = await page.evaluate(()=>{
+    const sess = JSON.parse(localStorage.getItem("snapfit_v2_active")||"null");
+    const st = JSON.parse(localStorage.getItem("snapfit_v2"));
+    const p = blockProgress(st);
+    return {bonus:sess?.bonus,dayName:sess?.dayName,rpes:(sess?.exercises||[]).map(e=>e.rpe),done:p.done,dayIdx:p.dayIdx};
+  });
+  check("generated extra session follows the current plan",
+    generatedExtra.bonus===true && generatedExtra.dayName===progressBeforeExtra.expectedDay
+      && generatedExtra.rpes.every(r=>r===progressBeforeExtra.phaseRpe), JSON.stringify(generatedExtra));
+  check("building the extra session leaves plan progress alone",
+    generatedExtra.done===progressBeforeExtra.done && generatedExtra.dayIdx===progressBeforeExtra.dayIdx,
+    JSON.stringify({before:progressBeforeExtra,after:generatedExtra}));
+  await page.getByText("ABANDON", {exact:true}).click();
+  await page.waitForTimeout(250);
+  await page.getByText("Abandon", {exact:true}).click();
+  await page.waitForTimeout(400);
+
   console.log("\n── ALL TABS ─────────────────────────────────────");
   for(const [label, expect] of [["PLAN","YOUR BLOCK"],["GOAL","YOUR GOAL"],["COACH","COACH"],
                                  ["LEARN","LEARN"],["LOG","LOG"]]){
@@ -437,8 +472,27 @@ function check(name, ok, detail){
   check("equipment editor present", /YOUR GYM/.test(st));
   check("text size editor present", /text size/i.test(st));
   check("sound toggle present", /Rest timer sounds/.test(st));
+  check("timer volume control present", /timer volume/i.test(st));
   check("wake lock toggle present", /Keep the screen awake/.test(st));
-  check("test cues button present", /Test the cues/.test(st));
+  check("test whistles button present", /Test short \+ long whistles/.test(st));
+
+  const scheduleBefore = await page.evaluate(()=>{
+    const s=JSON.parse(localStorage.getItem("snapfit_v2")), p=blockProgress(s);
+    return {id:s.block.id,week:p.week,phase:p.phase.name,done:p.done};
+  });
+  const daysField = page.getByText(/DAYS PER WEEK — 3/i).first().locator("..");
+  await daysField.locator('input[type="range"]').fill("4");
+  await page.waitForTimeout(300);
+  const scheduleAfter = await page.evaluate(()=>{
+    const s=JSON.parse(localStorage.getItem("snapfit_v2")), p=blockProgress(s);
+    return {id:s.block.id,week:p.week,phase:p.phase.name,done:p.done,dpw:p.dpw};
+  });
+  check("changing weekly frequency keeps the same block",
+    scheduleAfter.id===scheduleBefore.id && scheduleAfter.done===scheduleBefore.done,
+    JSON.stringify({before:scheduleBefore,after:scheduleAfter}));
+  check("changing weekly frequency preserves week and phase",
+    scheduleAfter.week===scheduleBefore.week && scheduleAfter.phase===scheduleBefore.phase && scheduleAfter.dpw===4,
+    JSON.stringify({before:scheduleBefore,after:scheduleAfter}));
 
   console.log("\n── THEME ────────────────────────────────────────");
 
@@ -649,6 +703,27 @@ function check(name, ok, detail){
   check("tint() is used instead", /function tint\(/.test(appSrc) && /tint\(C\./.test(appSrc));
   check("rest timer does not claim the phone's media session",
     !/new Audio\(|navigator\.mediaSession|silentWav\(/.test(appSrc));
+  check("iPhone cues request a mixable ambient audio session",
+    /navigator\.audioSession\.type\s*=\s*"ambient"/.test(appSrc));
+  check("timer watches for an iPhone audio clock that claims to run but freezes",
+    /function armWatchdog\(/.test(appSrc) && /rescheduleActive\(true\)/.test(appSrc));
+  check("chat composer follows the iPhone visual viewport above the keyboard",
+    /window\.visualViewport/.test(appSrc) && /function ChatComposer\(/.test(appSrc));
+  check("chat history is capped before it reaches the API",
+    /CHAT_CONTEXT_MESSAGES\s*=\s*8/.test(appSrc) && /messages\.slice\(-CHAT_CONTEXT_MESSAGES\)/.test(appSrc));
+  check("training-week start and optional workout help are saved settings",
+    /weekStartsOn/.test(appSrc) && /showExerciseWhy/.test(appSrc) && /showExerciseHow/.test(appSrc));
+  check("advanced learning is an optional layer",
+    /showAdvancedLearn:false/.test(appSrc) && (appSrc.match(/level:"advanced"/g)||[]).length>=4);
+  check("busy-equipment swaps stay inside the catalogue and do not call AI",
+    /function exerciseSwapOptions\(/.test(appSrc) && /Machine busy\? Swap exercise/.test(appSrc));
+  const swSrc = fs.readFileSync(path.join(ROOT,"sw.js"),"utf8");
+  const shortWhistle = path.join(ROOT,"assets","sounds","countdown-whistle.mp3");
+  const longWhistle = path.join(ROOT,"assets","sounds","start-whistle.mp3");
+  check("short whistle is bundled", fs.existsSync(shortWhistle) && fs.statSync(shortWhistle).size > 1000);
+  check("long whistle is bundled", fs.existsSync(longWhistle) && fs.statSync(longWhistle).size > 1000);
+  check("both whistles are cached for offline use",
+    /assets\/sounds\/countdown-whistle\.mp3/.test(swSrc) && /assets\/sounds\/start-whistle\.mp3/.test(swSrc));
 
   console.log("\n── TEXT SIZE ────────────────────────────────────");
   // Body text scales; the big headings deliberately do not.

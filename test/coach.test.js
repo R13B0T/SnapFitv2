@@ -258,6 +258,17 @@ function mockGym(){
   check("AI brief rendered", /Mock brief paragraph one/.test(t), t.slice(0,300));
   check("AI brief keeps its markdown structure", /What's required/.test(t) && /The standard/.test(t));
 
+  const aiExtra = await page.evaluate(async()=>{
+    const c = makeCoach(()=>loadState(), ()=>"sk-ant-test", ()=>"claude-opus-5", ()=>{});
+    const s = await c.todaysSession(null,{bonus:true});
+    return {bonus:s?.bonus,dayName:s?.dayName,phaseName:s?.phaseName,rpes:(s?.exercises||[]).map(e=>e.rpe)};
+  });
+  check("AI extra session stays marked and phase-aligned",
+    aiExtra.bonus===true && aiExtra.rpes.length>=2 && aiExtra.rpes.every(r=>Number.isFinite(r)), JSON.stringify(aiExtra));
+  check("AI is told the extra is the next workout in the block",
+    /extra training window/.test(JSON.stringify(lastRequest?.messages||[]))
+      && /NEXT workout in their current block/.test(JSON.stringify(lastRequest?.messages||[])));
+
   await page.locator('button[aria-label$=" exercise details"]').first().click();
   await page.waitForTimeout(250);
   const beforeHowRequests = requestCount;
@@ -396,19 +407,40 @@ function mockGym(){
   check("chat persists to state", await page.evaluate(()=>{
     try{ return (JSON.parse(localStorage.getItem("snapfit_v2")).chat||[]).length>=2; }catch{ return false; }
   }));
+  await page.evaluate(async()=>{
+    const c=makeCoach(()=>loadState(),()=>"sk-ant-test",()=>"claude-opus-5",()=>{});
+    const messages=Array.from({length:12},(_,i)=>({role:i%2?"assistant":"user",content:`turn ${i}`}));
+    await c.chatStream({messages,onDelta:()=>{},signal:new AbortController().signal});
+  });
+  check("general chat sends only the last eight messages", lastRequest?.messages?.length===8,
+    `${lastRequest?.messages?.length} messages`);
+  await page.evaluate(async()=>{
+    const c=makeCoach(()=>loadState(),()=>"sk-ant-test",()=>"claude-opus-5",()=>{});
+    await c.setChatStream({exercise:{name:"Sandbag Clean & Press",weight:20,sets:3,targetReps:10,rpe:8,rest:90},
+      logs:[{weight:20,reps:10,effort:"good"}],setIndex:1,
+      messages:[{role:"user",content:"Should I add weight?"}],onDelta:()=>{},signal:new AbortController().signal});
+  });
+  check("set chat sends focused exercise context", /LIVE SET COACHING/.test(lastRequest?.system?.[0]?.text||"")
+    && /Sandbag Clean & Press/.test(lastRequest?.system?.[0]?.text||""));
+  check("set chat uses the lean prompt without the full catalogue",
+    !/EXERCISE CATALOGUE/.test(lastRequest?.system?.[0]?.text||""));
 
   /* ── AUDIO CUES ────────────────────────────────────────────────────────
      The sound itself can't be asserted headlessly, but the schedule can: the
      whole sequence is queued against the audio clock up front, so the offsets
      are the thing worth checking. */
   console.log("\n── AUDIO CUE SCHEDULE ───────────────────────────");
-  const audio = await page.evaluate(()=>{
+  const audio = await page.evaluate(async()=>{
     // Record what gets scheduled instead of making noise.
     const started = [];
+    let suspends = 0, resumes = 0, primes = 0;
     const fakeParam = () => ({setValueAtTime(){}, exponentialRampToValueAtTime(){}, setValueCurveAtTime(){}});
     class FakeCtx {
-      constructor(){ this.currentTime = 100; this.state = "running"; this.destination = {}; }
-      resume(){ this.state = "running"; return Promise.resolve(); }
+      constructor(){ this.currentTime = 100; this.state = "interrupted"; this.destination = {}; this.sampleRate = 44100; }
+      suspend(){ suspends++; this.state = "suspended"; return Promise.resolve(); }
+      resume(){ resumes++; this.state = "running"; return Promise.resolve(); }
+      createBuffer(){ return {}; }
+      createBufferSource(){ return {buffer:null, connect(){}, start(){ primes++; }, stop(){}}; }
       createOscillator(){
         const o = {type:"sine", frequency:fakeParam(),
           connect(){ return {connect(){}}; },
@@ -420,9 +452,18 @@ function mockGym(){
     }
     const realAC = window.AudioContext, realWAC = window.webkitAudioContext;
     window.AudioContext = FakeCtx; window.webkitAudioContext = FakeCtx;
+    let session = null;
+    try{
+      session = {type:"auto"};
+      Object.defineProperty(navigator, "audioSession", {configurable:true, value:session});
+    }catch{}
 
     localStorage.setItem("snapfit_v2_sound","on");
+    cues.setVolume(65);
+    const volume = cues.volume();
+    const storedVolume = localStorage.getItem("snapfit_v2_sound_volume");
     const planned = cues.schedule(Date.now() + 30000);   // 30s of rest
+    await new Promise(resolve=>setTimeout(resolve, 0));
     const withSound = started.slice();
 
     started.length = 0;
@@ -433,20 +474,27 @@ function mockGym(){
 
     localStorage.setItem("snapfit_v2_sound","on");
     window.AudioContext = realAC; window.webkitAudioContext = realWAC;
-    return {planned, withSound, mutedPlan, whenMuted};
+    return {planned, withSound, mutedPlan, whenMuted, volume, storedVolume,
+      suspends, resumes, primes, sessionType:session?.type || null};
   });
 
   const offsets = audio.planned.map(c=>c.offset);
-  check("cue at 20s remaining", audio.planned.some(c=>c.at===20 && c.kind==="beep" && c.offset===10), JSON.stringify(audio.planned.slice(0,2)));
+  check("short whistle at 20s remaining", audio.planned.some(c=>c.at===20 && c.kind==="short" && c.offset===10), JSON.stringify(audio.planned.slice(0,2)));
   check("cue at 10s remaining", audio.planned.some(c=>c.at===10 && c.kind==="double" && c.offset===20));
   check("a tick every second from 9 to 1",
     [9,8,7,6,5,4,3,2,1].every(n=>audio.planned.some(c=>c.at===n && c.kind==="tick" && c.offset===30-n)),
     JSON.stringify(audio.planned.filter(c=>c.kind==="tick").map(c=>c.at)));
-  check("whistle exactly at zero", audio.planned.some(c=>c.at===0 && c.kind==="whistle" && c.offset===30));
+  check("long whistle exactly at zero", audio.planned.some(c=>c.at===0 && c.kind==="long" && c.offset===30));
   check("twelve cues in total", audio.planned.length===12, `${audio.planned.length} cues`);
   check("offsets are in ascending order",
     offsets.every((o,i)=>i===0 || o >= offsets[i-1]), JSON.stringify(offsets));
   check("the double beep really is two tones", audio.withSound.length === 13, `${audio.withSound.length} oscillators for 12 cues`);
+  check("an iPhone-interrupted context is restarted",
+    audio.suspends >= 1 && audio.resumes >= 1, `${audio.suspends} suspend / ${audio.resumes} resume`);
+  check("the tap primes Web Audio for iPhone", audio.primes >= 1, `${audio.primes} primes`);
+  check("the iPhone audio category mixes with music", audio.sessionType === "ambient", String(audio.sessionType));
+  check("timer volume persists", audio.volume===65 && audio.storedVolume==="65",
+    `${audio.volume} / ${audio.storedVolume}`);
   check("nothing is scheduled with sound off",
     audio.mutedPlan.length===0 && audio.whenMuted.length===0,
     `${audio.mutedPlan.length} planned / ${audio.whenMuted.length} started`);

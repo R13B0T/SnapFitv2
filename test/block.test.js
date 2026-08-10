@@ -119,6 +119,137 @@ const VENDOR={"react.production.min.js":"react.js","react-dom.production.min.js"
     check("weekly review generated", !!sim.review?.headline, JSON.stringify(sim.review).slice(0,120));
   }
 
+  console.log("\n── OPTIONAL EXTRA SESSION ───────────────────────");
+  const bonus = await page.evaluate(()=>{
+    const st = defaultState();
+    st.onboarded = true;
+    st.goal = {type:"build_muscle"};
+    st.profile = {...st.profile, daysPerWeek:3, sessionMinutes:45};
+    st.block = buildBlockRules(st);
+
+    const first = buildSessionRules(st, null);
+    st.sessions = [{...first, finishedAt:new Date().toISOString()}, ...st.sessions];
+    const before = blockProgress(st);
+    const expectedExtraDay = (SPLITS[before.dpw]||SPLITS[3])[before.dayIdx].name;
+    const extra = buildSessionRules(st, null, {bonus:true});
+    st.sessions = [{...extra, finishedAt:new Date().toISOString()}, ...st.sessions];
+    const after = blockProgress(st);
+    const next = buildSessionRules(st, null);
+    const review = weeklyReviewRules(st);
+    return {
+      marked:extra.bonus,
+      name:extra.dayName,
+      expectedExtraDay,
+      aligned:extra.phaseName===before.phase.name && extra.exercises.every(e=>e.rpe===before.phase.rpe),
+      before:{done:before.done,dayIdx:before.dayIdx,phase:before.phase.name},
+      after:{done:after.done,dayIdx:after.dayIdx,bonusDone:after.bonusDone},
+      first:first.dayName,
+      next:next.dayName,
+      review:{sessions:review.sessions,bonusSessions:review.bonusSessions},
+    };
+  });
+  check("extra session is clearly marked", bonus.marked===true, JSON.stringify(bonus));
+  check("extra session uses the next day in the plan", bonus.name===bonus.expectedExtraDay,
+    `${bonus.name} vs ${bonus.expectedExtraDay}`);
+  check("extra session follows the current phase targets", bonus.aligned===true, JSON.stringify(bonus));
+  check("finishing an extra session advances block progress normally",
+    bonus.after.done===bonus.before.done+1 && bonus.before.dayIdx!==bonus.after.dayIdx,
+    JSON.stringify({before:bonus.before,after:bonus.after}));
+  check("extra session has its own progress count", bonus.after.bonusDone===1, JSON.stringify(bonus.after));
+  check("the plan rotation continues after the extra session", bonus.first!==bonus.next,
+    `${bonus.first} → bonus → ${bonus.next}`);
+  check("weekly attendance keeps extras separate",
+    bonus.review.sessions===1 && bonus.review.bonusSessions===1, JSON.stringify(bonus.review));
+
+  console.log("\n── CHANGING WEEKLY FREQUENCY KEEPS THE BLOCK ────");
+  const cadence = await page.evaluate(()=>{
+    const st = defaultState();
+    st.onboarded=true; st.goal={type:"build_muscle"};
+    st.profile={...st.profile,daysPerWeek:3};
+    st.block=buildBlockRules(st);
+    const originalId=st.block.id;
+    for(let i=0;i<4;i++){
+      const sess=buildSessionRules(st,null);
+      st.sessions=[{...sess,finishedAt:new Date().toISOString()},...st.sessions];
+    }
+    const before=blockProgress(st);
+    const changed=changeTrainingDays(st,4);
+    const after=blockProgress(changed);
+    const next=buildSessionRules(changed,null);
+    return {
+      originalId,changedId:changed.block.id,
+      before:{week:before.week,phase:before.phase.name,done:before.done},
+      after:{week:after.week,phase:after.phase.name,done:after.done,dpw:after.dpw,dayIdx:after.dayIdx},
+      next:next.dayName,
+      split:(SPLITS[4]||[]).map(d=>d.name),
+    };
+  });
+  check("changing days does not replace the block", cadence.changedId===cadence.originalId, JSON.stringify(cadence));
+  check("changing days preserves week and phase",
+    cadence.after.week===cadence.before.week && cadence.after.phase===cadence.before.phase,
+    JSON.stringify(cadence));
+  check("new frequency and split apply to the next session",
+    cadence.after.dpw===4 && cadence.split.includes(cadence.next), JSON.stringify(cadence));
+
+  console.log("\n── RAMP SETS & BUSY-EQUIPMENT SWAPS ────────────");
+  const workingSets = await page.evaluate(()=>{
+    const ramp=performanceSummary([
+      {weight:10,reps:10,effort:"good"},
+      {weight:15,reps:10,effort:"good"},
+      {weight:20,reps:10,effort:"good"},
+    ],[8,12]);
+    const st=defaultState(); st.goal={type:"build_muscle"}; st.block=buildBlockRules(st);
+    const session=buildSessionRules(st,null);
+    const current=session.exercises.find(e=>exerciseSwapOptions(e,st,session).length) || session.exercises[0];
+    const swaps=exerciseSwapOptions(current,st,session);
+    return {ramp, current:{id:current.exId,pattern:current.pattern,stations:current.stations},
+      swaps:swaps.map(ex=>({id:ex.id,pattern:ex.pattern,stations:stationsForExercise(ex,st)}))};
+  });
+  check("ramp-up sets keep the heaviest productive working load",
+    workingSets.ramp.weight===20 && workingSets.ramp.avgReps===10 && workingSets.ramp.sets===1,
+    JSON.stringify(workingSets.ramp));
+  check("busy-equipment swap offers no more than two alternatives",
+    workingSets.swaps.length<=2, JSON.stringify(workingSets.swaps));
+  check("every swap preserves the movement pattern and avoids duplicates",
+    workingSets.swaps.every(x=>x.pattern===workingSets.current.pattern && x.id!==workingSets.current.id),
+    JSON.stringify(workingSets));
+
+  console.log("\n-- MULTI-JUNGLE & FUNCTIONAL SANDBAGS -----------");
+  const functional = await page.evaluate(()=>{
+    const withOnly = enabled=>{
+      const st=defaultState();
+      st.equipment={enabled,custom:[]};
+      return {state:st,pool:availableExercises(st)};
+    };
+    const cable=withOnly(["17"]), bags=withOnly(["SB"]);
+    const old=migrate({v:2,equipmentCatalogueVersion:1,equipment:{enabled:["29"],custom:[]}});
+    const optedOut=migrate({v:2,equipmentCatalogueVersion:2,equipment:{enabled:["29"],custom:[]}});
+    return {
+      cableIds:cable.pool.map(e=>e.id),
+      cableStations:cable.pool.map(e=>({id:e.id,stations:stationsForExercise(e,cable.state)})),
+      bagIds:bags.pool.map(e=>e.id),
+      bagPatterns:[...new Set(bags.pool.map(e=>e.pattern))],
+      oldGetsBags:old.equipment.enabled.includes("SB"),
+      optOutSticks:!optedOut.equipment.enabled.includes("SB"),
+    };
+  });
+  check("Multi-Jungle works without a second cable station",
+    ["lat_pulldown","cable_row","tricep_pushdown"].every(id=>functional.cableIds.includes(id)),
+    JSON.stringify(functional.cableIds));
+  check("a cable exercise stores the station actually available",
+    functional.cableStations.every(e=>e.stations.length===1 && e.stations[0]==="17"),
+    JSON.stringify(functional.cableStations));
+  check("adjustable-pulley movements are available",
+    ["single_cable_fly","face_pull","cable_lateral_raise","cable_curl","pallof_press"]
+      .every(id=>functional.cableIds.includes(id)), JSON.stringify(functional.cableIds));
+  check("sandbags add five trackable exercises", functional.bagIds.length===5,
+    JSON.stringify(functional.bagIds));
+  check("sandbags cover legs, hinge, press and core",
+    ["squat","hinge","push_v","core"].every(p=>functional.bagPatterns.includes(p)),
+    JSON.stringify(functional.bagPatterns));
+  check("existing installs receive the known sandbag station once",
+    functional.oldGetsBags && functional.optOutSticks, JSON.stringify(functional));
+
   console.log("\n── EQUIPMENT CONSTRAINTS ────────────────────────");
   const eq = await page.evaluate(()=>{
     let st = defaultState();
