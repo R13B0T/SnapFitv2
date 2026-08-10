@@ -22,6 +22,12 @@ job in today's session, and a *How to do it* panel with setup cues, how to execu
 the mistakes people actually make on that exercise, and what it should feel like when it's
 right. Opening *How to do it* makes one coaching call when AI is enabled. The same panel has
 a direct YouTube Shorts search for the exercise; that link does not use the AI or spend credits.
+The Why and How controls can each be hidden in Settings when you want a quieter workout screen.
+
+**Busy machine, same plan.** Before logging the first set, *Swap exercise* offers up to two
+available alternatives from the same movement pattern, preferring different equipment. Sets,
+reps, rest and phase stay intact; the replacement load comes from its own logged history. This
+is catalogue-driven and spends no AI credits.
 
 **It briefs you before you start.** What today's session is for, what's required of you to
 make it count, and how you'll know you got it right — at the top of the Today screen, before
@@ -33,7 +39,9 @@ it means, and what moves next time.
 
 **The rest timer runs on the audio clock.** Beep at 20 seconds, double beep at 10, a tick
 every second after that, and a whistle when rest is up — so you can put the phone down. It
-keeps counting when you switch tabs, and it survives a reload mid-workout.
+keeps counting when you switch tabs, and it survives a reload mid-workout. A watchdog detects
+the iPhone/WebKit failure where an audio context says it is running while its clock is frozen,
+restarts it, and re-anchors all remaining cues to the rest timer's real end time.
 
 **Every exercise shows what the coach prescribed** alongside what you're actually lifting, so
 overriding a weight never loses track of the target.
@@ -51,6 +59,12 @@ block, week, phase, history and weights. It does not silently send the plan back
 tap one to reveal *Coach Says*, set logging, and the Why/How coaching. Finishing its last set
 folds the card closed again and gives it a light-green background, so what's done is obvious.
 
+**The exercise catalogue reflects the whole functional area.** The dumbbell coverage already
+spans every major movement pattern. The Signature Series Multi-Jungle now contributes its row,
+pulldown, pushdown and adjustable-pulley movements without pretending two cable stations are
+required at once. Functional sandbags/Core Bags add progressive front squats, reverse lunges,
+deadlifts, clean-and-presses and Russian twists using the gym's 5–25kg set.
+
 **Photograph a strange gym and it adapts.** In a hotel, at a friend's place, anywhere that
 isn't your gym: take up to three photos and the coach reads what's there. You confirm the list
 — it flags what it's sure about and what it's guessing — and the day's session is built from
@@ -60,10 +74,19 @@ you never walk into your own gym holding a hotel session.
 
 **A Learn hub for the concepts.** Progressive overload, RPE and reps-in-reserve, the muscle
 map, rep ranges, why deloads exist, warming up, recovery, what to do when a lift stalls.
-Ten topics with a comprehension check each, and it tracks what you've covered.
+Every topic has a comprehension check and the hub tracks what you've covered. An optional
+Advanced layer adds autoregulation, recoverable volume, exercise selection and reading trends;
+it is off by default and can be enabled in Settings.
 
 **Ask it anything.** With an API key, the Coach tab is a conversation with something that
-can see your goal, your block and every set you've logged.
+can see your goal, your block and every set you've logged. Only the last eight chat messages
+are sent on each turn, and *New chat* starts clean when the topic changes. During a session,
+each exercise also has a focused set chat that sends only that exercise, its logged sets and
+the last six mini-chat messages.
+
+**Goal pace is visible, without pretending it is certain.** After at least two dated body
+measurements and some progress toward a numeric target, the Goal page estimates days remaining
+and a forecast date from the logged rate. It is clearly labelled as a current-pace estimate.
 
 ---
 
@@ -129,6 +152,9 @@ roast; *Hard truth* runs from gentle delivery to no sugar-coating. The defaults 
 (3/5) and Blunt (4/5). Both scales keep fixed guardrails: no fake praise, personal insults,
 body-shaming, invented failures or unsafe training advice.
 
+**Training week start.** Choose Sunday through Saturday. Weekly reviews and exact week references
+sent to the coach use that window; changing it does not reset the block or move its phase.
+
 **Voice summaries.** Session debriefs and weekly reviews include a Listen button when the
 browser supports speech synthesis. The AI returns a separate short script written to be heard
 aloud, while the phone reads it with its best available English voice. That keeps the feature
@@ -142,7 +168,9 @@ offline use ([whistle collection](https://mixkit.co/free-sound-effects/whistle/)
 [free sound-effects licence](https://mixkit.co/free-sound-effects/)). The sequence is scheduled
 against the audio clock rather than a JavaScript timer, which can be throttled in a backgrounded
 tab. The timer does not play a silent keepalive track, so it does not take over the phone's media
-session or stop music from another app. A cue may briefly mix with or duck the music when it sounds.
+session or stop music from another app. On supported iPhones it requests the ambient, mixable audio
+category, primes Web Audio on the user's tap, and recovers a context that iOS reports as interrupted
+while another music app is active. A cue may briefly mix with or duck the music when it sounds.
 
 **Keep the screen awake during a session.** On by default. Uses the Screen Wake Lock API
 (Chrome/Android, Safari 16.4+), and the toggle says so where it isn't supported.
