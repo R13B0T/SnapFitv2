@@ -7,7 +7,7 @@
    stale-while-revalidate, so without a bump an installed app serves the old
    index.html on first open and only picks up the new one on the launch after
    that — which looks exactly like the update having failed. */
-const CACHE = "snapfit-v2-11";
+const CACHE = "snapfit-v2-13";
 
 const SHELL = [
   "./",
@@ -28,8 +28,13 @@ self.addEventListener("install", event => {
         cache.add(new Request(url, {mode: url.startsWith("http") ? "cors" : "same-origin"}))
           .catch(() => null)
       )))
-      .then(() => self.skipWaiting())
   );
+});
+
+/* Updates wait so an installed PWA never reloads itself during a set. The app
+   shows an Update & Reload button; that explicit tap activates this worker. */
+self.addEventListener("message", event => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", event => {

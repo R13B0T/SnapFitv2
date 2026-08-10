@@ -12,7 +12,40 @@
   <meta name="mobile-web-app-capable" content="yes"/>
   <link rel="manifest" href="manifest.json"/>
   <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='180' height='180' rx='38' fill='%23e31837'/%3E%3Ctext x='18' y='85' font-family='Arial Black,Arial' font-weight='900' font-size='54' fill='white'%3Esnap%3C/text%3E%3Ctext x='8' y='150' font-family='Arial Black,Arial' font-weight='900' font-size='50' fill='white'%3Efitness%3C/text%3E%3C/svg%3E"/>
-  <script>if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(()=>{});});}</script>
+  <script>
+    /* Keep an update waiting until the user chooses to reload. This matters in
+       a workout: silently replacing the page mid-set would be spectacularly
+       unhelpful. React listens for this event and shows the update banner. */
+    if('serviceWorker' in navigator){
+      window.__snapfitUpdateWorker = null;
+      window.__snapfitAnnounceUpdate = function(worker){
+        if(!worker) return;
+        window.__snapfitUpdateWorker = worker;
+        window.dispatchEvent(new CustomEvent('snapfit-update-ready'));
+      };
+      navigator.serviceWorker.addEventListener('controllerchange',function(){
+        if(window.__snapfitReloadForUpdate) window.location.reload();
+      });
+      window.addEventListener('load',function(){
+        navigator.serviceWorker.register('./sw.js').then(function(reg){
+          if(reg.waiting) window.__snapfitAnnounceUpdate(reg.waiting);
+          reg.addEventListener('updatefound',function(){
+            var worker=reg.installing;
+            if(!worker) return;
+            worker.addEventListener('statechange',function(){
+              if(worker.state==='installed' && navigator.serviceWorker.controller){
+                window.__snapfitAnnounceUpdate(worker);
+              }
+            });
+          });
+          reg.update().catch(function(){});
+          document.addEventListener('visibilitychange',function(){
+            if(document.visibilityState==='visible') reg.update().catch(function(){});
+          });
+        }).catch(function(){});
+      });
+    }
+  </script>
 
   <!-- Resolve the theme BEFORE the stylesheet below paints. The app source is
        compiled in the browser by Babel, which takes a beat on ~5,000 lines, so
@@ -561,35 +594,35 @@ const EX = [
 
   /* ── Arms ─────────────────────────────────────────────────────────────── */
   { id:"tricep_pushdown", name:"Tricep Pushdown", stations:["17","24","14"], stationMode:"any", pattern:P.ARMS, compound:false,
-    primary:"Triceps", secondary:[], kind:"cable", inc:2.5, start:15, reps:[10,15], tags:["upper"],
+    primary:"Triceps", secondary:[], kind:"cable", inc:2.5, start:15, reps:[10,15], tags:["upper","elbow"],
     why:"Triceps are most of your upper arm and they finish every press. Direct work here makes your pressing stronger too.",
     cues:{ setup:"Elbows pinned to your sides, slight forward lean, wrists straight.",
       execution:"Extend to a full lockout, squeeze for a beat, return only until the elbows reach about 90°.",
       mistakes:["Elbows drifting forward or flaring out","Leaning your bodyweight onto the bar","Not locking out"],
       feel:"Back of the upper arm, hardest at full extension."} },
   { id:"db_tricep_ext", name:"DB Overhead Tricep Extension", stations:["29"], pattern:P.ARMS, compound:false,
-    primary:"Triceps", secondary:[], kind:"dumbbell", inc:2.5, start:8, reps:[10,15], tags:["upper"],
+    primary:"Triceps", secondary:[], kind:"dumbbell", inc:2.5, start:8, reps:[10,15], tags:["upper","elbow"],
     why:"The overhead position stretches the long head of the triceps, which pushdowns largely miss.",
     cues:{ setup:"One dumbbell in both hands overhead, elbows close to the head.",
       execution:"Lower behind the head until you feel a stretch, extend without letting the elbows flare.",
       mistakes:["Elbows flaring wide","Arching the lower back","Rushing the stretch"],
       feel:"Deep stretch down the back of the arm near the armpit."} },
   { id:"bicep_curl_mach", name:"Bicep Curl Machine", stations:["14"], pattern:P.ARMS, compound:false,
-    primary:"Biceps", secondary:[], kind:"machine", inc:2.5, start:20, reps:[10,15], tags:["upper"],
+    primary:"Biceps", secondary:[], kind:"machine", inc:2.5, start:20, reps:[10,15], tags:["upper","elbow"],
     why:"Pulling trains the biceps, but never to failure. Direct curls close that gap.",
     cues:{ setup:"Upper arms flat on the pad, armpits into the top of it.",
       execution:"Curl to a full squeeze, lower over 3 seconds to a near-full stretch.",
       mistakes:["Lifting the elbows off the pad","Bouncing out of the bottom"],
       feel:"Front of the upper arm through a full range."} },
   { id:"db_curl", name:"DB Bicep Curl", stations:["29"], pattern:P.ARMS, compound:false,
-    primary:"Biceps", secondary:["Forearms"], kind:"dumbbell", inc:2, start:8, reps:[8,12], tags:["upper"],
+    primary:"Biceps", secondary:["Forearms"], kind:"dumbbell", inc:2, start:8, reps:[8,12], tags:["upper","elbow"],
     why:"Free-weight curling with a rotation at the top that machines can't reproduce.",
     cues:{ setup:"Stand tall, elbows at your sides, arms fully straight to start.",
       execution:"Curl up and turn the palm up as you go. Squeeze at the top, lower slowly all the way.",
       mistakes:["Swinging the torso","Elbows drifting forward into a front raise","Stopping halfway down"],
       feel:"Biceps, with the peak of the squeeze at the top."} },
   { id:"cable_curl", name:"Cable Curl", stations:["17","24"], stationMode:"any", pattern:P.ARMS, compound:false,
-    primary:"Biceps", secondary:["Forearms"], kind:"cable", inc:2.5, start:12.5, reps:[10,15], tags:["upper"],
+    primary:"Biceps", secondary:["Forearms"], kind:"cable", inc:2.5, start:12.5, reps:[10,15], tags:["upper","elbow"],
     why:"The cable keeps tension on the biceps at the top where a dumbbell becomes easier, making it a useful rotation rather than another copy of the same curl.",
     cues:{
       setup:"Pulley low with a straight or angled bar. Stand tall, elbows at the sides, wrists neutral and arms nearly straight.",
@@ -597,7 +630,7 @@ const EX = [
       mistakes:["Leaning back to start each rep","Elbows travelling forward","Letting the stack crash","Bending the wrists back"],
       feel:"Biceps under tension through the entire rep, strongest at the top."} },
   { id:"preacher_curl", name:"Preacher Curl", stations:["33"], pattern:P.ARMS, compound:false,
-    primary:"Biceps", secondary:[], kind:"machine", inc:2.5, start:15, reps:[10,15], tags:["upper"],
+    primary:"Biceps", secondary:[], kind:"machine", inc:2.5, start:15, reps:[10,15], tags:["upper","elbow"],
     why:"The pad removes momentum entirely, so the biceps get no help. Strict by design.",
     cues:{ setup:"Armpits into the top of the pad, upper arms flat on it.",
       execution:"Curl up strictly, lower for a slow 3 count to near-full extension.",
@@ -763,6 +796,102 @@ const EFFORT = [
 ];
 const EFFORT_BY_KEY = Object.fromEntries(EFFORT.map(e=>[e.key,e]));
 
+/* ── Matched cool-down library ────────────────────────────────────────────
+   Static stretches belong after lifting, not before heavy working sets. Each
+   movement pattern points to one simple option that needs little or no kit. */
+const STRETCHES = [
+  {id:"doorway_chest",name:"Doorway chest stretch",seconds:30,sides:true,
+    instruction:"Forearm on a doorframe or upright, elbow just below shoulder height. Step through gently and turn your chest away.",
+    feel:"Across the chest and front of the shoulder — never pinching inside the joint."},
+  {id:"bench_lat",name:"Bench lat stretch",seconds:30,sides:false,
+    instruction:"Hands on a bench, box or machine handle. Hinge the hips back and let your chest sink between your arms while keeping your ribs controlled.",
+    feel:"Down the sides of the back and under the armpits."},
+  {id:"cross_body_shoulder",name:"Cross-body shoulder stretch",seconds:25,sides:true,
+    instruction:"Bring one straight arm across your chest and draw it closer with the opposite forearm. Keep the shoulder down, away from the ear.",
+    feel:"Across the back and outside of the shoulder."},
+  {id:"kneeling_hip_flexor",name:"Kneeling hip-flexor stretch",seconds:30,sides:true,
+    instruction:"Half-kneel, tuck your pelvis slightly, squeeze the glute of the kneeling side, then shift forward without arching your back.",
+    feel:"Front of the hip and upper thigh on the kneeling side."},
+  {id:"hamstring_hinge",name:"Supported hamstring stretch",seconds:30,sides:true,
+    instruction:"Place one heel on a low bench with a soft knee. Keep your back long and hinge forward from the hips rather than rounding down.",
+    feel:"Back of the thigh, not behind the knee or in the lower back."},
+  {id:"overhead_triceps",name:"Overhead triceps stretch",seconds:25,sides:true,
+    instruction:"Reach one hand down between your shoulder blades. Use the other hand to guide the elbow gently back without flaring the ribs.",
+    feel:"Back of the upper arm and along the side of the upper body."},
+  {id:"childs_pose_reach",name:"Child's pose with side reach",seconds:30,sides:true,
+    instruction:"Sit your hips toward your heels with arms long. Walk both hands slightly to one side, breathe, then repeat to the other side.",
+    feel:"Lats, mid-back and the side of the torso."},
+  {id:"wall_calf",name:"Wall calf stretch",seconds:30,sides:true,
+    instruction:"Hands on a wall, one foot behind. Keep the rear heel down and knee straight; bend the front knee until the rear calf stretches.",
+    feel:"Upper calf of the back leg, with no strain through the Achilles."},
+];
+const STRETCH_BY_ID = Object.fromEntries(STRETCHES.map(s=>[s.id,s]));
+const STRETCH_FOR_PATTERN = {
+  [P.SQUAT]:"kneeling_hip_flexor", [P.LUNGE]:"kneeling_hip_flexor",
+  [P.HINGE]:"hamstring_hinge", [P.PUSH_H]:"doorway_chest",
+  [P.PUSH_V]:"cross_body_shoulder", [P.DELTS]:"cross_body_shoulder",
+  [P.PULL_H]:"bench_lat", [P.PULL_V]:"bench_lat",
+  [P.ARMS]:"overhead_triceps", [P.CORE]:"childs_pose_reach", [P.CALF]:"wall_calf",
+};
+
+function recommendedStretches(session, max=4){
+  const ids=[];
+  (session?.exercises||[]).forEach(ex=>{
+    const id=STRETCH_FOR_PATTERN[ex.pattern];
+    if(id && !ids.includes(id)) ids.push(id);
+  });
+  return ids.slice(0,max).map(id=>STRETCH_BY_ID[id]).filter(Boolean);
+}
+
+const WARMUPS = [
+  {id:"squat_primer",name:"Controlled bodyweight squat",dose:"8 slow reps",
+    instruction:"Sit between the hips, keep the whole foot planted and let the knees track over the toes. Use a rack for balance if needed."},
+  {id:"lunge_primer",name:"Supported reverse lunge",dose:"5 reps each side",
+    instruction:"Hold a rack lightly, step back, lower under control and drive through the front foot. Keep the range comfortable."},
+  {id:"hinge_primer",name:"Bodyweight hip-hinge drill",dose:"8 slow reps",
+    instruction:"Soft knees, push the hips back and keep the spine long. Stop when the hamstrings tighten, then stand by squeezing the glutes."},
+  {id:"push_primer",name:"Wall press plus",dose:"8 reps",
+    instruction:"Do a standing wall push-up, then at the top push the wall away a little farther so the shoulder blades glide around the ribs."},
+  {id:"pull_primer",name:"Scapular pull-down",dose:"8 reps",
+    instruction:"With straight arms holding a light cable or pulldown bar, draw only the shoulder blades down, pause, then relax slowly."},
+  {id:"shoulder_primer",name:"Shoulder circles and wall slides",dose:"6 each direction",
+    instruction:"Circle the arms smoothly, then slide forearms up a wall while keeping ribs down. Stay inside a pain-free range."},
+  {id:"core_primer",name:"Bird dog",dose:"5 reps each side",
+    instruction:"From hands and knees, reach opposite arm and leg long without twisting or arching. Pause, return and alternate."},
+  {id:"ankle_primer",name:"Ankle rocks",dose:"8 reps each side",
+    instruction:"Keep the heel down and drive the knee gently over the toes, then return. Use a wall or rack for balance."},
+];
+const WARMUP_BY_ID=Object.fromEntries(WARMUPS.map(w=>[w.id,w]));
+const WARMUP_FOR_PATTERN={
+  [P.SQUAT]:"squat_primer",[P.LUNGE]:"lunge_primer",[P.HINGE]:"hinge_primer",
+  [P.PUSH_H]:"push_primer",[P.PUSH_V]:"shoulder_primer",[P.DELTS]:"shoulder_primer",
+  [P.PULL_H]:"pull_primer",[P.PULL_V]:"pull_primer",[P.ARMS]:"shoulder_primer",
+  [P.CORE]:"core_primer",[P.CALF]:"ankle_primer",
+};
+
+function recommendedWarmups(session,max=3){
+  const ids=[];
+  (session?.exercises||[]).forEach(ex=>{
+    const id=WARMUP_FOR_PATTERN[ex.pattern];
+    if(id&&!ids.includes(id)) ids.push(id);
+  });
+  return ids.slice(0,max).map(id=>WARMUP_BY_ID[id]).filter(Boolean);
+}
+
+function rampSetsFor(session){
+  const first=session?.exercises?.[0];
+  if(!first||!Number.isFinite(Number(first.weight))||first.weight<=0) return [];
+  const working=Number(first.weight);
+  const minimum=Math.min(working,Number(first.inc)||2.5);
+  const candidates=[
+    {reps:10,weight:round25(Math.max(minimum,working*.5)),label:"easy rehearsal"},
+    {reps:5,weight:round25(Math.max(minimum,working*.75)),label:"feel the working groove"},
+  ];
+  /* A warm-up that equals the working load is not a warm-up. Light exercises
+     may therefore get one ramp set or none instead of two fake ones. */
+  return candidates.filter((r,i,a)=>r.weight<working && a.findIndex(x=>x.weight===r.weight)===i);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    LEARN LIBRARY — the concepts, not the exercises
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -880,10 +1009,32 @@ Do not "just do a bit more" because it feels too easy. That's the whole point of
 3. For later exercises in the session, **one light set** is plenty. You're already warm.
 
 ### Save the stretching for after
-Static stretching is genuinely useful — just do it at the end, when it improves range without blunting your lifts.`,
+Static stretching can help flexibility and makes a calm finish — just do longer holds at the end rather than immediately before heavy work.
+
+### How this app applies it
+Open **Matched warm-up** on Today for a short movement-specific routine and ramp weights for the first lift. These rehearsal sets do not count as working sets.`,
     check:{q:"How much warm-up does the third exercise of your session need?",
       a:["The same full ramp-up as the first","One light set, if that","None at all"], correct:1,
       why:"You're already warm and the movement is similar to what you've done. A single light set to find the groove is enough."} },
+
+  { id:"stretching", title:"Stretching: what it does and when to do it", mins:2, tag:"Practice",
+    hook:"Useful for flexibility and winding down. Not a magic soreness eraser.",
+    body:`Static stretching means easing into a position and holding it. It can improve flexibility over time, but it does **not** need to be painful and it is not a reliable way to prevent next-day soreness.
+
+### Before lifting
+Use **dynamic movement** instead: controlled squats, hinges, shoulder movements and light rehearsal sets. Save long static holds for later, especially before heavy or explosive work.
+
+### After lifting
+Hold each matched stretch for roughly **20–40 seconds**, breathe normally and use gentle tension. One round is enough for a practical cool-down; consistency matters more than forcing extra range.
+
+### What not to ignore
+Bouncing, sharp pain, tingling or numbness are not productive stretch sensations. Stop that movement. Persistent or worsening symptoms need an appropriately qualified health professional, not a tougher stretch.
+
+### How this app applies it
+The **Matched cool-down** uses the movement patterns from today's session, removes duplicates and selects up to four simple stretches. It is built into the app and uses no AI credits.`,
+    check:{q:"When is the best place for longer static holds in a lifting session?",
+      a:["Immediately before the heaviest set","After the lifting work","Between every repetition"], correct:1,
+      why:"Use dynamic movement and light rehearsal sets before lifting. Longer static holds fit better after the working sets are finished."} },
 
   { id:"recovery", title:"Sleep, soreness and what actually recovers you", mins:3, tag:"Recovery",
     hook:"The most powerful recovery tool is free, and you're probably shortchanging it.",
@@ -1040,6 +1191,21 @@ function trainingWeek(state, onDate=todayISO()){
   return {start,end,startDay,startName:WEEKDAYS[startDay]};
 }
 const DEFAULT_LIMITS  = { knees:false, shoulders:false, back:false, ankles:false, elbows:false, note:"" };
+const DISCOMFORT_AREAS = [
+  {key:"knees",label:"Knee",tag:"knee"},
+  {key:"shoulders",label:"Shoulder",tag:"shoulder"},
+  {key:"back",label:"Lower back",tag:"back"},
+  {key:"ankles",label:"Ankle",tag:"ankle"},
+  {key:"elbows",label:"Elbow",tag:"elbow"},
+  {key:"other",label:"Other area",tag:null},
+];
+const DISCOMFORT_BY_KEY = Object.fromEntries(DISCOMFORT_AREAS.map(x=>[x.key,x]));
+const SWAP_REASONS = [
+  {key:"busy",label:"Equipment busy",short:"busy equipment"},
+  {key:"discomfort",label:"Pain / discomfort",short:"discomfort"},
+  {key:"preference",label:"Preference",short:"preference"},
+];
+const SWAP_REASON_BY_KEY = Object.fromEntries(SWAP_REASONS.map(x=>[x.key,x]));
 const DEFAULT_COACH_STYLE = { sass:3, hardTruth:4 };
 const DEFAULT_UI_PREFS = { showExerciseWhy:true, showExerciseHow:true, showLearnHub:true, showAdvancedLearn:false };
 const SASS_LEVELS = [
@@ -1097,6 +1263,7 @@ function defaultState(){
     sessions:[],         // completed sessions, newest first
     checkins:[],
     bodyLog:[],
+    discomfortFlags:[],  // active until the user marks the body area resolved
     learn:{ read:[], quiz:{} },
     chat:[],
     coachNotes:[],       // short observations the coach can carry forward
@@ -1121,7 +1288,10 @@ function migrate(raw){
   s.travel    = normaliseTravel(raw.travel);
   s.learn     = {read:[], quiz:{},  ...(raw.learn||{})};
   ["weights","exerciseHistory"].forEach(k=>{ if(!s[k]||typeof s[k]!=="object") s[k]={}; });
-  ["sessions","checkins","bodyLog","chat","coachNotes"].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
+  ["sessions","checkins","bodyLog","discomfortFlags","chat","coachNotes"].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
+  s.discomfortFlags = s.discomfortFlags
+    .filter(x=>x && DISCOMFORT_BY_KEY[x.area])
+    .map(x=>({...x, active:x.active!==false}));
   return s;
 }
 
@@ -1280,16 +1450,41 @@ function limitBlocks(ex, limits){
   if(limits.ankles    && ex.tags?.includes("ankle"))    return true;
   if(limits.shoulders && ex.tags?.includes("shoulder")) return true;
   if(limits.back      && ex.tags?.includes("back"))     return true;
+  if(limits.elbows    && ex.tags?.includes("elbow"))    return true;
   return false;
+}
+
+function activeDiscomforts(state){
+  return (state?.discomfortFlags||[]).filter(x=>x?.active!==false && DISCOMFORT_BY_KEY[x.area]);
+}
+
+function effectiveLimits(state){
+  const limits={...DEFAULT_LIMITS,...(state?.limits||{})};
+  activeDiscomforts(state).forEach(flag=>{
+    if(flag.area!=="other") limits[flag.area]=true;
+  });
+  return limits;
+}
+
+function stateWithDiscomfort(state, area){
+  if(!DISCOMFORT_BY_KEY[area]) return state;
+  return {...state,discomfortFlags:[...(state.discomfortFlags||[]),{area,active:true,date:todayISO()}]};
+}
+
+function discomfortSafetyNote(state){
+  const labels=activeDiscomforts(state).map(x=>DISCOMFORT_BY_KEY[x.area].label.toLowerCase());
+  if(!labels.length) return "";
+  return `Active discomfort flag${labels.length===1?"":"s"}: ${labels.join(", ")}. Exercises that directly load a flagged area have been removed. Do not train through sharp, worsening or joint-centred pain.`;
 }
 
 function availableExercises(state){
   const stations = enabledStationSet(state);
+  const limits = effectiveLimits(state);
   return EX.filter(ex =>
     (ex.stationMode === "any"
       ? ex.stations.some(n => stations.has(n))
       : ex.stations.every(n => stations.has(n)))
-    && !limitBlocks(ex, state.limits)
+    && !limitBlocks(ex, limits)
   );
 }
 
@@ -1545,6 +1740,7 @@ function buildSessionRules(state, checkin, {bonus=false}={}){
     source: "rules",
     readiness: adj,
     checkin: checkin||null,
+    adaptationNote: discomfortSafetyNote(state),
     focusTip: focusTipFor(day, phase),
     brief: buildBriefRules(day, phase, prog, state, exercises, bonus),
     exercises,
@@ -1661,9 +1857,12 @@ function debriefRules(session, state){
   if(downs.length) lines.push(`**Stepping back:** ${downs.map(r=>r.name).join(", ")}. Not a setback — a smaller weight you can own beats a bigger one you can't.`);
   const holds = rows.filter(r=>r.dec.action==="hold");
   if(holds.length) lines.push(`**Holding:** ${holds.map(r=>r.name).join(", ")}. Chase an extra rep next time and the weight follows.`);
+  if(session.swaps?.length) lines.push(`**Exercise swaps:** ${session.swaps.map(sw=>`${sw.fromName} → ${sw.toName} (${SWAP_REASON_BY_KEY[sw.reason]?.short||sw.reason}${sw.discomfortArea?`, ${DISCOMFORT_BY_KEY[sw.discomfortArea]?.label||sw.discomfortArea}`:""})`).join("; ")}.`);
 
   const body = lines.join("\n\n") || "Log your sets and the debrief will have something to work with.";
-  const nextFocus = session.readiness?.key==="red"
+  const nextFocus = activeDiscomforts(state).length
+    ? `Keep working around the active ${activeDiscomforts(state).map(x=>DISCOMFORT_BY_KEY[x.area].label.toLowerCase()).join(", ")} flag${activeDiscomforts(state).length===1?"":"s"}. Mark resolved only when the discomfort has settled.`
+    : session.readiness?.key==="red"
     ? "You went in under-recovered. Prioritise sleep before the next one."
     : "Same session shape next time, with the adjusted weights above.";
 
@@ -1675,6 +1874,7 @@ function debriefRules(session, state){
     voiceSummary: plainCoachText(`${headline} ${body} Next session: ${nextFocus}`),
     stats:{ volume: Math.round(totalVolume), exercises: rows.length, sets: rows.reduce((n,r)=>n+r.sets,0) },
     rows,
+    stretches:recommendedStretches(session),
   };
 }
 
@@ -1853,6 +2053,11 @@ function profileDigest(state){
     .filter(([k])=>l[k]).map(([,v])=>v);
   let s = `LIFTER: ${bits.join(" · ")}`;
   if(lims.length) s += `\nAVOID LOADING: ${lims.join(", ")} — program around these, never through them.`;
+  const discomforts=activeDiscomforts(state);
+  if(discomforts.length) s += `\nACTIVE DISCOMFORT FLAGS: ${discomforts.map(x=>{
+    const area=DISCOMFORT_BY_KEY[x.area]?.label||x.area;
+    return `${area}${x.exerciseName?` (flagged during ${x.exerciseName})`:""} on ${x.date||"an earlier session"}`;
+  }).join("; ")}. Treat these as temporary safety constraints, do not diagnose them, and never encourage training through pain.`;
   if(l.note)      s += `\nTHEIR NOTE: "${l.note}"`;
   return s;
 }
@@ -1874,7 +2079,8 @@ function historyDigest(state, n=6){
       const perf=performanceSummary(logged,e.repRange||[Math.max(1,e.targetReps-2),e.targetReps]);
       return `${EX_NAME[e.exId]||e.exId} working load ${perf.weight}kg, ${perf.sets} set${perf.sets===1?"":"s"} at avg ${perf.avgReps} reps (${perf.effort}); all sets: ${logged.map(y=>`${y.weight}kg×${y.reps}`).join(", ")}`;
     }).filter(Boolean).join("; ");
-    return `${x.date} [${x.bonus?"BONUS · ":""}${x.dayName}${x.readiness?`, felt ${x.readiness.label.toLowerCase()}`:""}]: ${ex||"nothing logged"}`;
+    const swaps=(x.swaps||[]).map(sw=>`${sw.fromName} → ${sw.toName} (${SWAP_REASON_BY_KEY[sw.reason]?.short||sw.reason}${sw.discomfortArea?`, ${DISCOMFORT_BY_KEY[sw.discomfortArea]?.label||sw.discomfortArea}`:""})`).join("; ");
+    return `${x.date} [${x.bonus?"BONUS · ":""}${x.dayName}${x.readiness?`, felt ${x.readiness.label.toLowerCase()}`:""}]: ${ex||"nothing logged"}${swaps?` | swaps: ${swaps}`:""}`;
   }).join("\n");
 }
 
@@ -2222,7 +2428,8 @@ Rules:
         }).filter(Boolean);
         if(exercises.length < 2) throw new CoachError("Too few valid exercises","shape");
         return {...base, source:"ai", brief:raw.brief || base.brief,
-          focusTip:raw.focusTip, adaptationNote:raw.adaptationNote||"", exercises};
+          focusTip:raw.focusTip,
+          adaptationNote:[base.adaptationNote,raw.adaptationNote].filter(Boolean).join(" "), exercises};
       }, rules, "session");
     },
 
@@ -2257,6 +2464,8 @@ Write it as if you're standing at the machine with them. Setup, then how to exec
           userText:`They just finished this ${session.bonus?"optional bonus":"planned"} session (${session.dayName}, week ${session.week}, ${session.phaseName} phase). Today is ${todayISO()}.
 
 ${lines}
+
+${session.swaps?.length ? `Exercise swaps recorded:\n${session.swaps.map(sw=>`${sw.fromName} -> ${sw.toName}: ${SWAP_REASON_BY_KEY[sw.reason]?.label||sw.reason}${sw.discomfortArea?` (${DISCOMFORT_BY_KEY[sw.discomfortArea]?.label||sw.discomfortArea})`:""}`).join("\n")}` : "No exercise swaps were recorded."}
 
 ${session.readiness ? `They went in reading as "${session.readiness.label}".` : ""}
 
@@ -4075,6 +4284,7 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
           {ex.stations.map(s=><Chip key={s} color={C.blue}>#{s}</Chip>)}
           <Chip color={C.faint}>{ex.primary}</Chip>
           {ex.compound && <Chip color={C.purple}>compound</Chip>}
+          {ex.swapInfo && <Chip color={C.orange}>SWAPPED · {SWAP_REASON_BY_KEY[ex.swapInfo.reason]?.short||ex.swapInfo.reason}</Chip>}
         </div>
       </div>
       <div style={{textAlign:"right",flexShrink:0}}>
@@ -4148,7 +4358,7 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
       {onSwap && done===0 && <button onClick={onSwap} style={{
         flex:"1 1 100%",padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
         border:`1px solid ${tint(C.orange,0x45)}`,background:`${tint(C.orange,0x0d)}`,color:C.orange}}>
-        Machine busy? Swap exercise ↔
+        Swap exercise / flag discomfort ↔
       </button>}
       {aiOn && <button onClick={onAskCoach} style={{
         flex:"1 1 100%",padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
@@ -4198,13 +4408,107 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
   </Card>);
 }
 
+function WarmupRoutine({session}){
+  const [open,setOpen]=useState(false);
+  const drills=recommendedWarmups(session), ramps=rampSetsFor(session);
+  const first=session?.exercises?.[0];
+  if(!drills.length&&!ramps.length) return null;
+  return (<Card accent={C.blue} style={{marginBottom:12}}>
+    <button onClick={()=>setOpen(v=>!v)} aria-expanded={open} style={{width:"100%",display:"flex",alignItems:"center",
+      justifyContent:"space-between",gap:10,padding:0,border:"none",background:"transparent",cursor:"pointer",textAlign:"left"}}>
+      <div>
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.blue,fontWeight:700,letterSpacing:".08em"}}>MATCHED WARM-UP</div>
+        <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.dim,marginTop:4}}>4–6 minutes · dynamic · built for today's movements</div>
+      </div>
+      <span style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,fontWeight:700}}>{open?"HIDE ▴":"OPEN ▾"}</span>
+    </button>
+    {open&&<div className="fade" style={{marginTop:13,paddingTop:12,borderTop:`1px solid ${C.lineSoft}`}}>
+      <div style={{display:"flex",gap:10,marginBottom:12}}>
+        <div style={{width:24,height:24,borderRadius:"50%",background:tint(C.blue,0x20),color:C.blue,
+          display:"flex",alignItems:"center",justifyContent:"center",fontSize:"calc(.65rem * var(--ts, 1))",fontWeight:700,flexShrink:0}}>1</div>
+        <div><div style={{fontSize:"calc(.76rem * var(--ts, 1))",color:C.text,fontWeight:600}}>Raise your temperature</div>
+          <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,lineHeight:1.6,marginTop:2}}>2 minutes of easy bike, rower or brisk walking. Warm, not tired.</div></div>
+      </div>
+      {drills.map((drill,i)=><div key={drill.id} style={{display:"flex",gap:10,marginBottom:12}}>
+        <div style={{width:24,height:24,borderRadius:"50%",background:tint(C.blue,0x20),color:C.blue,
+          display:"flex",alignItems:"center",justifyContent:"center",fontSize:"calc(.65rem * var(--ts, 1))",fontWeight:700,flexShrink:0}}>{i+2}</div>
+        <div><div style={{fontSize:"calc(.76rem * var(--ts, 1))",color:C.text,fontWeight:600}}>{drill.name} · {drill.dose}</div>
+          <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,lineHeight:1.6,marginTop:2}}>{drill.instruction}</div></div>
+      </div>)}
+      {!!ramps.length&&<div style={{background:C.raised,borderRadius:10,padding:"10px 11px",marginTop:4}}>
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.yellow,fontWeight:700,letterSpacing:".07em",marginBottom:6}}>
+          RAMP INTO {first?.name?.toUpperCase()}</div>
+        {ramps.map((r,i)=><div key={i} style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.dim,lineHeight:1.7}}>
+          {i+1}. {r.weight}kg × {r.reps} · {r.label}</div>)}
+        <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,lineHeight:1.5,marginTop:5}}>Warm-up sets are rehearsal and are not logged as working sets.</div>
+      </div>}
+      <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,lineHeight:1.55,marginTop:10}}>Move smoothly and stay pain-free. Save long static holds for the cool-down.</div>
+    </div>}
+  </Card>);
+}
+
+function StretchRoutine({session,stretches:provided,defaultOpen=false}){
+  const [open,setOpen]=useState(defaultOpen);
+  const stretches=provided||recommendedStretches(session);
+  if(!stretches?.length) return null;
+  const seconds=stretches.reduce((n,s)=>n+s.seconds*(s.sides?2:1),0);
+  const mins=Math.max(1,Math.ceil(seconds/60));
+  return (<Card accent={C.green} style={{marginBottom:14}}>
+    <button onClick={()=>setOpen(v=>!v)} aria-expanded={open} style={{width:"100%",display:"flex",alignItems:"center",
+      justifyContent:"space-between",gap:10,padding:0,border:"none",background:"transparent",cursor:"pointer",textAlign:"left"}}>
+      <div>
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.green,fontWeight:700,letterSpacing:".08em"}}>MATCHED COOL-DOWN</div>
+        <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.dim,marginTop:4}}>{stretches.length} stretches · about {mins} minutes · matched to today's work</div>
+      </div>
+      <span style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,fontWeight:700}}>{open?"HIDE ▴":"OPEN ▾"}</span>
+    </button>
+    {open&&<div className="fade" style={{marginTop:13,paddingTop:12,borderTop:`1px solid ${C.lineSoft}`}}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {stretches.map((stretch,i)=><div key={stretch.id} style={{display:"flex",gap:10}}>
+          <div style={{width:26,height:26,borderRadius:"50%",background:tint(C.green,0x20),color:C.green,
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:"calc(.65rem * var(--ts, 1))",fontWeight:700,flexShrink:0}}>{i+1}</div>
+          <div>
+            <div style={{fontSize:"calc(.76rem * var(--ts, 1))",color:C.text,fontWeight:600}}>{stretch.name}</div>
+            <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.green,marginTop:2}}>{stretch.seconds} seconds{stretch.sides?" each side":""}</div>
+            <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,lineHeight:1.6,marginTop:3}}>{stretch.instruction}</div>
+            <div style={{fontSize:"calc(.63rem * var(--ts, 1))",color:C.ghost,lineHeight:1.5,marginTop:3}}>Feel: {stretch.feel}</div>
+          </div>
+        </div>)}
+      </div>
+      <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,lineHeight:1.55,marginTop:12,paddingTop:10,borderTop:`1px solid ${C.lineSoft}`}}>
+        Breathe normally and use gentle tension — no bouncing. Stop any stretch that causes sharp pain, tingling or numbness.</div>
+    </div>}
+  </Card>);
+}
+
+function DiscomfortNotice({flags,onResolve,compact=false}){
+  const active=(flags||[]).filter(x=>x?.active!==false && DISCOMFORT_BY_KEY[x.area]);
+  if(!active.length) return null;
+  return (<Card accent={C.yellow} style={{marginBottom:12,padding:compact?12:14}}>
+    <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.yellow,fontWeight:700,letterSpacing:".08em",marginBottom:5}}>
+      ACTIVE DISCOMFORT WORKAROUND{active.length===1?"":"S"}</div>
+    <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.dim,lineHeight:1.6,marginBottom:9}}>
+      The next session avoids exercises tagged for {active.map(x=>DISCOMFORT_BY_KEY[x.area].label.toLowerCase()).join(", ")}.
+      {active.some(x=>x.area==="other") && " ‘Other area’ is carried to the coach but cannot safely filter exercises by itself."}
+    </div>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      {active.map(flag=><button key={flag.id||flag.area} onClick={()=>onResolve?.(flag.area)} style={{
+        border:`1px solid ${tint(C.green,0x40)}`,background:tint(C.green,0x0d),color:C.green,
+        borderRadius:999,padding:"6px 9px",fontSize:"calc(.61rem * var(--ts, 1))",fontWeight:700,cursor:"pointer"}}>
+        {DISCOMFORT_BY_KEY[flag.area].label}: MARK RESOLVED</button>)}
+    </div>
+    <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,lineHeight:1.5,marginTop:9}}>
+      This is a training workaround, not a diagnosis. Stop sharp or worsening pain and seek an appropriately qualified health professional.</div>
+  </Card>);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    TODAY
    ═══════════════════════════════════════════════════════════════════════════ */
 
 function TodayView({state, session, setSession, generating, onGenerate, onFinish, coach, aiOn,
                     rest, startRest, skipRest, apiKey, setTravel, clearTravel, forgetTravel,
-                    bonusPending=false, onCancelBonus}){
+                    bonusPending=false, onCancelBonus, onRecordDiscomfort, onResolveDiscomfort}){
   const [picker,setPicker]   = useState(null);   // {exIdx,setIdx}
   const [explain,setExplain] = useState({});     // exId -> explanation
   const [explaining,setExplaining] = useState({});
@@ -4254,17 +4558,25 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     return logged.length ? logged[logged.length-1].weight : null;
   }
 
-  function applyExerciseSwap(exIdx,replacement){
+  function applyExerciseSwap(exIdx,replacement,reason,discomfortArea=null){
+    const current=session.exercises[exIdx];
     const ww=workingWeight(replacement,state,prog.phase);
     const loadMult=session.readiness?.loadMult||1;
-    setSession(s=>({...s,exercises:s.exercises.map((old,i)=>i!==exIdx?old:{
-      ...old, exId:replacement.id, name:replacement.name,
-      stations:stationsForExercise(replacement,state), pattern:replacement.pattern,
-      primary:replacement.primary, compound:replacement.compound,
-      weight:round25(capForVenue(replacement,ww.weight*loadMult,state)), inc:replacement.inc,
-      why:replacement.why, decisionLabel:`Busy-equipment swap · ${ww.decision?.label||"same plan, different tool"}`,
-      decisionColor:C.orange, log:Array(old.sets).fill(null),
-    })}));
+    const reasonMeta=SWAP_REASON_BY_KEY[reason]||SWAP_REASON_BY_KEY.preference;
+    const event={id:uid(),at:new Date().toISOString(),fromExId:current.exId,fromName:current.name,
+      toExId:replacement.id,toName:replacement.name,reason:reasonMeta.key,discomfortArea};
+    setSession(s=>({...s,
+      swaps:[...(s.swaps||[]),event],
+      exercises:s.exercises.map((old,i)=>i!==exIdx?old:{
+        ...old, exId:replacement.id, name:replacement.name,
+        stations:stationsForExercise(replacement,state), pattern:replacement.pattern,
+        primary:replacement.primary, compound:replacement.compound,
+        weight:round25(capForVenue(replacement,ww.weight*loadMult,state)), inc:replacement.inc,
+        why:replacement.why,
+        decisionLabel:`${reasonMeta.label} swap · ${ww.decision?.label||"same plan, different tool"}`,
+        decisionColor:C.orange, log:Array(old.sets).fill(null),
+        swapInfo:{fromExId:current.exId,fromName:current.name,reason:reasonMeta.key,discomfortArea},
+      })}));
     setSwap(null);
   }
 
@@ -4313,6 +4625,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
      BEFORE the session is built — it decides which exercises exist. */
   if(!session) return (<>
     <VenueRow state={state} onOpen={()=>setVenue(true)}/>
+    <DiscomfortNotice flags={activeDiscomforts(state)} onResolve={onResolveDiscomfort} compact/>
     <CheckIn bonus={bonusPending} onCancel={onCancelBonus}
       onSubmit={ci=>onGenerate(ci)} onSkip={()=>onGenerate(null)}/>
     {gymSheet}
@@ -4334,6 +4647,8 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
       </div>
       <h1 style={{fontSize:"2.2rem",color:C.text,lineHeight:1,marginBottom:6}}>{session.dayName.toUpperCase()}</h1>
     </div>
+
+    <DiscomfortNotice flags={activeDiscomforts(state)} onResolve={onResolveDiscomfort} compact/>
 
     {/* The brief — what today is for and what's being asked of you. */}
     {session.brief && (<Card accent={C.blue} style={{marginBottom:12}}>
@@ -4365,6 +4680,8 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
       <div style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.yellow,lineHeight:1.55}}>{session.focusTip}</div>
     </div>)}
 
+    <WarmupRoutine session={session}/>
+
     {/* progress */}
     <div style={{marginBottom:14}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
@@ -4384,9 +4701,11 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
         explanation={explain[ex.exId]} explaining={explaining[ex.exId]} aiOn={aiOn}
         showWhy={state.uiPrefs?.showExerciseWhy??true}
         showHow={state.uiPrefs?.showExerciseHow??true}
-        onSwap={exerciseSwapOptions(ex,state,session).length?()=>setSwap({exIdx:i}):null}
+        onSwap={()=>setSwap({exIdx:i,reason:null,area:null})}
         onAskCoach={()=>setSetCoach({exIdx:i,setIdx:Math.min((ex.log||[]).filter(x=>x&&x.reps!=null).length,ex.sets-1)})}/>
     ))}
+
+    <StretchRoutine session={session}/>
 
     <div style={{display:"flex",gap:8,marginTop:16}}>
       <Btn kind="ghost" size="lg" onClick={()=>setConfirmEnd(true)} style={{flex:1}}>ABANDON</Btn>
@@ -4416,12 +4735,43 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
 
     {swap && (()=>{
       const current=session.exercises[swap.exIdx];
-      const options=exerciseSwapOptions(current,state,session);
-      return <Sheet title="SWAP EXERCISE" sub={`Same ${PATTERN_LABEL[current.pattern]?.toLowerCase()||"movement"}, different equipment`} onClose={()=>setSwap(null)}>
+      const ready=!!swap.reason && (swap.reason!=="discomfort"||!!swap.area);
+      const optionState=swap.reason==="discomfort"&&swap.area ? stateWithDiscomfort(state,swap.area) : state;
+      const options=ready ? exerciseSwapOptions(current,optionState,session) : [];
+      return <Sheet title="SWAP EXERCISE" sub={`Replace ${current.name} without changing the plan`} onClose={()=>setSwap(null)}>
         <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.faint,lineHeight:1.65,marginBottom:12}}>
-          Sets, reps, rest and today's phase stay the same. The load is recalculated from your history for the replacement.</div>
+          Tell the coach why. Sets, reps, rest and today's phase stay the same; the replacement load comes from its own history.</div>
+
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".08em",marginBottom:7}}>WHY ARE YOU SWAPPING?</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:12}}>
+          {SWAP_REASONS.map(reason=><button key={reason.key} onClick={()=>setSwap(s=>({...s,reason:reason.key,area:reason.key==="discomfort"?s.area:null}))} style={{
+            minHeight:52,padding:"7px 5px",borderRadius:9,cursor:"pointer",fontSize:"calc(.62rem * var(--ts, 1))",fontWeight:700,lineHeight:1.3,
+            border:`1px solid ${swap.reason===reason.key?tint(reason.key==="discomfort"?C.red:C.orange,0x70):C.line}`,
+            background:swap.reason===reason.key?tint(reason.key==="discomfort"?C.red:C.orange,0x12):C.raised,
+            color:swap.reason===reason.key?(reason.key==="discomfort"?C.red:C.orange):C.dim}}>{reason.label}</button>)}
+        </div>
+
+        {swap.reason==="discomfort" && <div className="fade" style={{marginBottom:13}}>
+          <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.red,fontWeight:700,letterSpacing:".08em",marginBottom:7}}>WHERE DO YOU FEEL IT?</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {DISCOMFORT_AREAS.map(area=><button key={area.key} onClick={()=>{
+              setSwap(s=>({...s,area:area.key}));
+              onRecordDiscomfort?.({area:area.key,exerciseId:current.exId,exerciseName:current.name});
+            }} style={{padding:"7px 9px",borderRadius:999,cursor:"pointer",fontSize:"calc(.62rem * var(--ts, 1))",fontWeight:700,
+              border:`1px solid ${swap.area===area.key?tint(C.red,0x70):C.line}`,
+              background:swap.area===area.key?tint(C.red,0x12):C.raised,color:swap.area===area.key?C.red:C.dim}}>{area.label}</button>)}
+          </div>
+          {swap.area && <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.yellow,lineHeight:1.55,marginTop:9}}>
+            Flag saved. Future suggestions will work around this until you mark it resolved. Sharp, worsening or joint-centred pain means stop — this app cannot diagnose it.</div>}
+        </div>}
+
+        {ready && <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".08em",marginBottom:7}}>
+          {options.length?"SAFE ALTERNATIVES":"NO SUITABLE ALTERNATIVE"}</div>}
+        {ready && options.length===0 && <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.yellow,lineHeight:1.65,
+          background:tint(C.yellow,0x0d),border:`1px solid ${tint(C.yellow,0x35)}`,borderRadius:10,padding:"10px 11px"}}>
+          Nothing in the available equipment safely preserves this movement pattern. Skip it today rather than forcing a bad substitution.</div>}
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {options.map(alt=><button key={alt.id} onClick={()=>applyExerciseSwap(swap.exIdx,alt)} style={{
+          {options.map(alt=><button key={alt.id} onClick={()=>applyExerciseSwap(swap.exIdx,alt,swap.reason,swap.area)} style={{
             background:C.card,border:`1px solid ${C.line}`,borderRadius:12,padding:"12px 13px",cursor:"pointer",textAlign:"left"}}>
             <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"center"}}>
               <div>
@@ -4485,6 +4835,8 @@ function DebriefView({debrief, loading, onDone, aiOn}){
       <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.yellow,fontWeight:700,letterSpacing:".08em",marginBottom:5}}>NEXT SESSION</div>
       <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.dim,lineHeight:1.65}}>{debrief.nextFocus}</div>
     </Card>)}
+
+    <StretchRoutine stretches={debrief.stretches} defaultOpen/>
 
     {debrief.rows?.length>0 && (<Card style={{marginBottom:16,padding:0,overflow:"hidden"}}>
       <div style={{padding:"12px 14px 8px",fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".08em"}}>
@@ -5381,6 +5733,7 @@ function LogView({state, setState, onRestore, apiKey}){
                     <Chip color={C.faint}>{s.date}</Chip>
                     <Chip color={C.purple}>wk {s.week}</Chip>
                     {s.bonus && <Chip color={C.green}>BONUS</Chip>}
+                    {!!s.swaps?.length && <Chip color={C.orange}>{s.swaps.length} SWAP{s.swaps.length===1?"":"S"}</Chip>}
                     {s.readiness && <Chip color={s.readiness.color}>{s.readiness.label}</Chip>}
                   </div>
                 </div>
@@ -5527,6 +5880,15 @@ function LogView({state, setState, onRestore, apiKey}){
         <div style={{fontSize:"calc(.84rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:8}}>{session.debrief.headline}</div>
         <Markdown text={session.debrief.body}/>
       </Card>)}
+      {!!session.swaps?.length && <Card accent={C.orange} style={{marginBottom:12}}>
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.orange,fontWeight:700,letterSpacing:".08em",marginBottom:7}}>RECORDED SWAPS</div>
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>
+          {session.swaps.map(sw=><div key={sw.id||`${sw.fromExId}-${sw.toExId}`} style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.dim,lineHeight:1.55}}>
+            <strong style={{color:C.text}}>{sw.fromName} → {sw.toName}</strong><br/>
+            {SWAP_REASON_BY_KEY[sw.reason]?.label||sw.reason}{sw.discomfortArea?` · ${DISCOMFORT_BY_KEY[sw.discomfortArea]?.label||sw.discomfortArea}`:""}
+          </div>)}
+        </div>
+      </Card>}
       {session.exercises.map((e,i)=>{
         const logged = (e.log||[]).filter(l=>l&&l.reps!=null);
         return (<div key={i} style={{padding:"11px 0",borderBottom:`1px solid ${C.lineSoft}`}}>
@@ -5613,11 +5975,14 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
   }
 
   const p = state.profile, l = state.limits;
+  const discomforts = activeDiscomforts(state);
   const coachStyle = {...DEFAULT_COACH_STYLE, ...(state.coachStyle||{})};
   const uiPrefs = {...DEFAULT_UI_PREFS, ...(state.uiPrefs||{})};
   const setP = (k,v) => setState(s=>({...s, profile:{...s.profile,[k]:v}}));
   const setDaysPerWeek = v => setState(s=>changeTrainingDays(s,v));
   const setL = (k,v) => setState(s=>({...s, limits:{...s.limits,[k]:v}}));
+  const resolveDiscomfort = area => setState(s=>({...s,
+    discomfortFlags:(s.discomfortFlags||[]).map(x=>x.area===area?{...x,active:false,resolvedAt:todayISO()}:x)}));
   const setCoachStyle = (k,v) => setState(s=>({...s,
     coachStyle:{...DEFAULT_COACH_STYLE, ...(s.coachStyle||{}), [k]:v}}));
   const setUiPref = (k,v) => setState(s=>({...s,
@@ -5819,6 +6184,17 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
     {/* ── limits ──────────────────────────────────────────────────────── */}
     <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:9}}>WORK AROUND</div>
     <Card style={{marginBottom:14}}>
+      {discomforts.length>0 && <div style={{marginBottom:13,paddingBottom:12,borderBottom:`1px solid ${C.lineSoft}`}}>
+        <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.yellow,fontWeight:700,letterSpacing:".07em",marginBottom:6}}>ACTIVE DISCOMFORT FLAGS</div>
+        <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.faint,lineHeight:1.6,marginBottom:8}}>
+          Added during exercise swaps. Tagged exercises stay out of future suggestions until resolved.</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {discomforts.map(flag=><button key={flag.id||flag.area} onClick={()=>resolveDiscomfort(flag.area)} style={{
+            border:`1px solid ${tint(C.green,0x40)}`,background:tint(C.green,0x0d),color:C.green,borderRadius:999,
+            padding:"6px 9px",fontSize:"calc(.61rem * var(--ts, 1))",fontWeight:700,cursor:"pointer"}}>
+            {DISCOMFORT_BY_KEY[flag.area].label}: MARK RESOLVED</button>)}
+        </div>
+      </div>}
       <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:12}}>
         {[["knees","Knees"],["shoulders","Shoulders"],["back","Lower back"],["ankles","Ankles"],["elbows","Elbows"]].map(([k,label])=>(
           <Toggle key={k} on={l[k]} onChange={v=>setL(k,v)} label={label}/>))}
@@ -5827,6 +6203,8 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
         <TextArea value={l.note} onChange={e=>setL("note",e.target.value)}
           placeholder="Injuries, exercises you hate, anything a physio said"/>
       </Field>
+      <div style={{fontSize:"calc(.61rem * var(--ts, 1))",color:C.ghost,lineHeight:1.55,marginTop:9}}>
+        The switches above are long-term workarounds you control manually. Discomfort flags are temporary session feedback and can be cleared separately.</div>
     </Card>
 
     {/* ── away gym ────────────────────────────────────────────────────── */}
@@ -5952,6 +6330,8 @@ function App(){
   const [reviewLoading,setReviewLoading]   = useState(false);
   const [offline,setOffline]       = useState(null);
   const [bonusPending,setBonusPending] = useState(false);
+  const [updateWorker,setUpdateWorker] = useState(()=>window.__snapfitUpdateWorker||null);
+  const [updatingApp,setUpdatingApp] = useState(false);
 
   /* Rest timer lives here, not in TodayView, so it survives tab changes.
      Persisted so a reload mid-workout resumes it rather than losing it. */
@@ -5965,6 +6345,25 @@ function App(){
   const stateRef = useRef(state); stateRef.current = state;
   const keyRef   = useRef(apiKey); keyRef.current   = apiKey;
   const modelRef = useRef(model);  modelRef.current = model;
+
+  useEffect(()=>{
+    const ready=()=>setUpdateWorker(window.__snapfitUpdateWorker||null);
+    window.addEventListener("snapfit-update-ready",ready);
+    ready();
+    return ()=>window.removeEventListener("snapfit-update-ready",ready);
+  },[]);
+
+  function applyAppUpdate(){
+    if(updatingApp) return;
+    setUpdatingApp(true);
+    window.__snapfitReloadForUpdate=true;
+    const worker=updateWorker||window.__snapfitUpdateWorker;
+    if(worker && worker.state!=="activated") worker.postMessage({type:"SKIP_WAITING"});
+    else window.location.reload();
+    /* Controller change normally reloads immediately. This fallback covers
+       older iOS builds that activate the worker but miss that event. */
+    setTimeout(()=>window.location.reload(),2500);
+  }
 
   const setState = useCallback(updater=>{
     setStateRaw(prev=>{
@@ -6130,6 +6529,18 @@ function App(){
     setSession(null);
   }
 
+  function recordDiscomfort({area,exerciseId,exerciseName}){
+    if(!DISCOMFORT_BY_KEY[area]) return;
+    setState(s=>({...s,discomfortFlags:[
+      {id:uid(),area,active:true,date:todayISO(),exerciseId,exerciseName},
+      ...(s.discomfortFlags||[]).filter(x=>x.area!==area),
+    ].slice(0,30)}));
+  }
+
+  function resolveDiscomfort(area){
+    setState(s=>({...s,discomfortFlags:(s.discomfortFlags||[]).map(x=>x.area===area?{...x,active:false,resolvedAt:todayISO()}:x)}));
+  }
+
   /* ── onboarding ─────────────────────────────────────────────────────── */
   if(!state.onboarded){
     return (<><style>{APP_CSS}</style>
@@ -6186,6 +6597,18 @@ function App(){
           padding:"6px 16px"}}>
           <div style={{maxWidth:620,margin:"0 auto",fontSize:"calc(.64rem * var(--ts, 1))",color:C.yellow}}>⚠ {offline.msg}</div>
         </div>)}
+        {updateWorker && (<div className="fade" style={{background:tint(C.green,0x12),borderTop:`1px solid ${tint(C.green,0x35)}`,
+          padding:"7px 16px"}}>
+          <div style={{maxWidth:620,margin:"0 auto",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.green,fontWeight:700}}>UPDATE AVAILABLE</div>
+              <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.faint,marginTop:1}}>Your active workout is saved. Reload when you're ready.</div>
+            </div>
+            <button onClick={applyAppUpdate} disabled={updatingApp} style={{border:"none",borderRadius:8,background:C.green,color:C.onGreen,
+              padding:"7px 10px",fontSize:"calc(.61rem * var(--ts, 1))",fontWeight:800,cursor:"pointer",flexShrink:0}}>
+              {updatingApp?"UPDATING…":"UPDATE & RELOAD"}</button>
+          </div>
+        </div>)}
       </div>
 
       {/* body */}
@@ -6205,7 +6628,8 @@ function App(){
                                     rest={rest} startRest={startRest} skipRest={skipRest}
                                     apiKey={apiKey} setTravel={setTravel} clearTravel={clearTravel}
                                     forgetTravel={forgetTravel} bonusPending={bonusPending}
-                                    onCancelBonus={()=>setBonusPending(false)}/>
+                                    onCancelBonus={()=>setBonusPending(false)}
+                                    onRecordDiscomfort={recordDiscomfort} onResolveDiscomfort={resolveDiscomfort}/>
             : view==="plan"     ? <PlanView state={state} onReplan={()=>buildBlock()} replanning={replanning} aiOn={aiOn}
                                     currentSession={session} onAddBonus={()=>{
                                       if(!session) setBonusPending(true);

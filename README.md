@@ -24,14 +24,26 @@ right. Opening *How to do it* makes one coaching call when AI is enabled. The sa
 a direct YouTube Shorts search for the exercise; that link does not use the AI or spend credits.
 The Why and How controls can each be hidden in Settings when you want a quieter workout screen.
 
-**Busy machine, same plan.** Before logging the first set, *Swap exercise* offers up to two
-available alternatives from the same movement pattern, preferring different equipment. Sets,
-reps, rest and phase stay intact; the replacement load comes from its own logged history. This
-is catalogue-driven and spends no AI credits.
+**Swap the exercise without losing the reason.** Before logging the first set, *Swap exercise*
+records whether equipment was busy, the movement caused discomfort, or the change was a preference,
+then offers up to two available alternatives from the same movement pattern. Sets, reps, rest and
+phase stay intact; the replacement load comes from its own logged history. The reason remains on the
+active exercise, completed-session log and coach history. This is catalogue-driven and spends no AI credits.
+
+**Discomfort becomes a temporary safety constraint.** Choosing discomfort records the affected body
+area immediately. Future built-in and AI suggestions exclude exercises tagged for that area until the
+user marks it resolved on Today or in Settings. An unknown/other area is carried to the coach without
+guessing which movements are safe. The app clearly treats this as a workout adjustment, not a diagnosis.
 
 **It briefs you before you start.** What today's session is for, what's required of you to
 make it count, and how you'll know you got it right — at the top of the Today screen, before
 the first exercise.
+
+**Warm up and cool down for the session actually in front of you.** Today includes a compact,
+matched warm-up: two minutes of easy movement, up to three dynamic pattern drills, and sensible
+ramp weights for the first exercise. A matched cool-down selects up to four non-duplicated static
+stretches from the movements trained that day and opens automatically in the debrief. Both are
+built-in, work offline and use no AI credits; ramp sets are clearly kept out of the working log.
 
 **It checks in and debriefs.** Before the session: sleep, energy, soreness, stress. Rough
 night and the weights come down and a set comes off. After the session: what happened, what
@@ -73,10 +85,11 @@ gym, block, history and working weights are untouched, and it switches itself of
 you never walk into your own gym holding a hotel session.
 
 **A Learn hub for the concepts.** Progressive overload, RPE and reps-in-reserve, the muscle
-map, rep ranges, why deloads exist, warming up, recovery, what to do when a lift stalls.
+map, rep ranges, why deloads exist, warming up, stretching, recovery, what to do when a lift stalls.
 Every topic has a comprehension check and the hub tracks what you've covered. An optional
 Advanced layer adds autoregulation, recoverable volume, exercise selection and reading trends;
-it is off by default and can be enabled in Settings.
+it is off by default and can be enabled in Settings. *Hide all learning* removes the entire Learn
+tab when you do not want it in the app; Settings restores it later without deleting reading progress.
 
 **Ask it anything.** With an API key, the Coach tab is a conversation with something that
 can see your goal, your block and every set you've logged. Only the last eight chat messages
@@ -101,6 +114,14 @@ python3 -m http.server 8000     # or: npm start
 
 Open `http://localhost:8000`. On a phone, use *Add to Home Screen* — it installs as a PWA
 and runs offline.
+
+When a newer PWA version finishes downloading, a visible **Update available** banner waits for the
+user. **Update & Reload** activates the waiting service worker and reloads the installed app; it never
+silently refreshes during a set. The active session is already persisted and resumes after the reload.
+
+On a fresh install, *Load from JSON backup* sits directly below *Let's go*. Selecting a validated
+SnapFit backup restores the goal, block, history, settings and included API key and skips the setup
+questions. Normal setup remains unchanged for new users.
 
 To deploy: push to a branch and turn on GitHub Pages. That's the whole deployment story.
 
