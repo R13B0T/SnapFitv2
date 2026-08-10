@@ -1041,7 +1041,7 @@ function trainingWeek(state, onDate=todayISO()){
 }
 const DEFAULT_LIMITS  = { knees:false, shoulders:false, back:false, ankles:false, elbows:false, note:"" };
 const DEFAULT_COACH_STYLE = { sass:3, hardTruth:4 };
-const DEFAULT_UI_PREFS = { showExerciseWhy:true, showExerciseHow:true, showAdvancedLearn:false };
+const DEFAULT_UI_PREFS = { showExerciseWhy:true, showExerciseHow:true, showLearnHub:true, showAdvancedLearn:false };
 const SASS_LEVELS = [
   null,
   {label:"Straight", note:"No jokes. Clear, calm coaching."},
@@ -3645,7 +3645,7 @@ function RestBar({rest, onSkip}){
    input — which closes the keyboard after a single character on a phone.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function OnboardShell({children, steps, step, onBack, showBack=true, cta, ctaLabel, disabled}){
+function OnboardShell({children, steps, step, onBack, showBack=true, cta, ctaLabel, disabled, secondary}){
   return (
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column"}}>
       <div style={{padding:"18px 18px 0",maxWidth:560,margin:"0 auto",width:"100%"}}>
@@ -3663,15 +3663,18 @@ function OnboardShell({children, steps, step, onBack, showBack=true, cta, ctaLab
         {children}
       </div>
       <div style={{padding:"14px 18px calc(20px + env(safe-area-inset-bottom))",maxWidth:560,margin:"0 auto",width:"100%",
-        display:"flex",gap:8,borderTop:`1px solid ${C.lineSoft}`,background:C.bg}}>
-        {showBack && step>0 && <Btn kind="ghost" size="lg" onClick={onBack} style={{width:56,padding:0}}>←</Btn>}
-        <Btn size="lg" full onClick={cta} disabled={disabled}>{ctaLabel}</Btn>
+        display:"flex",flexDirection:"column",gap:8,borderTop:`1px solid ${C.lineSoft}`,background:C.bg}}>
+        <div style={{display:"flex",gap:8}}>
+          {showBack && step>0 && <Btn kind="ghost" size="lg" onClick={onBack} style={{width:56,padding:0}}>←</Btn>}
+          <Btn size="lg" full onClick={cta} disabled={disabled}>{ctaLabel}</Btn>
+        </div>
+        {secondary}
       </div>
     </div>
   );
 }
 
-function Onboarding({state, setState, onDone, coach}){
+function Onboarding({state, setState, onDone, onRestore, coach}){
   const [step,setStep]   = useState(0);
   const [goal,setGoal]   = useState(state.goal || {type:"build_muscle", targetValue:"", targetDate:"", startValue:"", why:""});
   const [prof,setProf]   = useState({...state.profile});
@@ -3681,6 +3684,9 @@ function Onboarding({state, setState, onDone, coach}){
   const [keyState,setKeyState] = useState("idle");
   const [keyMsg,setKeyMsg]     = useState("");
   const [building,setBuilding] = useState(false);
+  const [restoreError,setRestoreError] = useState("");
+  const [restoring,setRestoring] = useState(false);
+  const restoreRef = useRef(null);
 
   const g = GOAL_BY_ID[goal.type];
   const steps = ["Welcome","Goal","You","Body","Gym","Coach"];
@@ -3703,11 +3709,40 @@ function Onboarding({state, setState, onDone, coach}){
     catch(e){ setKeyState("bad"); setKeyMsg(e.kind==="auth" ? "That key was rejected. Check you copied all of it." : e.message); }
   }
 
+  function loadBackup(e){
+    const file=e.target.files?.[0];
+    e.target.value="";
+    if(!file) return;
+    setRestoreError(""); setRestoring(true);
+    const reader=new FileReader();
+    reader.onerror=()=>{ setRestoring(false); setRestoreError("Couldn't read that file from this device."); };
+    reader.onload=ev=>{
+      try{
+        const parsed=inspectJSON(String(ev.target.result));
+        if(!parsed.state.onboarded || !parsed.state.goal)
+          throw new Error("That backup does not contain a completed SnapFit setup.");
+        onRestore(parsed.state,parsed.apiKey);
+      }catch(err){
+        setRestoreError(err.message||"That backup could not be restored.");
+        setRestoring(false);
+      }
+    };
+    reader.readAsText(file);
+  }
+
   // Stable props for the module-scope shell.
   const shell = { steps, step, onBack:()=>setStep(s=>s-1) };
 
   /* 0 — Welcome */
-  if(step===0) return (<OnboardShell {...shell} cta={()=>setStep(1)} ctaLabel="LET'S GO →" showBack={false}>
+  if(step===0) return (<OnboardShell {...shell} cta={()=>setStep(1)} ctaLabel="LET'S GO →" showBack={false}
+    secondary={<div>
+      <Btn kind="solid" size="md" full onClick={()=>restoreRef.current?.click()} disabled={restoring}>
+        {restoring?<><Spinner size={12}/> Loading backup…</>:"LOAD FROM JSON BACKUP"}</Btn>
+      <input ref={restoreRef} type="file" accept=".json,application/json" onChange={loadBackup} style={{display:"none"}}/>
+      <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,textAlign:"center",lineHeight:1.5,marginTop:6}}>
+        Restores your goal, plan, history, settings and saved API key, then skips setup.</div>
+      {restoreError && <ErrLine text={restoreError}/>}
+    </div>}>
     <h1 style={{fontSize:"2.7rem",color:C.text,lineHeight:1.05,marginBottom:14}}>
       NOT JUST A<br/><span style={{color:C.red}}>TRACKER</span>
     </h1>
@@ -4001,7 +4036,7 @@ function CheckIn({onSubmit, onSkip, bonus=false, onCancel}){
    ═══════════════════════════════════════════════════════════════════════════ */
 
 function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaining, aiOn,
-                       showWhy=true, showHow=true, onAskCoach}){
+                       showWhy=true, showHow=true, onAskCoach, onSwap}){
   const [open,setOpen] = useState(null);   // "why" | "how" | null
   const [expanded,setExpanded] = useState(false);
   const done  = logs.filter(l=>l&&l.reps!=null).length;
@@ -4811,7 +4846,7 @@ function GoalView({state, setState, review, reviewLoading, onReview, aiOn}){
    LEARN
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function LearnView({state, setState}){
+function LearnView({state, setState, onHide}){
   const [open,setOpen] = useState(null);
   const [answer,setAnswer] = useState(null);
   const read = new Set(state.learn.read||[]);
@@ -4830,7 +4865,7 @@ function LearnView({state, setState}){
   const topic = open ? LEARN_BY_ID[open] : null;
 
   return (<div className="fade" style={{paddingTop:8,paddingBottom:20}}>
-    <SectionTitle sub={advancedOn
+    <SectionTitle right={<Btn kind="ghost" size="sm" onClick={onHide}>Hide all learning</Btn>} sub={advancedOn
       ? "Fundamentals plus the optional advanced layer. Read them in any order."
       : "The practical fundamentals behind the plan. Advanced topics can be enabled in Settings."}>LEARN</SectionTitle>
 
@@ -5766,6 +5801,9 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
         <Toggle on={uiPrefs.showExerciseHow} label='Show "How to do it" in workouts'
           sub="Includes the YouTube search shortcut and coaching notes, loaded only when opened."
           onChange={v=>setUiPref("showExerciseHow",v)}/>
+        <Toggle on={uiPrefs.showLearnHub} label="Show Learning Hub"
+          sub="Turn the entire Learn tab on or off. Your reading progress is kept when hidden."
+          onChange={v=>setUiPref("showLearnHub",v)}/>
         <Toggle on={uiPrefs.showAdvancedLearn} label="Show advanced Learning Hub topics"
           sub="Adds autoregulation, fatigue management, exercise selection and trend interpretation."
           onChange={v=>setUiPref("showAdvancedLearn",v)}/>
@@ -6096,6 +6134,7 @@ function App(){
   if(!state.onboarded){
     return (<><style>{APP_CSS}</style>
       <Onboarding state={state} setState={setState} coach={coach}
+        onRestore={restoreState}
         onDone={async next=>{ await buildBlock(next); }}/>
     </>);
   }
@@ -6176,7 +6215,10 @@ function App(){
                                     reviewLoading={reviewLoading} onReview={runReview} aiOn={aiOn}/>
             : view==="coach"    ? <ChatView state={state} setState={setState} coach={coach} aiOn={aiOn}
                                     onGoSettings={()=>setView("settings")}/>
-            : view==="learn"    ? <LearnView state={state} setState={setState}/>
+            : view==="learn"    ? <LearnView state={state} setState={setState} onHide={()=>{
+                                      setState(s=>({...s,uiPrefs:{...DEFAULT_UI_PREFS,...(s.uiPrefs||{}),showLearnHub:false}}));
+                                      setView("today");
+                                    }}/>
             : view==="log"      ? <LogView state={state} setState={setState} onRestore={restoreState} apiKey={apiKey}/>
             : <SettingsView state={state} setState={setState} apiKey={apiKey} setApiKey={setApiKey}
                 model={model} setModel={setModel} coach={coach} onReset={resetAll}
@@ -6192,7 +6234,7 @@ function App(){
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.surface,
         borderTop:`1px solid ${C.line}`,zIndex:70,paddingBottom:"env(safe-area-inset-bottom)"}}>
         <div style={{maxWidth:620,margin:"0 auto",display:"flex"}}>
-          {NAV.map(n=>{
+          {NAV.filter(n=>n.id!=="learn" || (state.uiPrefs?.showLearnHub??true)).map(n=>{
             const active = view===n.id;
             const badge = n.id==="today" && session && !debrief;
             return (<button key={n.id} onClick={()=>{ setView(n.id); setDebrief(null); }} style={{
