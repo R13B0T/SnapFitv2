@@ -1036,6 +1036,25 @@ The **Matched cool-down** uses the movement patterns from today's session, remov
       a:["Immediately before the heaviest set","After the lifting work","Between every repetition"], correct:1,
       why:"Use dynamic movement and light rehearsal sets before lifting. Longer static holds fit better after the working sets are finished."} },
 
+  { id:"supersets", title:"Supersets without sabotaging the workout", mins:2, tag:"Programming",
+    hook:"Save time on the smaller work; keep your main lifts honest.",
+    body:`A **superset** alternates two exercises before taking a normal rest. Do A1, move directly to A2, then rest before repeating the pair.
+
+### Where they work
+Accessory exercises for different muscles pair well: side delts with curls, calves with core, or triceps with rear delts. You save transition time without one exercise ruining the other.
+
+### Where they do not
+Two demanding compounds, two exercises for the same tired muscle, or anything that makes technique fall apart. If your breathing rather than the target muscle limits the second exercise, the pairing is costing more than it saves.
+
+### Gym etiquette still applies
+Do not defend two busy machines like a tiny equipment empire. If either station is occupied, use the app's **straight sets today** option.
+
+### How this app applies it
+SnapFit pairs only adjacent accessory exercises, labels them A1/A2, skips supersets during deloads and starts the rest timer after A2. The feature is optional in Settings and uses no AI credits.`,
+    check:{q:"When should the rest timer start during an A1/A2 superset?",
+      a:["After A1","After A2","Only after every third round"], correct:1,
+      why:"Move directly from A1 to A2, then take the planned rest before beginning the next round."} },
+
   { id:"recovery", title:"Sleep, soreness and what actually recovers you", mins:3, tag:"Recovery",
     hook:"The most powerful recovery tool is free, and you're probably shortchanging it.",
     body:`### Sleep does the heavy lifting
@@ -1180,7 +1199,7 @@ const LEARN_BY_ID = Object.fromEntries(LEARN.map(t=>[t.id,t]));
    STATE
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const DEFAULT_PROFILE = { age:"", sex:"", heightCm:"", experience:"beginner", daysPerWeek:3, sessionMinutes:45, freeWeightPct:30, weekStartsOn:1 };
+const DEFAULT_PROFILE = { age:"", sex:"", heightCm:"", experience:"beginner", daysPerWeek:3, sessionMinutes:45, freeWeightPct:30, weekStartsOn:1, useSupersets:true };
 const WEEKDAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
 function trainingWeek(state, onDate=todayISO()){
@@ -1386,6 +1405,37 @@ function durationShape(mins){
    overnight — you should never walk into your own gym and be handed a hotel
    session because you forgot to switch back. The record survives so a four
    night stay is one tap a day rather than a rescan.                        */
+
+/* Supersets are a time-saving tool, not a licence to turn the whole workout
+   into cardio. Only adjacent accessory exercises can pair. Main compounds,
+   deloads and repeated muscle groups stay out. */
+function assignSupersets(exercises,state,phase){
+  const clean=(exercises||[]).map(e=>{ const {superset,...rest}=e; return rest; });
+  if(state?.profile?.useSupersets===false || /deload/i.test(phase?.name||"") || clean.length<4) return clean;
+  const maxPairs=(state.profile.sessionMinutes||45)>=60 ? 2 : 1;
+  let pairs=0;
+  for(let i=2;i<clean.length-1 && pairs<maxPairs;i++){
+    const a=clean[i], b=clean[i+1];
+    if(a.compound||b.compound||a.sets!==b.sets||a.pattern===b.pattern||a.primary===b.primary) continue;
+    const group=String.fromCharCode(65+pairs);
+    clean[i]={...a,superset:{group,position:1}};
+    clean[i+1]={...b,superset:{group,position:2}};
+    pairs++; i++;
+  }
+  return clean;
+}
+
+function supersetPairs(session){
+  const groups={};
+  (session?.exercises||[]).forEach((ex,index)=>{
+    if(!ex.superset) return;
+    const g=ex.superset.group;
+    if(!groups[g]) groups[g]=[];
+    groups[g].push({ex,index});
+  });
+  return Object.entries(groups).map(([group,items])=>({group,items:items.sort((a,b)=>a.ex.superset.position-b.ex.superset.position)}))
+    .filter(x=>x.items.length===2);
+}
 
 function normaliseTravel(raw){
   if(!raw || typeof raw!=="object") return null;
@@ -1723,6 +1773,7 @@ function buildSessionRules(state, checkin, {bonus=false}={}){
       why: buildWhy(ex, phase, prog, state, bonus),
     });
   }
+  const plannedExercises=assignSupersets(exercises,state,phase);
 
   return {
     id: uid(),
@@ -1742,8 +1793,8 @@ function buildSessionRules(state, checkin, {bonus=false}={}){
     checkin: checkin||null,
     adaptationNote: discomfortSafetyNote(state),
     focusTip: focusTipFor(day, phase),
-    brief: buildBriefRules(day, phase, prog, state, exercises, bonus),
-    exercises,
+    brief: buildBriefRules(day, phase, prog, state, plannedExercises, bonus),
+    exercises:plannedExercises,
   };
 }
 
@@ -1775,9 +1826,11 @@ function buildBriefRules(day, phase, prog, state, exercises, bonus=false){
     ? `This is your deload week, and today is meant to feel easy. The weights are about 60% of what you've been lifting. The work of the last few weeks is already done — this week is when it turns into progress, and the only way to get that wrong is to push.`
     : `Today is ${day.name.toLowerCase()} — ${exercises.length} exercises, ${totalSets} sets, working ${groups.slice(0,4).join(", ").toLowerCase()}. You're in week ${prog.week} of ${prog.total}, the ${phase.name.toLowerCase()} phase, and the job of this phase is ${phase.intent.charAt(0).toLowerCase()+phase.intent.slice(1).replace(/\.$/,"")}.`;
 
-  const required = deload
+  let required = deload
     ? `Two sets per exercise, well short of failure, moving cleanly. Stop while it still feels like a warm-up.`
     : `Each set wants ${lo} to ${hi} reps at roughly ${phase.rpe} out of 10 effort — that's ${phase.rpe>=9?"a rep or less":phase.rpe>=8?"one to two reps":"two to three reps"} left in the tank. Take the last set of each exercise closer to the limit than the earlier ones. Control the lowering for two to three seconds; that's where most of the growth is, and it costs you nothing.${compounds.length?` ${compounds[0]} is the one that matters most today, so do it while you're freshest.` : ""}`;
+  const pairs=supersetPairs({exercises});
+  if(pairs.length) required += ` The ${pairs.map(p=>`${p.group}1/${p.group}2`).join(" and ")} accessory pair${pairs.length===1?"":"s"} ${pairs.length===1?"is":"are"} supersetted: move directly from the first exercise to the second, then take the displayed rest.`;
 
   const standard = deload
     ? `You'll know you've done it right if you leave feeling like you could have done the whole thing again.`
@@ -2046,6 +2099,7 @@ function profileDigest(state){
     `${p.experience} lifter`,
     `${p.daysPerWeek} days/week`,
     `${p.sessionMinutes} min sessions`,
+    `accessory supersets ${p.useSupersets===false?"off":"on"}`,
     `free-weight preference ${p.freeWeightPct}%`,
     `training week starts ${WEEKDAYS[clamp(Number(p.weekStartsOn??1),0,6)]}`,
   ].filter(Boolean);
@@ -2427,9 +2481,10 @@ Rules:
             why: r.why };
         }).filter(Boolean);
         if(exercises.length < 2) throw new CoachError("Too few valid exercises","shape");
+        const plannedExercises=assignSupersets(exercises,state,prog.phase);
         return {...base, source:"ai", brief:raw.brief || base.brief,
           focusTip:raw.focusTip,
-          adaptationNote:[base.adaptationNote,raw.adaptationNote].filter(Boolean).join(" "), exercises};
+          adaptationNote:[base.adaptationNote,raw.adaptationNote].filter(Boolean).join(" "), exercises:plannedExercises};
       }, rules, "session");
     },
 
@@ -2972,37 +3027,78 @@ const cues = (()=>{
 })();
 
 /* ── Screen wake lock ─────────────────────────────────────────────────────
-   A screen that never sleeps is an audio context that never gets suspended,
-   so this is also the reliable answer to "play the cues with the screen off".
-   The browser drops the lock whenever the tab hides, so it has to be
-   re-requested every time you come back.                                    */
+   Mobile browsers can release a valid lock on a visibility change, a power
+   mode change or for no useful reason at all. Re-acquire carefully while a
+   workout is active, and expose the real status so the UI never claims the
+   screen is protected when iOS has rejected the request.                    */
 
 const wakeLock = (()=>{
-  let sentinel = null, wanted = false;
-  const supported = () => typeof navigator !== "undefined" && "wakeLock" in navigator;
+  let sentinel=null, wanted=false, pending=false, currentStatus="off", retryTimer=null;
+  const listeners=new Set();
+  const supported=()=>typeof navigator!=="undefined" && "wakeLock" in navigator;
+  const visible=()=>typeof document==="undefined" || document.visibilityState==="visible";
+  const notify=status=>{
+    currentStatus=status;
+    listeners.forEach(fn=>{ try{ fn(status); }catch{} });
+  };
+  const schedule=(delay=1000)=>{
+    clearTimeout(retryTimer);
+    if(!wanted||!prefOn(WAKE_KEY)||!visible()) return;
+    retryTimer=setTimeout(()=>acquire(),delay);
+  };
 
   async function acquire(){
-    if(!wanted || !supported() || !prefOn(WAKE_KEY) || sentinel) return;
+    if(!wanted||!prefOn(WAKE_KEY)){ notify("off"); return; }
+    if(!supported()){ notify("unsupported"); return; }
+    if(!visible()) return;
+    if(sentinel){ notify("held"); return; }
+    if(pending) return;
+    pending=true; notify("requesting");
     try{
-      sentinel = await navigator.wakeLock.request("screen");
-      sentinel.addEventListener("release", ()=>{ sentinel = null; });
-    }catch{ sentinel = null; }
+      const lock=await navigator.wakeLock.request("screen");
+      if(!wanted||!prefOn(WAKE_KEY)||!visible()){
+        try{ await lock.release(); }catch{}
+        notify("off"); return;
+      }
+      sentinel=lock; notify("held");
+      lock.addEventListener("release",()=>{
+        if(sentinel===lock) sentinel=null;
+        if(wanted&&prefOn(WAKE_KEY)&&visible()){
+          notify("released"); schedule(1200);
+        } else notify("off");
+      });
+    }catch{
+      sentinel=null; notify("denied"); schedule(5000);
+    }finally{ pending=false; }
   }
   function release(){
-    try{ sentinel && sentinel.release(); }catch{}
-    sentinel = null;
+    clearTimeout(retryTimer);
+    const lock=sentinel; sentinel=null;
+    try{ lock&&lock.release(); }catch{}
+    notify("off");
   }
-  if(typeof document !== "undefined"){
-    document.addEventListener("visibilitychange", ()=>{
-      if(document.visibilityState === "visible") acquire(); else release();
+  if(typeof document!=="undefined"){
+    document.addEventListener("visibilitychange",()=>{
+      if(visible()) acquire(); else release();
     });
+    document.addEventListener("pointerdown",()=>{
+      if(wanted&&!sentinel) acquire();
+    },{passive:true});
+  }
+  if(typeof window!=="undefined"){
+    window.addEventListener("pageshow",()=>acquire());
+    window.addEventListener("focus",()=>acquire());
+    setInterval(()=>{ if(wanted&&!sentinel&&visible()) acquire(); },15000);
   }
   return {
     supported,
-    enabled: ()=>prefOn(WAKE_KEY),
+    enabled:()=>prefOn(WAKE_KEY),
+    status:()=>currentStatus,
+    subscribe(fn){ listeners.add(fn); fn(currentStatus); return ()=>listeners.delete(fn); },
+    retry:()=>{ clearTimeout(retryTimer); acquire(); },
     setEnabled(on){ setPref(WAKE_KEY,on); on ? acquire() : release(); },
-    setWanted(v){ wanted = v; v ? acquire() : release(); },
-    held: ()=>!!sentinel,
+    setWanted(v){ wanted=v; v ? acquire() : release(); },
+    held:()=>!!sentinel,
   };
 })();
 
@@ -4053,6 +4149,9 @@ function Onboarding({state, setState, onDone, onRestore, coach}){
       <Slider min={20} max={90} step={5} value={prof.sessionMinutes}
         onChange={v=>setProf(p=>({...p,sessionMinutes:v}))} format={v=>`${v} min`}/>
     </Field>
+    <Toggle on={prof.useSupersets!==false} label="Accessory supersets"
+      sub="Pairs compatible smaller exercises to save time. Main compound lifts and deloads stay separate."
+      onChange={v=>setProf(p=>({...p,useSupersets:v}))}/>
     <Field label="Free weights vs machines" hint="Machines are easier to learn and safer to push alone. Free weights build more control and carry over better. Most people do well somewhere in between.">
       <Slider min={0} max={100} step={10} value={prof.freeWeightPct}
         onChange={v=>setProf(p=>({...p,freeWeightPct:v}))}
@@ -4284,6 +4383,7 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
           {ex.stations.map(s=><Chip key={s} color={C.blue}>#{s}</Chip>)}
           <Chip color={C.faint}>{ex.primary}</Chip>
           {ex.compound && <Chip color={C.purple}>compound</Chip>}
+          {ex.superset && <Chip color={C.purple}>SUPERSET {ex.superset.group}{ex.superset.position}</Chip>}
           {ex.swapInfo && <Chip color={C.orange}>SWAPPED · {SWAP_REASON_BY_KEY[ex.swapInfo.reason]?.short||ex.swapInfo.reason}</Chip>}
         </div>
       </div>
@@ -4502,13 +4602,53 @@ function DiscomfortNotice({flags,onResolve,compact=false}){
   </Card>);
 }
 
+function SupersetGuide({session,cue,onDisable}){
+  const pairs=supersetPairs(session);
+  if(!pairs.length) return null;
+  return (<Card accent={C.purple} style={{marginBottom:12,padding:13}}>
+    <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.purple,fontWeight:700,letterSpacing:".08em",marginBottom:5}}>
+      ACCESSORY SUPERSET{pairs.length===1?"":"S"}</div>
+    <div style={{fontSize:"calc(.67rem * var(--ts, 1))",color:C.faint,lineHeight:1.55,marginBottom:8}}>
+      Alternate the two exercises. No rest after the first; take the normal timer after the second. If either station is busy, do them as normal straight sets.</div>
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {pairs.map(pair=><div key={pair.group} style={{fontSize:"calc(.71rem * var(--ts, 1))",color:C.dim,lineHeight:1.5}}>
+        <strong style={{color:C.purple}}>{pair.group}1</strong> {pair.items[0].ex.name}
+        <span style={{color:C.ghost}}> → </span>
+        <strong style={{color:C.purple}}>{pair.group}2</strong> {pair.items[1].ex.name}
+      </div>)}
+    </div>
+    {cue && <div className="fade" style={{marginTop:9,padding:"8px 9px",borderRadius:9,
+      background:tint(C.purple,0x12),border:`1px solid ${tint(C.purple,0x45)}`,
+      fontSize:"calc(.68rem * var(--ts, 1))",color:C.purple,fontWeight:700}}>
+      NEXT: {cue.group}2 {cue.name.toUpperCase()} · GO STRAIGHT THERE</div>}
+    <button onClick={onDisable} style={{marginTop:8,padding:0,border:"none",background:"transparent",color:C.ghost,
+      fontSize:"calc(.61rem * var(--ts, 1))",textDecoration:"underline",cursor:"pointer"}}>Equipment busy? Use straight sets today</button>
+  </Card>);
+}
+
+function WakeLockNotice({status,onRetry}){
+  if(!["unsupported","denied","released"].includes(status)) return null;
+  const unsupported=status==="unsupported";
+  return (<Card accent={C.yellow} style={{marginBottom:12,padding:12}}>
+    <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.yellow,fontWeight:700,letterSpacing:".07em",marginBottom:4}}>
+      SCREEN-AWAKE LOCK {unsupported?"NOT AVAILABLE":"NEEDS ATTENTION"}</div>
+    <div style={{fontSize:"calc(.67rem * var(--ts, 1))",color:C.faint,lineHeight:1.55}}>
+      {unsupported
+        ? "This browser does not expose the screen wake-lock feature. On iPhone, update iOS and run SnapFit from its Home Screen icon; otherwise set Auto-Lock to Never for the workout."
+        : "The phone released or rejected the screen-awake request. Low Power Mode can cause this on iPhone. Turn it off, then tap Try again."}
+    </div>
+    {!unsupported && <Btn kind="solid" size="sm" onClick={onRetry} style={{marginTop:9}}>TRY SCREEN LOCK AGAIN</Btn>}
+  </Card>);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    TODAY
    ═══════════════════════════════════════════════════════════════════════════ */
 
 function TodayView({state, session, setSession, generating, onGenerate, onFinish, coach, aiOn,
                     rest, startRest, skipRest, apiKey, setTravel, clearTravel, forgetTravel,
-                    bonusPending=false, onCancelBonus, onRecordDiscomfort, onResolveDiscomfort}){
+                    bonusPending=false, onCancelBonus, onRecordDiscomfort, onResolveDiscomfort,
+                    wakeStatus="off", onRetryWake}){
   const [picker,setPicker]   = useState(null);   // {exIdx,setIdx}
   const [explain,setExplain] = useState({});     // exId -> explanation
   const [explaining,setExplaining] = useState({});
@@ -4516,7 +4656,10 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
   const [venue,setVenue]     = useState(false);  // away-gym sheet open
   const [setCoach,setSetCoach] = useState(null); // {exIdx,setIdx}
   const [swap,setSwap] = useState(null);         // {exIdx}
+  const [supersetCue,setSupersetCue] = useState(null);
   const prog = blockProgress(state);
+
+  useEffect(()=>setSupersetCue(null),[session?.id]);
 
   const gymSheet = venue ? (<GymSheet state={state} coach={coach} apiKey={apiKey}
     onApply={t=>{ setTravel(t); setVenue(false); }}
@@ -4543,6 +4686,26 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     });
     const ex = session.exercises[exIdx];
     const doneAfter = (ex.log||[]).filter((l,i)=>i!==setIdx && l && l.reps!=null).length + 1;
+    const pair=ex.superset ? supersetPairs(session).find(p=>p.group===ex.superset.group) : null;
+    if(pair && ex.superset.position===1){
+      const partner=pair.items[1].ex;
+      setSupersetCue({group:ex.superset.group,name:partner.name,round:doneAfter});
+      return;
+    }
+    if(pair && ex.superset.position===2){
+      setSupersetCue(null);
+      if(doneAfter < ex.sets){
+        const first=pair.items[0].ex;
+        startRest({exName:first.name,seconds:Math.max(...pair.items.map(x=>x.ex.rest||60)),
+          label:`Superset ${ex.superset.group} · round ${doneAfter+1}`});
+      } else {
+        const lastIdx=Math.max(...pair.items.map(x=>x.index));
+        const next=session.exercises[lastIdx+1];
+        if(next) startRest({exName:next.name,seconds:Math.max(...pair.items.map(x=>x.ex.rest||60)),label:"Next exercise"});
+      }
+      return;
+    }
+    setSupersetCue(null);
     if(doneAfter < ex.sets){
       startRest({exName:ex.name, seconds:ex.rest, label:`Set ${doneAfter+1} of ${ex.sets}`});
     } else {
@@ -4649,6 +4812,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     </div>
 
     <DiscomfortNotice flags={activeDiscomforts(state)} onResolve={onResolveDiscomfort} compact/>
+    <WakeLockNotice status={wakeStatus} onRetry={onRetryWake}/>
 
     {/* The brief — what today is for and what's being asked of you. */}
     {session.brief && (<Card accent={C.blue} style={{marginBottom:12}}>
@@ -4681,6 +4845,10 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     </div>)}
 
     <WarmupRoutine session={session}/>
+    <SupersetGuide session={session} cue={supersetCue} onDisable={()=>{
+      setSupersetCue(null);
+      setSession(s=>({...s,exercises:s.exercises.map(ex=>{ const {superset,...rest}=ex; return rest; })}));
+    }}/>
 
     {/* progress */}
     <div style={{marginBottom:14}}>
@@ -6144,6 +6312,9 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
         <Slider min={20} max={90} step={5} value={p.sessionMinutes}
           onChange={v=>setP("sessionMinutes",v)} format={v=>`${v} min`}/>
       </Field>
+      <Toggle on={p.useSupersets!==false} label="Use accessory supersets"
+        sub="Pairs compatible smaller exercises to save time. Main compounds, same-muscle pairs and deloads stay separate."
+        onChange={v=>setP("useSupersets",v)}/>
       <Field label="Training week starts"
         hint="Used by weekly reviews and by the coach when it names your current week. This does not reset or move your training block.">
         <select value={p.weekStartsOn??1} onChange={e=>setP("weekStartsOn",Number(e.target.value))}
@@ -6332,6 +6503,7 @@ function App(){
   const [bonusPending,setBonusPending] = useState(false);
   const [updateWorker,setUpdateWorker] = useState(()=>window.__snapfitUpdateWorker||null);
   const [updatingApp,setUpdatingApp] = useState(false);
+  const [wakeStatus,setWakeStatus] = useState(()=>wakeLock.status());
 
   /* Rest timer lives here, not in TodayView, so it survives tab changes.
      Persisted so a reload mid-workout resumes it rather than losing it. */
@@ -6352,6 +6524,7 @@ function App(){
     ready();
     return ()=>window.removeEventListener("snapfit-update-ready",ready);
   },[]);
+  useEffect(()=>wakeLock.subscribe(setWakeStatus),[]);
 
   function applyAppUpdate(){
     if(updatingApp) return;
@@ -6434,14 +6607,20 @@ function App(){
   /* ── session ────────────────────────────────────────────────────────── */
   async function generate(checkin, {bonus=false}={}){
     setGenerating(true);
+    wakeLock.setWanted(true); // this call still sits inside the user's tap on iOS
+    let built=false;
     try{
       if(checkin) setState(s=>({...s, checkins:[{date:todayISO(), ...checkin}, ...s.checkins].slice(0,60)}));
       const sess = await coach.todaysSession(checkin, {bonus});
       if(sess){
         setSession({...sess, exercises: sess.exercises.map(e=>({...e, log:Array(e.sets).fill(null)}))});
+        built=true;
         if(bonus) setBonusPending(false);
       }
-    } finally { setGenerating(false); }
+    } finally {
+      if(!built) wakeLock.setWanted(false);
+      setGenerating(false);
+    }
   }
 
   async function finishSession(sess){
@@ -6629,7 +6808,8 @@ function App(){
                                     apiKey={apiKey} setTravel={setTravel} clearTravel={clearTravel}
                                     forgetTravel={forgetTravel} bonusPending={bonusPending}
                                     onCancelBonus={()=>setBonusPending(false)}
-                                    onRecordDiscomfort={recordDiscomfort} onResolveDiscomfort={resolveDiscomfort}/>
+                                    onRecordDiscomfort={recordDiscomfort} onResolveDiscomfort={resolveDiscomfort}
+                                    wakeStatus={wakeStatus} onRetryWake={()=>wakeLock.retry()}/>
             : view==="plan"     ? <PlanView state={state} onReplan={()=>buildBlock()} replanning={replanning} aiOn={aiOn}
                                     currentSession={session} onAddBonus={()=>{
                                       if(!session) setBonusPending(true);

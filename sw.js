@@ -7,7 +7,7 @@
    stale-while-revalidate, so without a bump an installed app serves the old
    index.html on first open and only picks up the new one on the launch after
    that — which looks exactly like the update having failed. */
-const CACHE = "snapfit-v2-13";
+const CACHE = "snapfit-v2-14";
 
 const SHELL = [
   "./",
