@@ -184,6 +184,7 @@ h1,h2,h3{font-family:'Bebas Neue',sans-serif;font-weight:400;letter-spacing:0.04
 const STORE_KEY   = "snapfit_v2";
 const APIKEY_KEY  = "snapfit_v2_apikey";   // separate at runtime; explicitly included in JSON backups
 const MODEL_KEY   = "snapfit_v2_model";
+const API_STATUS_KEY = "snapfit_v2_api_status";
 
 const DEFAULT_MODEL = "claude-opus-5";
 const MODELS = [
@@ -193,9 +194,21 @@ const MODELS = [
 ];
 
 function loadKey(){ try{ return localStorage.getItem(APIKEY_KEY)||""; }catch{ return ""; } }
-function saveKey(k){ try{ k ? localStorage.setItem(APIKEY_KEY,k) : localStorage.removeItem(APIKEY_KEY); }catch{} }
+function saveKey(k){
+  try{
+    k ? localStorage.setItem(APIKEY_KEY,k) : localStorage.removeItem(APIKEY_KEY);
+    if(!k) localStorage.removeItem(API_STATUS_KEY);
+  }catch{}
+}
 function loadModel(){ try{ return localStorage.getItem(MODEL_KEY)||DEFAULT_MODEL; }catch{ return DEFAULT_MODEL; } }
 function saveModel(m){ try{ localStorage.setItem(MODEL_KEY,m); }catch{} }
+function loadApiStatus(){ try{ return JSON.parse(localStorage.getItem(API_STATUS_KEY)||"null"); }catch{ return null; } }
+function saveApiStatus(ok,kind="ok"){
+  const status={ok:!!ok,kind,at:new Date().toISOString()};
+  try{ localStorage.setItem(API_STATUS_KEY,JSON.stringify(status)); }catch{}
+  try{ window.dispatchEvent(new CustomEvent("snapfit-api-status",{detail:status})); }catch{}
+  return status;
+}
 
 /* Calendar dates must be local. `toISOString()` is UTC and can tell an
    Australian user that Monday morning is still Sunday, which then poisons
@@ -214,6 +227,10 @@ const daysBetween = (a,b) => Math.round((localDate(b)-localDate(a))/86400000);
 const uid = () => Math.random().toString(36).slice(2,10);
 const round25 = n => Math.round(n*2)/2;
 const clamp = (n,lo,hi) => Math.max(lo,Math.min(hi,n));
+const roundToIncrement = (n,step=0.5) => {
+  const s=Number(step)||0.5;
+  return Math.round((Number(n)||0)/s)*s;
+};
 const plainCoachText = text => String(text||"")
   .replace(/#{1,4}\s+/g, "")
   .replace(/\*\*(.+?)\*\*/g, "$1")
@@ -696,6 +713,38 @@ const EX = [
 const EX_BY_ID = Object.fromEntries(EX.map(e=>[e.id,e]));
 const EX_NAME  = Object.fromEntries(EX.map(e=>[e.id,e.name]));
 
+/* Fixed commercial dumbbell racks do not contain arbitrary half-kilo loads.
+   Snap's seeded rack uses 2kg jumps; gyms with 2.5kg commercial sets can switch
+   this in Settings. All prescriptions are snapped to the selected real rack. */
+function exerciseIncrement(ex,state){
+  if(ex?.kind==="dumbbell") return Number(state?.profile?.dumbbellStep)||2;
+  return Number(ex?.inc)||2.5;
+}
+function availableWeight(ex,weight,state){
+  const n=Math.max(0,Number(weight)||0);
+  if(ex?.kind!=="dumbbell") return roundToIncrement(n,exerciseIncrement(ex,state));
+  const step=Number(state?.profile?.dumbbellStep)||2;
+  /* The seeded mixed rack has every whole kilo through 10kg, then even loads
+     (12, 14, 16...). A conventional commercial rack is 2.5kg throughout. */
+  if(step===2) return n<=10 ? Math.round(n) : 10+roundToIncrement(n-10,2);
+  return roundToIncrement(n,2.5);
+}
+
+/* Tempo is a technique prescription, not another progression lever. It is
+   catalogue/phase driven so the AI cannot invent a slow clean or an unsafe
+   pause under a heavy compound. */
+function tempoPrescription(ex,phase){
+  const execution=String(ex?.cues?.execution||"").toLowerCase();
+  if(ex?.kind==="sandbag" && /clean|jerk|push press/.test(ex.name||""))
+    return "Reset each rep · powerful drive up · controlled return";
+  if(/deload/i.test(phase?.name||"")) return "2 sec down · smooth up · leave plenty in reserve";
+  if(ex?.compound || /peak|intensification/i.test(phase?.name||""))
+    return "2–3 sec down · no bounce · strong controlled up";
+  if(/pause|hold|squeeze/.test(execution))
+    return "3 sec down · 1 sec squeeze at the peak · smooth up";
+  return "3 sec down · controlled turn · smooth up";
+}
+
 /* Free-weight preference: when the user asks for more free weights, these
    patterns swap toward dumbbell/barbell variants where available. */
 const FREE_WEIGHT_IDS = new Set(["db_bench","db_incline","db_row","db_shoulder_press","db_lateral_raise","db_curl","db_tricep_ext","squat_smith",
@@ -881,11 +930,15 @@ function recommendedWarmups(session,max=3){
 function rampSetsFor(session){
   const first=session?.exercises?.[0];
   if(!first||!Number.isFinite(Number(first.weight))||first.weight<=0) return [];
+  const catalogEx=EX_BY_ID[first.exId]||first;
   const working=Number(first.weight);
   const minimum=Math.min(working,Number(first.inc)||2.5);
+  const snap=w=>catalogEx.kind==="dumbbell"
+    ? ((Number(first.inc)||2)===2 ? (w<=10?Math.round(w):10+roundToIncrement(w-10,2)) : roundToIncrement(w,2.5))
+    : roundToIncrement(w,Number(first.inc)||2.5);
   const candidates=[
-    {reps:10,weight:round25(Math.max(minimum,working*.5)),label:"easy rehearsal"},
-    {reps:5,weight:round25(Math.max(minimum,working*.75)),label:"feel the working groove"},
+    {reps:10,weight:snap(Math.max(minimum,working*.5)),label:"easy rehearsal"},
+    {reps:5,weight:snap(Math.max(minimum,working*.75)),label:"feel the working groove"},
   ];
   /* A warm-up that equals the working load is not a warm-up. Light exercises
      may therefore get one ramp set or none instead of two fake ones. */
@@ -1199,7 +1252,7 @@ const LEARN_BY_ID = Object.fromEntries(LEARN.map(t=>[t.id,t]));
    STATE
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const DEFAULT_PROFILE = { age:"", sex:"", heightCm:"", experience:"beginner", daysPerWeek:3, sessionMinutes:45, freeWeightPct:30, weekStartsOn:1, useSupersets:true };
+const DEFAULT_PROFILE = { age:"", sex:"", heightCm:"", experience:"beginner", daysPerWeek:3, sessionMinutes:45, freeWeightPct:30, dumbbellStep:2, weekStartsOn:1, useSupersets:true };
 const WEEKDAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
 function trainingWeek(state, onDate=todayISO()){
@@ -1375,12 +1428,12 @@ function progressionDecision(entry, repRange, inc){
 /* Working weight for an exercise this session. */
 function workingWeight(ex, state, phase){
   const entry = state.weights[ex.id];
-  const inc   = ex.inc || 2.5;
+  const inc   = exerciseIncrement(ex,state);
   const dec   = progressionDecision(entry, phase.repRange, inc);
   let w = entry ? entry.weight : ex.start;
   if(entry) w = Math.max(0, w + dec.delta);
-  if(phase.name==="Deload") w = round25(w*0.6);
-  return { weight: round25(w), decision: dec, e1rm: entry ? estimate1RM(entry.weight, entry.lastAvgReps||0) : 0 };
+  if(phase.name==="Deload") w *= 0.6;
+  return { weight: availableWeight(ex,w,state), decision: dec, e1rm: entry ? estimate1RM(entry.weight, entry.lastAvgReps||0) : 0 };
 }
 
 /* ── Duration shaping ─────────────────────────────────────────────────────── */
@@ -1761,13 +1814,15 @@ function buildSessionRules(state, checkin, {bonus=false}={}){
       pattern: ex.pattern,
       primary: ex.primary,
       compound: ex.compound,
+      kind:ex.kind,
       sets,
       targetReps: reps,
       repRange: phase.repRange,
-      weight: round25(capForVenue(ex, ww.weight * adj.loadMult, state)),
-      inc: ex.inc,
+      weight: availableWeight(ex,capForVenue(ex, ww.weight * adj.loadMult, state),state),
+      inc: exerciseIncrement(ex,state),
       rpe: clamp(phase.rpe + (adj.key==="amber"?-1:adj.key==="red"?-2:0), 5, 10),
       rest: restSeconds(ex, phase),
+      tempo: tempoPrescription(ex,phase),
       decisionLabel: ww.decision.label,
       decisionColor: ww.decision.color,
       why: buildWhy(ex, phase, prog, state, bonus),
@@ -1887,11 +1942,13 @@ function debriefRules(session, state){
     const logged = (e.log||[]).filter(x=>x && x.reps!=null);
     if(!logged.length) return null;
     const perf = performanceSummary(logged, e.repRange || [e.targetReps-2,e.targetReps]);
+    const catalogEx=EX_BY_ID[e.exId];
+    const inc=exerciseIncrement(catalogEx||e,state);
     const dec = progressionDecision(
       {lastAvgReps:perf.avgReps, lastEffort:perf.effort},
-      e.repRange || [e.targetReps-2, e.targetReps], e.inc||2.5);
+      e.repRange || [e.targetReps-2, e.targetReps], inc);
     return {name:e.name, avg:perf.avgReps, target:e.targetReps, dec, weight:perf.weight,
-      nextWeight:Math.max(0,round25(perf.weight+dec.delta)), sets:perf.allSets,
+      nextWeight:availableWeight(catalogEx||e,perf.weight+dec.delta,state), sets:perf.allSets,
       workingSets:perf.sets, total:e.sets, volume:perf.volume};
   }).filter(Boolean);
 
@@ -2185,7 +2242,9 @@ async function callAnthropic({state, key, model, userText, schema, effort="low",
     if(!res.ok){
       let msg = `HTTP ${res.status}`;
       try{ const j = await res.json(); msg = j?.error?.message || msg; }catch{}
-      throw new CoachError(msg, res.status===401?"auth":res.status===429?"rate":"http");
+      const kind=res.status===401?"auth":res.status===429?"rate":"http";
+      saveApiStatus(false,kind);
+      throw new CoachError(msg,kind);
     }
     const data = await res.json();
     if(data.stop_reason === "refusal") throw new CoachError("The model declined that request.","refusal");
@@ -2198,6 +2257,7 @@ async function callAnthropic({state, key, model, userText, schema, effort="low",
     if(typeof window!=="undefined" && window.__snapfitDebug){
       console.log("[snapfit] usage", data.usage);
     }
+    saveApiStatus(true);
     return schema ? JSON.parse(text) : text;
   } finally { clearTimeout(timer); }
 }
@@ -2227,7 +2287,9 @@ async function streamAnthropic({state, key, model, messages, onDelta, signal, sy
   if(!res.ok){
     let msg = `HTTP ${res.status}`;
     try{ const j = await res.json(); msg = j?.error?.message || msg; }catch{}
-    throw new CoachError(msg, res.status===401?"auth":res.status===429?"rate":"http");
+    const kind=res.status===401?"auth":res.status===429?"rate":"http";
+    saveApiStatus(false,kind);
+    throw new CoachError(msg,kind);
   }
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -2252,6 +2314,7 @@ async function streamAnthropic({state, key, model, messages, onDelta, signal, sy
       }
     }
   }
+  saveApiStatus(true);
   return out;
 }
 
@@ -2467,16 +2530,17 @@ Rules:
           const seed = byId[r.exId];
           const calculated = seed || (()=>{
             const ww = workingWeight(ex, state, prog.phase);
-            return {weight:round25(capForVenue(ex, ww.weight * adj.loadMult, state)),
+            return {weight:availableWeight(ex,capForVenue(ex, ww.weight * adj.loadMult, state),state),
               decisionLabel:ww.decision?.label||"", decisionColor:ww.decision?.color||C.faint};
           })();
           return { exId:ex.id, name:ex.name, stations:stationsForExercise(ex, state), pattern:ex.pattern, primary:ex.primary,
-            compound:ex.compound,
+            compound:ex.compound,kind:ex.kind,
             sets:clamp(r.sets,1,6),
             targetReps:clamp(r.targetReps,1,30),
             repRange: base.exercises[0]?.repRange || prog.phase.repRange,
-            weight:calculated.weight, inc:ex.inc, rpe:prog.phase.rpe,
+            weight:calculated.weight, inc:exerciseIncrement(ex,state), rpe:prog.phase.rpe,
             rest: clamp(r.rest, 30, 240),
+            tempo:tempoPrescription(ex,prog.phase),
             decisionLabel: calculated.decisionLabel || "", decisionColor: calculated.decisionColor || C.faint,
             why: r.why };
         }).filter(Boolean);
@@ -2574,6 +2638,16 @@ Logged so far:\n${setContext}
 Answer the immediate set question directly and briefly. Use only this exercise context plus their goal/profile/block. If pain, dizziness, loss of control or a possible injury is mentioned, tell them to stop the set; do not diagnose. Do not invent unlogged reps or weights.`});
     },
 
+    postSessionChatStream({session,debrief,messages,onDelta,signal}){
+      const state=getState();
+      const rows=(session?.exercises||[]).map(e=>{
+        const logged=(e.log||[]).filter(x=>x&&x.reps!=null);
+        return `${e.name}: prescribed ${e.weight}kg, logged ${logged.length?logged.map(x=>`${x.weight}kg x ${x.reps} (${x.effort||"not rated"})`).join(", "):"nothing"}`;
+      }).join("\n");
+      return streamAnthropic({state,key:getKey(),model:getModel(),messages:messages.slice(-6),onDelta,signal,lean:true,
+        systemExtra:`POST-SESSION CLARIFICATION for the workout just completed.\n${rows}\n\nInitial debrief: ${debrief?.headline||""} ${plainCoachText(debrief?.body||"")}\n\nAnswer questions about what happened in this session. Treat the user's clarification as authoritative when it explains an abnormal set, equipment issue, deliberate test, or logging mistake. Do not diagnose symptoms. Do not recommend changing the wider plan merely from one unusual session. If their clarification should stop an AI observation carrying forward, say so plainly. Keep the answer concise.`});
+    },
+
     /* Read a gym off photos.
 
        The only coach method with no rules twin: there is no offline way to
@@ -2639,8 +2713,11 @@ How to do this well:
       if(!res.ok){
         let msg = `HTTP ${res.status}`;
         try{ const j = await res.json(); msg = j?.error?.message || msg; }catch{}
-        throw new CoachError(msg, res.status===401?"auth":"http");
+        const kind=res.status===401?"auth":"http";
+        saveApiStatus(false,kind);
+        throw new CoachError(msg,kind);
       }
+      saveApiStatus(true);
       return true;
     },
   };
@@ -3402,6 +3479,10 @@ function RepPicker({exercise, setIndex, initial, lastWeight, onSave, onClose}){
   // last set, not the planned one, so a mid-exercise drop carries forward.
   const [weight,setWeight] = useState(initial?.weight ?? lastWeight ?? exercise.weight);
   const carried = initial?.weight == null && lastWeight != null && lastWeight !== exercise.weight;
+  const exerciseKind=exercise.kind||EX_BY_ID[exercise.exId]?.kind;
+  const snapWeight=n=>exerciseKind==="dumbbell" && (Number(exercise.inc)||2)===2
+    ? (n<=10?Math.round(n):10+roundToIncrement(n-10,2))
+    : roundToIncrement(n,exercise.inc||2.5);
 
   const target = exercise.targetReps;
   const opts = [...new Set([target-3,target-2,target-1,target,target+1,target+2,target+3].filter(n=>n>=0))];
@@ -3410,12 +3491,12 @@ function RepPicker({exercise, setIndex, initial, lastWeight, onSave, onClose}){
   const suggestion = useMemo(()=>{
     if(!effort) return null;
     const e = EFFORT_BY_KEY[effort]; const inc = exercise.inc||2.5;
-    if(effort==="easy"  && reps>=target) return {msg:`Too light — try ${round25(weight+inc)}kg on the next set`, color:e.color};
+    if(effort==="easy"  && reps>=target) return {msg:`Too light — try ${snapWeight(weight+inc)}kg on the next set`, color:e.color};
     if(effort==="easy")                  return {msg:`Felt light but short of target — hold ${weight}kg`, color:C.yellow};
     if(effort==="good")                  return {msg:`That's the zone. Keep ${weight}kg.`, color:e.color};
     if(effort==="hard" && reps>=target)  return {msg:`Hard but you got the reps — hold ${weight}kg`, color:e.color};
     if(effort==="hard")                  return {msg:`Short of target — hold ${weight}kg and rebuild reps`, color:C.yellow};
-    if(effort==="failed")                return {msg:`Drop to ${round25(Math.max(0,weight-inc))}kg for the next set`, color:e.color};
+    if(effort==="failed")                return {msg:`Drop to ${snapWeight(Math.max(0,weight-inc))}kg for the next set`, color:e.color};
     return null;
   },[effort,reps,weight,target,exercise.inc]);
 
@@ -3449,7 +3530,7 @@ function RepPicker({exercise, setIndex, initial, lastWeight, onSave, onClose}){
 
         <div style={{background:C.raised,borderRadius:10,padding:"9px 10px",marginBottom:6}}>
           <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,marginBottom:5}}>Weight used</div>
-          <NumberField value={weight} onChange={setWeight} step={exercise.inc||2.5}
+          <NumberField value={weight} onChange={v=>setWeight(snapWeight(v))} step={exercise.inc||2.5}
             min={0} max={999} suffix="kg" size="sm"/>
         </div>
         <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:carried?C.yellow:C.ghost,marginBottom:14,lineHeight:1.5}}>
@@ -4152,6 +4233,10 @@ function Onboarding({state, setState, onDone, onRestore, coach}){
     <Toggle on={prof.useSupersets!==false} label="Accessory supersets"
       sub="Pairs compatible smaller exercises to save time. Main compound lifts and deloads stay separate."
       onChange={v=>setProf(p=>({...p,useSupersets:v}))}/>
+    <Field label="Dumbbell rack increments" hint="Watagan Park is seeded as 2kg jumps. Change this if your rack uses 2.5kg commercial dumbbells.">
+      <Choice cols={2} value={Number(prof.dumbbellStep)||2} onChange={v=>setProf(p=>({...p,dumbbellStep:v}))}
+        options={[{value:2,label:"2 kg"},{value:2.5,label:"2.5 kg"}]}/>
+    </Field>
     <Field label="Free weights vs machines" hint="Machines are easier to learn and safer to push alone. Free weights build more control and carry over better. Most people do well somewhere in between.">
       <Slider min={0} max={100} step={10} value={prof.freeWeightPct}
         onChange={v=>setProf(p=>({...p,freeWeightPct:v}))}
@@ -4408,6 +4493,8 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
         <span style={{fontSize:"calc(.74rem * var(--ts, 1))",color:C.text,fontWeight:600}}>
           {ex.weight}kg · {ex.sets} × {ex.targetReps}{ex.rpe?` · RPE ${ex.rpe}`:""}</span>
       </div>
+      {ex.tempo && <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.faint,marginTop:4}}>
+        <strong style={{color:C.purple}}>TEMPO</strong> · {ex.tempo}</div>}
       {ex.decisionLabel && (
         <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:ex.decisionColor,marginTop:3}}>{ex.decisionLabel}</div>)}
       {offPlan && (
@@ -4733,8 +4820,9 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
       exercises:s.exercises.map((old,i)=>i!==exIdx?old:{
         ...old, exId:replacement.id, name:replacement.name,
         stations:stationsForExercise(replacement,state), pattern:replacement.pattern,
-        primary:replacement.primary, compound:replacement.compound,
-        weight:round25(capForVenue(replacement,ww.weight*loadMult,state)), inc:replacement.inc,
+        primary:replacement.primary, compound:replacement.compound,kind:replacement.kind,
+        weight:availableWeight(replacement,capForVenue(replacement,ww.weight*loadMult,state),state), inc:exerciseIncrement(replacement,state),
+        tempo:tempoPrescription(replacement,prog.phase),
         why:replacement.why,
         decisionLabel:`${reasonMeta.label} swap · ${ww.decision?.label||"same plan, different tool"}`,
         decisionColor:C.orange, log:Array(old.sets).fill(null),
@@ -4965,7 +5053,54 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
    DEBRIEF
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function DebriefView({debrief, loading, onDone, aiOn}){
+function PostSessionChat({session,debrief,coach,onClarified,onExclude}){
+  const [open,setOpen]=useState(false), [messages,setMessages]=useState([]), [input,setInput]=useState("");
+  const [busy,setBusy]=useState(false), [stream,setStream]=useState(""), [error,setError]=useState("");
+  const abortRef=useRef(null), endRef=useRef(null);
+  useEffect(()=>()=>abortRef.current?.abort(),[]);
+  useEffect(()=>endRef.current?.scrollIntoView({behavior:"smooth"}),[messages.length,stream]);
+  async function send(){
+    const content=input.trim(); if(!content||busy) return;
+    const next=[...messages,{role:"user",content}];
+    setInput(""); setError(""); setStream(""); setMessages(next); setBusy(true);
+    const ctrl=new AbortController(); abortRef.current=ctrl;
+    try{
+      const full=await coach.postSessionChatStream({session,debrief,messages:next,onDelta:(_d,acc)=>setStream(acc),signal:ctrl.signal});
+      setMessages([...next,{role:"assistant",content:full}]);
+      onClarified?.(content,full);
+    }catch(e){ if(e.name!=="AbortError") setError(e.kind==="auth"?"The saved key was rejected. Check it once in Settings.":e.message||"Couldn't reach the coach."); }
+    finally{ setBusy(false);setStream("");abortRef.current=null; }
+  }
+  return (<Card accent={C.blue} style={{marginBottom:12}}>
+    <button onClick={()=>setOpen(v=>!v)} aria-expanded={open} style={{width:"100%",border:"none",background:"transparent",padding:0,
+      color:C.text,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",gap:10}}>
+      <div><div style={{fontSize:"calc(.78rem * var(--ts, 1))",fontWeight:700}}>Question or correct this review</div>
+        <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.faint,marginTop:3,lineHeight:1.5}}>Explain an abnormal set before it becomes a coaching assumption.</div></div>
+      <span style={{color:C.blue}}>{open?"HIDE ▴":"OPEN ▾"}</span>
+    </button>
+    {open&&<div style={{marginTop:12,borderTop:`1px solid ${C.lineSoft}`,paddingTop:10}}>
+      {!messages.length&&<div style={{fontSize:"calc(.69rem * var(--ts, 1))",color:C.faint,lineHeight:1.6,marginBottom:10}}>
+        For example: “The last set was low because the machine was occupied, not because the weight was too heavy.” This sends only this workout, its review and the last six messages.</div>}
+      <div style={{maxHeight:300,overflowY:"auto"}}>
+        {messages.map((m,i)=><div key={i} style={{marginBottom:8,padding:"8px 10px",borderRadius:9,background:m.role==="user"?tint(C.red,0x14):C.raised}}>
+          {m.role==="user"?<div style={{fontSize:"calc(.72rem * var(--ts, 1))",whiteSpace:"pre-wrap"}}>{m.content}</div>:<Markdown text={m.content}/>}</div>)}
+        {stream&&<div style={{padding:"8px 10px",borderRadius:9,background:C.raised}}><Markdown text={stream}/></div>}
+        {busy&&!stream&&<div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.ghost}}><Spinner size={12}/> Thinking…</div>}
+        {error&&<div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.red,marginTop:7}}>{error}</div>}
+        <div ref={endRef}/>
+      </div>
+      <ChatComposer value={input} onChange={e=>setInput(e.target.value)} onSend={send} busy={busy}
+        onStop={()=>abortRef.current?.abort()} placeholder="Clarify what happened…" layer={180}/>
+      <div style={{borderTop:`1px solid ${C.lineSoft}`,marginTop:10,paddingTop:10}}>
+        <Btn kind={session.excludedFromProgression?"green":"ghost"} size="sm" full disabled={session.excludedFromProgression} onClick={onExclude}>
+          {session.excludedFromProgression?"✓ LOAD CHANGES IGNORED":"KEEP LOG, IGNORE LOAD CHANGES"}</Btn>
+        <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,lineHeight:1.5,marginTop:6}}>Use this only when the session was abnormal or logged incorrectly. The workout stays in your history, but its weights will not drive the next prescription.</div>
+      </div>
+    </div>}
+  </Card>);
+}
+
+function DebriefView({debrief, loading, onDone, aiOn, session, coach, onClarified,onExclude}){
   if(loading) return (<div style={{paddingTop:80,textAlign:"center"}}>
     <div style={{display:"inline-flex",flexDirection:"column",alignItems:"center",gap:14}}>
       <Spinner size={28}/>
@@ -5003,6 +5138,8 @@ function DebriefView({debrief, loading, onDone, aiOn}){
       <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.yellow,fontWeight:700,letterSpacing:".08em",marginBottom:5}}>NEXT SESSION</div>
       <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.dim,lineHeight:1.65}}>{debrief.nextFocus}</div>
     </Card>)}
+
+    {aiOn&&session&&<PostSessionChat session={session} debrief={debrief} coach={coach} onClarified={onClarified} onExclude={onExclude}/>}
 
     <StretchRoutine stretches={debrief.stretches} defaultOpen/>
 
@@ -6080,7 +6217,7 @@ function LogView({state, setState, onRestore, apiKey}){
    SETTINGS
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coach, onReset, clearTravel}){
+function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coach, onReset, clearTravel, apiStatus}){
   const [draftKey,setDraftKey] = useState(apiKey);
   const [keyState,setKeyState] = useState("idle");
   const [keyMsg,setKeyMsg]     = useState("");
@@ -6132,14 +6269,16 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
     const k = draftKey.trim();
     if(!k) return;
     setKeyState("testing"); setKeyMsg("");
-    try{ await coach.testKey(k); setKeyState("ok"); setKeyMsg("Key works."); }
+    try{ await coach.testKey(k); setApiKey(k); saveKey(k); setKeyState("ok"); setKeyMsg("Connected and saved. You will not need to test it again when reopening the app."); }
     catch(e){ setKeyState("bad"); setKeyMsg(e.kind==="auth" ? "Rejected — check you copied the whole key." : e.message); }
   }
   function saveKeyNow(){
     const k = draftKey.trim();
     setApiKey(k); saveKey(k);
+    if(k) saveApiStatus(false,"saved");
+    else try{ localStorage.removeItem(API_STATUS_KEY); }catch{}
     setKeyState(k?"saved":"idle");
-    setKeyMsg(k ? "Saved. Your coach is live." : "Key removed. The built-in coach takes over.");
+    setKeyMsg(k ? "Saved. It will connect automatically on the next coach request — no separate test needed." : "Key removed. The built-in coach takes over.");
   }
 
   const p = state.profile, l = state.limits;
@@ -6164,13 +6303,13 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
         <div>
           <div style={{fontSize:"calc(.82rem * var(--ts, 1))",color:C.text,fontWeight:700}}>
-            {apiKey ? "🤖 Coach is live" : "Built-in coach"}
+            {apiKey ? (apiStatus?.ok?"🤖 Coach connected":"🤖 Coach key saved") : "Built-in coach"}
           </div>
           <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.faint,marginTop:2}}>
-            {apiKey ? "Plans, adapts and chats using your history" : "Rule-based. Works offline, forever."}
+            {apiKey ? (apiStatus?.ok?"Connected automatically on the last request":"Will reconnect automatically when you use AI") : "Rule-based. Works offline, forever."}
           </div>
         </div>
-        {apiKey && <Chip color={C.green}>ON</Chip>}
+        {apiKey && <Chip color={apiStatus?.ok?C.green:C.yellow}>{apiStatus?.ok?"CONNECTED":"SAVED"}</Chip>}
       </div>
 
       <Field label="Anthropic API key">
@@ -6185,9 +6324,9 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
 
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:keyMsg?10:0}}>
         <Btn kind="solid" size="sm" onClick={testKey} disabled={!draftKey.trim()||keyState==="testing"}>
-          {keyState==="testing" ? <><Spinner size={11}/> Testing</> : "Test"}</Btn>
+          {keyState==="testing" ? <><Spinner size={11}/> Connecting</> : "Test & save"}</Btn>
         <Btn size="sm" onClick={saveKeyNow} disabled={draftKey.trim()===apiKey}>Save</Btn>
-        {apiKey && <Btn kind="danger" size="sm" onClick={()=>{ setDraftKey(""); setApiKey(""); saveKey("");
+        {apiKey && <Btn kind="danger" size="sm" onClick={()=>{ setDraftKey(""); setApiKey(""); saveKey(""); try{localStorage.removeItem(API_STATUS_KEY);}catch{}
           setKeyState("idle"); setKeyMsg("Key removed. The built-in coach takes over."); }}>Remove</Btn>}
       </div>
       {keyMsg && <div style={{fontSize:"calc(.68rem * var(--ts, 1))",lineHeight:1.5,
@@ -6315,6 +6454,10 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
       <Toggle on={p.useSupersets!==false} label="Use accessory supersets"
         sub="Pairs compatible smaller exercises to save time. Main compounds, same-muscle pairs and deloads stay separate."
         onChange={v=>setP("useSupersets",v)}/>
+      <Field label="Dumbbell rack increments" hint="Stops impossible loads such as 14.5kg. The seeded Snap rack uses 2kg jumps; many commercial racks use 2.5kg.">
+        <Choice cols={2} value={Number(p.dumbbellStep)||2} onChange={v=>setP("dumbbellStep",v)}
+          options={[{value:2,label:"2 kg"},{value:2.5,label:"2.5 kg"}]}/>
+      </Field>
       <Field label="Training week starts"
         hint="Used by weekly reviews and by the coach when it names your current week. This does not reset or move your training block.">
         <select value={p.weekStartsOn??1} onChange={e=>setP("weekStartsOn",Number(e.target.value))}
@@ -6496,6 +6639,7 @@ function App(){
   const [generating,setGenerating] = useState(false);
   const [replanning,setReplanning] = useState(false);
   const [debrief,setDebrief]       = useState(null);
+  const [debriefSession,setDebriefSession] = useState(null);
   const [debriefLoading,setDebriefLoading] = useState(false);
   const [review,setReview]         = useState(null);
   const [reviewLoading,setReviewLoading]   = useState(false);
@@ -6504,6 +6648,7 @@ function App(){
   const [updateWorker,setUpdateWorker] = useState(()=>window.__snapfitUpdateWorker||null);
   const [updatingApp,setUpdatingApp] = useState(false);
   const [wakeStatus,setWakeStatus] = useState(()=>wakeLock.status());
+  const [apiStatus,setApiStatus] = useState(loadApiStatus);
 
   /* Rest timer lives here, not in TodayView, so it survives tab changes.
      Persisted so a reload mid-workout resumes it rather than losing it. */
@@ -6525,6 +6670,11 @@ function App(){
     return ()=>window.removeEventListener("snapfit-update-ready",ready);
   },[]);
   useEffect(()=>wakeLock.subscribe(setWakeStatus),[]);
+  useEffect(()=>{
+    const sync=e=>setApiStatus(e.detail||loadApiStatus());
+    window.addEventListener("snapfit-api-status",sync);
+    return ()=>window.removeEventListener("snapfit-api-status",sync);
+  },[]);
 
   function applyAppUpdate(){
     if(updatingApp) return;
@@ -6635,7 +6785,8 @@ function App(){
         lastEffort:perf.effort, inc:e.inc||2.5, updated:sess.date };
       hist[e.exId] = [...(hist[e.exId]||[]), { date:sess.date, station:e.stations?.[0]||null,
         setsLogged:logged.length, workingSets:perf.sets, totalSets:e.sets, avgReps:perf.avgReps, targetReps:e.targetReps,
-        weight:perf.weight, sets:logged.map(x=>({weight:x.weight,reps:x.reps,effort:x.effort})), dayName:sess.dayName }];
+        weight:perf.weight, effort:perf.effort, sets:logged.map(x=>({weight:x.weight,reps:x.reps,effort:x.effort})),
+        dayName:sess.dayName, sessionId:sess.id }];
     });
 
     const stored = {...sess, finishedAt:new Date().toISOString()};
@@ -6646,9 +6797,10 @@ function App(){
     try{
       const d = await coach.debrief(stored);
       setDebrief(d);
+      setDebriefSession(x=>x?{...x,coachNote:d?.note||""}:x);
       if(d?.note){
         setState(s=>({...s, coachNotes:[...(s.coachNotes||[]), d.note].slice(-20),
-          sessions: s.sessions.map(x=>x.id===stored.id ? {...x, debrief:{headline:d.headline, body:d.body}} : x)}));
+          sessions: s.sessions.map(x=>x.id===stored.id ? {...x, debrief:{headline:d.headline, body:d.body},coachNote:d.note} : x)}));
       } else {
         setState(s=>({...s, sessions: s.sessions.map(x=>x.id===stored.id
           ? {...x, debrief:{headline:d.headline, body:d.body}} : x)}));
@@ -6666,7 +6818,7 @@ function App(){
   }
 
   function resetAll(){
-    try{ localStorage.removeItem(STORE_KEY); localStorage.removeItem(ACTIVE_KEY); }catch{}
+    try{ localStorage.removeItem(STORE_KEY); localStorage.removeItem(ACTIVE_KEY); localStorage.removeItem(API_STATUS_KEY); }catch{}
     skipRest(); setSession(null); setDebrief(null); setReview(null);
     setBonusPending(false);
     setStateRaw(defaultState()); stateRef.current = defaultState();
@@ -6685,6 +6837,7 @@ function App(){
     }
     setState(next);
     setView("today");
+    setDebriefSession(stored);
   }
 
   /* ── away gym ───────────────────────────────────────────────────────────
@@ -6796,8 +6949,28 @@ function App(){
           display:"flex",flexDirection:"column",paddingBottom:"calc(74px + env(safe-area-inset-bottom))"}}>
 
           {debrief || debriefLoading
-            ? <DebriefView debrief={debrief} loading={debriefLoading} aiOn={aiOn}
-                onDone={()=>{ setDebrief(null); setReview(null); }}/>
+            ? <DebriefView debrief={debrief} loading={debriefLoading} aiOn={aiOn} session={debriefSession} coach={coach}
+                onClarified={(user,reply)=>setState(s=>{
+                  const note=`Session ${debriefSession?.date||todayISO()} clarification: ${user}. Coach response: ${plainCoachText(reply).slice(0,260)}`;
+                  return {...s,coachNotes:[...(s.coachNotes||[]).filter(x=>!debriefSession?.coachNote||x!==debriefSession.coachNote),note].slice(-20),
+                    sessions:s.sessions.map(x=>x.id===debriefSession?.id?{...x,clarifications:[...(x.clarifications||[]),{at:new Date().toISOString(),user,reply}]}:x)};
+                })}
+                onExclude={()=>{
+                  const ids=new Set((debriefSession?.exercises||[]).map(e=>e.exId));
+                  setState(s=>{
+                    const weights={...s.weights}, exerciseHistory={...s.exerciseHistory};
+                    ids.forEach(id=>{
+                      const hist=(exerciseHistory[id]||[]).filter(x=>x.sessionId!==debriefSession?.id);
+                      exerciseHistory[id]=hist;
+                      const last=hist[hist.length-1];
+                      if(last) weights[id]={...weights[id],weight:last.weight,lastAvgReps:last.avgReps,lastTargetReps:last.targetReps,lastEffort:last.effort||weights[id]?.lastEffort,updated:last.date};
+                      else delete weights[id];
+                    });
+                    return {...s,weights,exerciseHistory,sessions:s.sessions.map(x=>x.id===debriefSession?.id?{...x,excludedFromProgression:true}:x)};
+                  });
+                  setDebriefSession(x=>({...x,excludedFromProgression:true}));
+                }}
+                onDone={()=>{ setDebrief(null); setDebriefSession(null); setReview(null); }}/>
             : view==="today"    ? <TodayView state={state} session={session} setSession={setSession}
                                     generating={generating} onGenerate={ci=>{
                                       if(prog?.complete && !bonusPending) buildBlock();
@@ -6824,7 +6997,7 @@ function App(){
                                       setView("today");
                                     }}/>
             : view==="log"      ? <LogView state={state} setState={setState} onRestore={restoreState} apiKey={apiKey}/>
-            : <SettingsView state={state} setState={setState} apiKey={apiKey} setApiKey={setApiKey}
+            : <SettingsView state={state} setState={setState} apiKey={apiKey} setApiKey={setApiKey} apiStatus={apiStatus}
                 model={model} setModel={setModel} coach={coach} onReset={resetAll}
                 clearTravel={clearTravel}/>}
         </div>
