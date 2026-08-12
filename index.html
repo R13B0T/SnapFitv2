@@ -4280,18 +4280,18 @@ function Onboarding({state, setState, onDone, onRestore, coach}){
         <Btn kind="ghost" size="sm" onClick={()=>setEquip(e=>({...e,enabled:[]}))}>Clear</Btn>
         <div style={{marginLeft:"auto",fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,alignSelf:"center"}}>{equip.enabled.length} of {allStations.length}</div>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:16}}>
+      <div className="equipment-grid" style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:6,marginBottom:16,width:"100%",minWidth:0}}>
         {allStations.map(s=>{
           const active = on.has(s.num);
           return (<button key={s.num} onClick={()=>toggle(s.num)} style={{
-            padding:"9px 10px",borderRadius:9,cursor:"pointer",textAlign:"left",display:"flex",gap:7,alignItems:"center",
+            width:"100%",minWidth:0,maxWidth:"100%",minHeight:54,padding:"9px 10px",borderRadius:9,cursor:"pointer",textAlign:"left",display:"flex",gap:7,alignItems:"center",
             border:`1px solid ${active?tint(C.red,0x55):C.line}`, background:active?`${tint(C.red,0x0d)}`:C.raised}}>
             <div style={{width:14,height:14,borderRadius:4,flexShrink:0,
               background:active?C.red:"transparent",border:`1.5px solid ${active?C.red:C.ghost}`,
               display:"flex",alignItems:"center",justifyContent:"center",fontSize:"calc(.55rem * var(--ts, 1))",color:"#fff"}}>{active?"✓":""}</div>
-            <div style={{minWidth:0}}>
+            <div style={{minWidth:0,flex:1}}>
               <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:active?C.text:C.faint,fontWeight:active?600:400,
-                overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
+                lineHeight:1.25,overflowWrap:"anywhere"}}>{s.name}</div>
               <div style={{fontSize:"calc(.55rem * var(--ts, 1))",color:C.ghost}}>#{s.num}</div>
             </div>
           </button>);
@@ -6555,20 +6555,20 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
         Only ticked equipment gets programmed. Untick what your gym doesn't have, or add your own below.
         {travelOn(state) && " This is your real gym — the away gym above is what today is actually using."}
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:14}}>
+      <div className="equipment-grid" style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:5,marginBottom:14,width:"100%",minWidth:0}}>
         {allStations.map(s=>{
           const active = on.has(s.num);
           const custom = s.kind==="custom";
-          return (<div key={s.num} style={{position:"relative"}}>
-            <button onClick={()=>toggleStation(s.num)} style={{width:"100%",
+          return (<div key={s.num} style={{position:"relative",minWidth:0}}>
+            <button onClick={()=>toggleStation(s.num)} style={{width:"100%",minWidth:0,maxWidth:"100%",minHeight:54,
               padding:"8px 9px",borderRadius:9,cursor:"pointer",textAlign:"left",display:"flex",gap:6,alignItems:"center",
               border:`1px solid ${active?tint(C.red,0x55):C.line}`, background:active?`${tint(C.red,0x0d)}`:C.raised}}>
               <div style={{width:13,height:13,borderRadius:4,flexShrink:0,
                 background:active?C.red:"transparent",border:`1.5px solid ${active?C.red:C.ghost}`,
                 display:"flex",alignItems:"center",justifyContent:"center",fontSize:"calc(.5rem * var(--ts, 1))",color:"#fff"}}>{active?"✓":""}</div>
               <div style={{minWidth:0,flex:1}}>
-                <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:active?C.text:C.faint,overflow:"hidden",
-                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
+                <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:active?C.text:C.faint,
+                  lineHeight:1.25,overflowWrap:"anywhere"}}>{s.name}</div>
                 <div style={{fontSize:"calc(.54rem * var(--ts, 1))",color:C.ghost}}>#{s.num}{custom?" · yours":""}</div>
               </div>
             </button>
