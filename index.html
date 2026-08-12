@@ -4884,6 +4884,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
 
   /* ── the session ──────────────────────────────────────────────────────── */
   const readiness = session.readiness;
+  const briefOpen = !session.briefCollapsed;
   return (<div className="fade" style={{paddingTop:6,paddingBottom:20}}>
 
     {/* header */}
@@ -4903,16 +4904,22 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     <WakeLockNotice status={wakeStatus} onRetry={onRetryWake}/>
 
     {/* The brief — what today is for and what's being asked of you. */}
-    {session.brief && (<Card accent={C.blue} style={{marginBottom:12}}>
+    {session.brief && (<Card accent={C.blue} style={{marginBottom:12,padding:briefOpen?16:"10px 13px"}}>
       <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8}}>
         <span style={{fontSize:"calc(.85rem * var(--ts, 1))"}}>🎧</span>
         <span style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.blue,fontWeight:700,letterSpacing:".08em"}}>TODAY'S BRIEF</span>
-        {session.source==="ai" && <Chip color={C.green} style={{marginLeft:"auto"}}>coached</Chip>}
+        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:7}}>
+          {session.source==="ai" && briefOpen && <Chip color={C.green}>coached</Chip>}
+          <button onClick={()=>setSession(s=>({...s,briefCollapsed:briefOpen}))}
+            aria-expanded={briefOpen} aria-label={`${briefOpen?"Fold":"Open"} today's brief`} style={{border:"none",background:"transparent",
+            color:C.blue,fontSize:"calc(.56rem * var(--ts, 1))",fontWeight:800,letterSpacing:".06em",cursor:"pointer",padding:"5px 2px"}}>
+            {briefOpen?"FOLD":"OPEN"}</button>
+        </div>
       </div>
-      <Markdown text={session.brief} style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.dim}}/>
+      {briefOpen && <Markdown text={session.brief} style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.dim}}/>}
       {/* The one-line cue belongs with the brief, not in a card of its own —
           three stacked notes before the first exercise is too much to read. */}
-      {session.focusTip && (<div style={{display:"flex",gap:9,alignItems:"flex-start",marginTop:11,
+      {session.focusTip && briefOpen && (<div style={{display:"flex",gap:9,alignItems:"flex-start",marginTop:11,
         paddingTop:11,borderTop:`1px solid ${C.lineSoft}`}}>
         <span style={{fontSize:"calc(.85rem * var(--ts, 1))",flexShrink:0}}>💡</span>
         <div style={{fontSize:"calc(.76rem * var(--ts, 1))",color:C.yellow,lineHeight:1.55}}>{session.focusTip}</div>
@@ -4925,7 +4932,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     </Card>)}
 
     {/* If there's no brief to fold it into, the cue still gets its own card. */}
-    {session.focusTip && !session.brief && (<div style={{background:`${tint(C.yellow,0x0d)}`,
+    {session.focusTip && (!session.brief || !briefOpen) && (<div style={{background:`${tint(C.yellow,0x0d)}`,
       border:`1px solid ${tint(C.yellow,0x30)}`,borderRadius:11,
       padding:"10px 13px",marginBottom:14,display:"flex",gap:9,alignItems:"flex-start"}}>
       <span style={{fontSize:"calc(.85rem * var(--ts, 1))",flexShrink:0}}>💡</span>
