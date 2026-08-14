@@ -245,39 +245,91 @@ const plainCoachText = text => String(text||"")
    EQUIPMENT — seeded with Snap Fitness Watagan Park, fully editable
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* The floor-plan numbers are deliberately kept intact. They are useful at the
+   rack ("#21") and make corrections unambiguous when the equipment changes. */
 const SEED_STATIONS = [
-  {num:"6", name:"Seated Row",           kind:"machine"},
-  {num:"7", name:"Pec Fly / Rear Delt",  kind:"machine"},
-  {num:"8", name:"Calf Raise",           kind:"machine"},
-  {num:"10",name:"Leg Extension",        kind:"machine"},
-  {num:"11",name:"Prone Leg Curl",       kind:"machine"},
-  {num:"12",name:"Hip Abductor",         kind:"machine"},
-  {num:"13",name:"Lateral Raise",        kind:"machine"},
-  {num:"14",name:"Bicep / Tricep Machine",kind:"machine"},
-  {num:"15",name:"Chest Press Machine",  kind:"machine"},
-  {num:"16",name:"Shoulder Press Machine",kind:"machine"},
-  {num:"17",name:"Multi Jungle",         kind:"cable"},
-  {num:"19",name:"Shoulder Press (ISO)", kind:"machine"},
-  {num:"20",name:"Decline Press",        kind:"machine"},
-  {num:"21",name:"Incline Press",        kind:"machine"},
-  {num:"22",name:"Olympic Bench",        kind:"barbell"},
-  {num:"23",name:"Smith Machine",        kind:"barbell"},
-  {num:"24",name:"Dual Pulley",          kind:"cable"},
-  {num:"25",name:"Adjustable Bench",     kind:"bench"},
-  {num:"26",name:"Flat Bench",           kind:"bench"},
-  {num:"29",name:"Dumbbells & Rack",     kind:"dumbbell"},
+  ["1","Treadmill","cardio"], ["2","Elliptical","cardio"], ["3","Bike","cardio"],
+  ["4","Recumbent Bike","cardio"], ["5","PowerMill","cardio"], ["6","Seated Row","machine"],
+  ["7","Pec Fly / Rear Delt","machine"], ["8","Standing Calf","machine"], ["9","Leg Press","machine"],
+  ["10","Leg Extension","machine"], ["11","Prone Leg Curl","machine"], ["12","Hip Abd / Add","machine"],
+  ["13","Lateral Raise","machine"], ["14","Bicep / Tricep","machine"], ["15","Chest Press","machine"],
+  ["16","Shoulder Press","machine"], ["17","Multi Jungle 8 Stack","cable"], ["18","Perimeter Rig","rig"],
+  ["19","Shoulder Press (ISO)","plate-loaded"], ["20","Decline Press","plate-loaded"],
+  ["21","Incline Press","plate-loaded"], ["22","Olympic Bench Press","barbell"], ["23","Smith Machine","barbell"],
+  ["24","Dual Adjustable Pulley","cable"], ["25","Adjustable Bench","bench"], ["26","Flat Bench","bench"],
+  ["27","Utility Bench","bench"], ["28","Adjustable Decline Bench","bench"], ["29","Dumbbells & Rack","dumbbell"],
+  ["30","Dumbbells & Tower Rack","dumbbell"], ["31","Barbells","barbell"], ["32","Lower Back Extension","machine"],
+  ["33","Preacher Curl","machine"], ["34","Hack Squat","plate-loaded"], ["35","Linear Leg Press","plate-loaded"],
+  ["36","Glute Drive","plate-loaded"], ["37","Leg Raise / Dip","bodyweight"], ["38","High Row","plate-loaded"],
+  ["39","Row","plate-loaded"], ["40","Low Row","plate-loaded"], ["41","Half Rack & Platform","barbell"],
+  ["42","Air Bike","cardio"], ["43","SkiErg","cardio"], ["44","Concept II Rower","cardio"],
+  ["45","Sled & Track 10m x 1.5","conditioning"], ["46","Accessories & Rack","accessory"],
+  ["47","Plyometric Boxes","conditioning"], ["48","Abdominal Crunch","machine"],
+  ["49","Olympic Incline Bench","barbell"], ["50","Pilates / Group Room","room"],
+].map(([num,name,kind])=>({num,name,kind})).concat([
   {num:"SB",name:"Functional Sandbags (5–25kg)",kind:"sandbag"},
-  {num:"32",name:"Back Extension",       kind:"machine"},
-  {num:"33",name:"Preacher Curl",        kind:"machine"},
-  {num:"35",name:"Linear Leg Press",     kind:"machine"},
-  {num:"36",name:"Glute Drive",          kind:"machine"},
-  {num:"37",name:"Leg Raise / Dip",      kind:"bodyweight"},
-  {num:"38",name:"High Row",             kind:"machine"},
-  {num:"39",name:"Row Machine",          kind:"machine"},
-  {num:"40",name:"Low Row",              kind:"machine"},
-  {num:"41",name:"Half Rack",            kind:"barbell"},
-  {num:"48",name:"Ab Crunch Machine",    kind:"machine"},
-];
+]);
+
+/* Official Hammer Strength / Life Fitness starting resistance where the
+   floor-plan machine can be identified confidently. User corrections live in
+   state.equipment.loads and always win. The Glute Drive page does not publish
+   a starting resistance, so that value stays null until checked on the unit. */
+const DEFAULT_PLATES_KG = [2.5,5,10,20];
+const PLATE_LOADED_DEFAULTS = {
+  "19":{model:"Hammer Strength Iso-Lateral Shoulder Press",startKg:4.5,mode:"per-arm",verified:true,
+    source:"https://shop.lifefitness.com/products/hammer-strength-plate-loaded-iso-lateral-shoulder-press"},
+  "20":{model:"Hammer Strength Iso-Lateral Decline Press",startKg:3,mode:"per-arm",verified:true,
+    source:"https://shop.lifefitness.com/products/hammer-strength-plate-loaded-iso-lateral-decline-chest-press"},
+  "21":{model:"Hammer Strength Iso-Lateral Incline Press",startKg:3.6,mode:"per-arm",verified:true,
+    source:"https://shop.lifefitness.com/products/hammer-strength-plate-loaded-iso-lateral-incline-press"},
+  "34":{model:"Hammer Strength Linear Hack Squat",startKg:57,mode:"total",verified:true,
+    source:"https://shop.lifefitness.com/products/hammer-strength-plate-loaded-hack-squat"},
+  "35":{model:"Hammer Strength Linear Leg Press",startKg:53,mode:"total",verified:true,
+    source:"https://shop.lifefitness.com/products/hammer-strength-plate-loaded-linear-leg-press"},
+  "36":{model:"Hammer Strength Plate-Loaded Glute Drive",startKg:null,mode:"total",verified:false,
+    source:"https://shop.lifefitness.com/products/hammer-strength-plate-loaded-glute-drive"},
+  "38":{model:"Hammer Strength Iso-Lateral High Row",startKg:0.9,mode:"per-arm",verified:true,
+    source:"https://shop.lifefitness.com/products/hammer-strength-iso-lateral-high-row"},
+  "39":{model:"Hammer Strength Iso-Lateral Row",startKg:5.4,mode:"per-arm",verified:true,
+    source:"https://shop.lifefitness.com/products/hammer-strength-plate-loaded-iso-lateral-row"},
+  "40":{model:"Hammer Strength Iso-Lateral Low Row",startKg:3.6,mode:"per-arm",verified:true,
+    source:"https://shop.lifefitness.com/products/hammer-strength-plate-loaded-iso-lateral-low-row"},
+};
+
+function plateLoadConfig(state,station){
+  const base=PLATE_LOADED_DEFAULTS[String(station)];
+  if(!base) return null;
+  const saved=state?.equipment?.loads?.[String(station)]||{};
+  return {...base,plates:[...DEFAULT_PLATES_KG],...saved};
+}
+
+/* `targetKg` is the total effective resistance shown/logged by SnapFit. For an
+   independent-arm machine the factory resistance and plates exist on both
+   arms; bilateral prescriptions therefore use two identical plate stacks. */
+function platePrescription(targetKg,config){
+  if(!config || config.startKg==null || config.startKg==="" || !Number.isFinite(Number(config.startKg))) return null;
+  const sides=config.mode==="per-arm"?2:2;
+  const baseTotal=config.mode==="per-arm"?Number(config.startKg)*2:Number(config.startKg);
+  const requested=Math.max(baseTotal,Number(targetKg)||baseTotal);
+  const perSide=Math.max(0,(requested-baseTotal)/sides);
+  const step=Math.min(...(config.plates||DEFAULT_PLATES_KG).map(Number).filter(n=>n>0));
+  const snappedPerSide=roundToIncrement(perSide,step);
+  let remaining=Math.max(0,Math.round(snappedPerSide*10)/10), plates=[];
+  [...(config.plates||DEFAULT_PLATES_KG)].map(Number).sort((a,b)=>b-a).forEach(p=>{
+    const count=Math.floor((remaining+1e-8)/p);
+    if(count){ plates.push({kg:p,count}); remaining=Math.round((remaining-count*p)*10)/10; }
+  });
+  const total=Math.round((baseTotal+snappedPerSide*sides)*10)/10;
+  return {total,baseTotal,perSide:snappedPerSide,plates};
+}
+
+function plateHintForExercise(ex,state){
+  const station=(ex?.stations||[]).find(s=>plateLoadConfig(state,s));
+  if(!station) return null;
+  const config=plateLoadConfig(state,station);
+  const load=platePrescription(ex.weight,config);
+  return load?{station,model:config.model,...load}:null;
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    EXERCISE CATALOGUE
@@ -307,6 +359,14 @@ const EX = [
       execution:"Lower for 2–3 seconds until your knees reach about 90°. Drive through the whole foot, mostly the heel. Stop just short of locking the knees.",
       mistakes:["Bouncing out of the bottom","Letting the lower back round off the pad","Slamming into a locked knee at the top","Feet so high it becomes a glute exercise when you wanted quads"],
       feel:"Deep burn across the front of the thighs. Knees should feel loaded, never pinched."} },
+  { id:"hack_squat", name:"Hack Squat", stations:["34"], pattern:P.SQUAT, compound:true,
+    primary:"Quads", secondary:["Glutes"], kind:"machine", inc:5, start:67, reps:[6,12], tags:["lower","knee"],
+    why:"A guided squat you can load confidently. It gives the quads a heavy compound movement without asking your lower back to stabilise a bar.",
+    cues:{
+      setup:"Shoulders and back stay against the pads. Set the feet where the knees can track over the toes and release the safety handles only when fully braced.",
+      execution:"Lower under control to the deepest pain-free position you can keep flat on the pad, then drive through the whole foot without snapping the knees locked.",
+      mistakes:["Heels lifting off the platform","Knees collapsing inward","Cutting every rep short just to add plates","Letting the hips curl away from the pad"],
+      feel:"Heavy work through the quads and glutes, with the back supported throughout."} },
   { id:"leg_extension", name:"Leg Extension", stations:["10"], pattern:P.SQUAT, compound:false,
     primary:"Quads", secondary:[], kind:"machine", inc:2.5, start:35, reps:[10,15], tags:["lower","knee"],
     why:"Isolation for the quads — especially the teardrop above the knee that presses alone tend to under-train.",
@@ -520,6 +580,14 @@ const EX = [
       execution:"Pull the elbows down and back, squeeze, release slowly.",
       mistakes:["Shrugging instead of rowing","Using the whole torso to swing"],
       feel:"Upper back and rear shoulders."} },
+  { id:"iso_row", name:"Iso-Lateral Row", stations:["39"], pattern:P.PULL_H, compound:true,
+    primary:"Mid Back", secondary:["Lats","Biceps"], kind:"machine", inc:5, start:20.8, reps:[8,15], tags:["upper","back"],
+    why:"A supported horizontal pull that lets each side work independently, useful for building the back without turning the set into a lower-back exercise.",
+    cues:{
+      setup:"Set the seat so the chest pad supports you without rounding the shoulders. Start with long arms and both feet planted.",
+      execution:"Pull the elbows back and slightly out, pause with the shoulder blades together, then return until the upper back reaches forward under control.",
+      mistakes:["Bouncing the chest off the pad","Shrugging through the pull","Cutting off the controlled reach at the front"],
+      feel:"Mid-back and lats doing the pull while the chest stays firmly supported."} },
   { id:"low_row", name:"Low Row", stations:["40"], pattern:P.PULL_H, compound:true,
     primary:"Mid Back", secondary:["Lats","Biceps"], kind:"machine", inc:2.5, start:40, reps:[8,12], tags:["upper","back"],
     why:"A low pulling line that emphasises the thickness of the mid-back.",
@@ -722,12 +790,22 @@ function exerciseIncrement(ex,state){
 }
 function availableWeight(ex,weight,state){
   const n=Math.max(0,Number(weight)||0);
+  const plateStation=(ex?.stations||[]).find(s=>plateLoadConfig(state,s));
+  if(plateStation){
+    const prescription=platePrescription(n,plateLoadConfig(state,plateStation));
+    if(prescription) return prescription.total;
+  }
   if(ex?.kind!=="dumbbell") return roundToIncrement(n,exerciseIncrement(ex,state));
   const step=Number(state?.profile?.dumbbellStep)||2;
   /* The seeded mixed rack has every whole kilo through 10kg, then even loads
      (12, 14, 16...). A conventional commercial rack is 2.5kg throughout. */
-  if(step===2) return n<=10 ? Math.round(n) : 10+roundToIncrement(n-10,2);
-  return roundToIncrement(n,2.5);
+  const snapped = step===2
+    ? (n<=10 ? Math.round(n) : 10+roundToIncrement(n-10,2))
+    : roundToIncrement(n,2.5);
+  /* An away-gym ceiling is an observed real dumbbell, even when it does not
+     match the usual home-rack spacing. Never round that safety cap upward. */
+  const venueMax=travelOn(state) ? Number(state.travel?.dumbbellMax)||null : null;
+  return venueMax ? Math.min(snapped,venueMax) : snapped;
 }
 
 /* Tempo is a technique prescription, not another progression lever. It is
@@ -1319,15 +1397,15 @@ function coachStylePreview(style){
 
 function defaultState(){
   return {
-    v:2,
-    equipmentCatalogueVersion:2,
+    v:3,
+    equipmentCatalogueVersion:3,
     onboarded:false,
     goal:null,
     profile:{...DEFAULT_PROFILE},
     limits:{...DEFAULT_LIMITS},
     coachStyle:{...DEFAULT_COACH_STYLE},
     uiPrefs:{...DEFAULT_UI_PREFS},
-    equipment:{ enabled:SEED_STATIONS.map(s=>s.num), custom:[] },
+    equipment:{ enabled:SEED_STATIONS.map(s=>s.num), custom:[], loads:{} },
     travel:null,          // an away gym for today — see TRAVEL / AWAY GYM below
     block:null,
     weights:{},          // { [exId]: {weight,lastAvgReps,lastTargetReps,inc,lastEffort,updated} }
@@ -1350,13 +1428,23 @@ function migrate(raw){
   s.uiPrefs = {...DEFAULT_UI_PREFS, ...(raw.uiPrefs||{})};
   s.coachStyle.sass = clamp(Number(s.coachStyle.sass)||DEFAULT_COACH_STYLE.sass, 1, 5);
   s.coachStyle.hardTruth = clamp(Number(s.coachStyle.hardTruth)||DEFAULT_COACH_STYLE.hardTruth, 1, 5);
-  s.equipment = {enabled:SEED_STATIONS.map(x=>x.num), custom:[], ...(raw.equipment||{})};
+  s.equipment = {enabled:SEED_STATIONS.map(x=>x.num), custom:[], loads:{}, ...(raw.equipment||{})};
+  if(!s.equipment.loads || typeof s.equipment.loads!=="object") s.equipment.loads={};
   /* Catalogue v2 adds the gym's functional sandbags. Add them once for an
      existing install; after that the user's equipment toggle is respected. */
   if((Number(raw.equipmentCatalogueVersion)||1) < 2 && !s.equipment.enabled.includes("SB")){
     s.equipment.enabled = [...s.equipment.enabled, "SB"];
   }
-  s.equipmentCatalogueVersion = 2;
+  /* v3 expands the original exercise-only subset to the complete 50-station
+     Watagan Park floor plan. Existing on/off choices for known stations stay
+     untouched; only newly catalogued floor-plan numbers are added. */
+  if((Number(raw.equipmentCatalogueVersion)||1) < 3){
+    const knownV2=new Set(["6","7","8","10","11","12","13","14","15","16","17","19","20","21","22","23","24","25","26","29","SB","32","33","35","36","37","38","39","40","41","48"]);
+    const added=SEED_STATIONS.map(x=>x.num).filter(n=>!knownV2.has(n) && !s.equipment.enabled.includes(n));
+    s.equipment.enabled=[...s.equipment.enabled,...added];
+  }
+  s.equipmentCatalogueVersion = 3;
+  s.v=3;
   s.travel    = normaliseTravel(raw.travel);
   s.learn     = {read:[], quiz:{},  ...(raw.learn||{})};
   ["weights","exerciseHistory"].forEach(k=>{ if(!s[k]||typeof s[k]!=="object") s[k]={}; });
@@ -1702,10 +1790,29 @@ function phaseIndexForWeek(block, week){
   return block.phases.length-1;
 }
 
+function planWeekForSession(session){
+  const n=Number(session?.planWeek ?? session?.week);
+  return Number.isFinite(n)&&n>0 ? Math.round(n) : 1;
+}
+
+function targetForPlanWeek(state,week){
+  const override=Number(state?.block?.weekTargets?.[String(week)]);
+  return clamp(Number.isFinite(override)&&override>0 ? override : (state?.profile?.daysPerWeek||3),2,5);
+}
+
+function setPlanWeekTarget(state,week,target){
+  if(!state.block) return state;
+  const key=String(clamp(Number(week)||1,1,state.block.totalWeeks||1));
+  const normal=clamp(Number(state.profile?.daysPerWeek)||3,2,5);
+  const v=clamp(Number(target)||normal,2,5);
+  const weekTargets={...(state.block.weekTargets||{})};
+  if(v===normal) delete weekTargets[key]; else weekTargets[key]=v;
+  return {...state,block:{...state.block,weekTargets}};
+}
+
 function blockProgress(state){
   const b = state.block;
   if(!b) return null;
-  const dpw   = Math.max(1, state.profile.daysPerWeek||3);
   const blockSessions = state.sessions.filter(s=>s.blockId===b.id);
   /* An optional extra session is still a real session from this block. It
      advances the rotation; `bonus` only distinguishes it from the weekly
@@ -1713,19 +1820,11 @@ function blockProgress(state){
   const done  = blockSessions.length;
   const bonusDone = blockSessions.filter(s=>s.bonus).length;
   const total = b.totalWeeks;
-  /* A frequency change stores an anchor at the user's current point. Sessions
-     after it use the new cadence without sending the block backwards or back
-     to week one. Older blocks simply use the original count-based path. */
-  const anchor = b.scheduleAnchor;
-  let rawWeek, dayIdx;
-  if(anchor && anchor.dpw===dpw && Number.isFinite(anchor.done)
-      && Number.isFinite(anchor.week) && Number.isFinite(anchor.dayIdx)){
-    const absoluteDay = Math.max(0, anchor.dayIdx + Math.max(0, done-anchor.done));
-    rawWeek = anchor.week + Math.floor(absoluteDay/dpw);
-    dayIdx = absoluteDay % dpw;
-  } else {
-    rawWeek = Math.floor(done/dpw)+1;
-    dayIdx = done % dpw;
+  let rawWeek=total+1, dayIdx=0, dpw=targetForPlanWeek(state,total);
+  for(let week=1;week<=total;week++){
+    const target=targetForPlanWeek(state,week);
+    const completed=blockSessions.filter(s=>planWeekForSession(s)===week).length;
+    if(completed<target){ rawWeek=week; dayIdx=completed; dpw=target; break; }
   }
   const complete = rawWeek > total;
   const week  = clamp(rawWeek, 1, total);
@@ -1743,17 +1842,16 @@ function blockProgress(state){
 function changeTrainingDays(state, daysPerWeek){
   const v = clamp(Number(daysPerWeek)||state.profile.daysPerWeek||3,2,5);
   if(v===state.profile.daysPerWeek) return state;
-  const prog = blockProgress(state);
-  if(!state.block || !prog || prog.complete){
-    return {...state, profile:{...state.profile,daysPerWeek:v}};
+  if(!state.block) return {...state,profile:{...state.profile,daysPerWeek:v}};
+  const before=blockProgress(state), old=clamp(Number(state.profile.daysPerWeek)||3,2,5);
+  const weekTargets={...(state.block.weekTargets||{})};
+  /* Completed earlier weeks retain the cadence they were actually run under.
+     The new global setting applies to the current/future week without making a
+     completed week reopen merely because its denominator changed. */
+  for(let week=1;week<(before?.week||1);week++){
+    if(weekTargets[String(week)]==null) weekTargets[String(week)]=old;
   }
-  /* Keep the same block week and approximately the same point inside it,
-     then use the new split and cadence from the next generated session. */
-  const mappedDay = clamp(Math.floor((prog.dayIdx/prog.dpw)*v),0,v-1);
-  return {...state,
-    profile:{...state.profile,daysPerWeek:v},
-    block:{...state.block, scheduleAnchor:{done:prog.done,week:prog.week,dayIdx:mappedDay,dpw:v}},
-  };
+  return {...state,profile:{...state.profile,daysPerWeek:v},block:{...state.block,weekTargets}};
 }
 
 /* ── Readiness check-in ───────────────────────────────────────────────────── */
@@ -1781,14 +1879,14 @@ function readinessAdjustment(ci){
 
 /* ── Session generation ───────────────────────────────────────────────────── */
 
-function buildSessionRules(state, checkin, {bonus=false}={}){
+function buildSessionRules(state, checkin, {bonus=false,regenerateReason=""}={}){
   const prog = blockProgress(state);
   if(!prog) return null;
   const dpw    = prog.dpw;
   const split  = SPLITS[dpw] || SPLITS[3];
   const day    = split[prog.dayIdx % split.length];
   const phase  = prog.phase;
-  const shape  = durationShape(state.profile.sessionMinutes);
+  const shape  = durationShape(checkin?.availableMinutes || state.profile.sessionMinutes);
   const adj    = readinessAdjustment(checkin);
   const pool   = availableExercises(state);
   const recent = state.sessions.slice(0,2).flatMap(s=>s.exercises.map(e=>e.exId));
@@ -1834,6 +1932,7 @@ function buildSessionRules(state, checkin, {bonus=false}={}){
     id: uid(),
     blockId: state.block.id,
     bonus,
+    regeneratedFrom:regenerateReason||null,
     date: todayISO(),
     dayName: day.name,
     week: prog.week,
@@ -2494,9 +2593,9 @@ Requirements:
       }, ()=>buildBlockRules(state), "block");
     },
 
-    async todaysSession(checkin, {bonus=false}={}){
+    async todaysSession(checkin, {bonus=false,regenerateReason=""}={}){
       const state = getState();
-      const rules = ()=>buildSessionRules(state, checkin, {bonus});
+      const rules = ()=>buildSessionRules(state, checkin, {bonus,regenerateReason});
       const base  = rules();
       if(!base) return null;
       return tryAI(async key=>{
@@ -2504,7 +2603,7 @@ Requirements:
         const week = trainingWeek(state);
         const adj  = readinessAdjustment(checkin);
         const ci   = checkin
-          ? `Their check-in just now: sleep ${checkin.sleep}/5, energy ${checkin.energy}/5, soreness ${checkin.soreness}/5, stress ${checkin.stress}/5. Readiness reads as "${adj.label}".`
+          ? `Their check-in just now: sleep ${checkin.sleep}/5, energy ${checkin.energy}/5, soreness ${checkin.soreness}/5, stress ${checkin.stress}/5. Readiness reads as "${adj.label}". They have ${checkin.availableMinutes||state.profile.sessionMinutes} minutes.${checkin.note?` They added: "${String(checkin.note).slice(0,300)}"`:""}`
           : "They skipped the check-in today.";
         const raw = await callAnthropic({
           state, key, model:getModel(), schema:S_SESSION, effort:"low", maxTokens:4000,
@@ -2513,6 +2612,8 @@ Requirements:
 It's block week ${prog.week} of ${prog.total}, phase "${prog.phase.name}". Their current training week runs ${week.start} to ${week.end} (${week.startName} start). The planned shape for today is "${base.dayName}" covering these movement patterns: ${base.exercises.map(e=>PATTERN_LABEL[e.pattern]).join(", ")}.
 
 ${ci}
+
+${regenerateReason?`This is a regeneration. The user rejected the previous draft because: "${regenerateReason}". Build a meaningfully different session while keeping the same block week, phase and required movement balance.`:""}
 
 ${bonus?`They found an extra training window. This must still be the NEXT workout in their current block and follow the ${prog.phase.name} phase's normal sets, rep range, RPE and progression. It advances the block normally; only their weekly target remains ${prog.dpw}.`:"This is the next scheduled day in their weekly split."}
 
@@ -2830,10 +2931,9 @@ try{
 
 const CUE_PLAN = [
   {at:20, kind:"short"},
-  {at:10, kind:"double"},
-  {at:9,  kind:"tick"}, {at:8, kind:"tick"}, {at:7, kind:"tick"}, {at:6, kind:"tick"},
-  {at:5,  kind:"tick"}, {at:4, kind:"tick"}, {at:3, kind:"tick"}, {at:2, kind:"tick"},
-  {at:1,  kind:"tick"},
+  {at:10, kind:"short"}, {at:9, kind:"short"}, {at:8, kind:"short"}, {at:7, kind:"short"},
+  {at:6,  kind:"short"}, {at:5, kind:"short"}, {at:4, kind:"short"}, {at:3, kind:"short"},
+  {at:2,  kind:"short"}, {at:1, kind:"short"},
   {at:0,  kind:"long"},
 ];
 
@@ -3094,10 +3194,8 @@ const cues = (()=>{
       await preload(c);
       if(c.state === "running"){
         const now = c.currentTime + 0.05;
-        play(c, "short",   now);
-        play(c, "double",  now + 0.8);
-        [0,1,2,3].forEach(i=> play(c, "tick", now + 1.7 + i*0.28));
-        play(c, "long",    now + 3.1);
+        [0,1,2,3,4].forEach(i=> play(c, "short", now + i*0.42));
+        play(c, "long",    now + 2.4);
       }
     },
   };
@@ -3530,7 +3628,7 @@ function RepPicker({exercise, setIndex, initial, lastWeight, onSave, onClose}){
 
         <div style={{background:C.raised,borderRadius:10,padding:"9px 10px",marginBottom:6}}>
           <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,marginBottom:5}}>Weight used</div>
-          <NumberField value={weight} onChange={v=>setWeight(snapWeight(v))} step={exercise.inc||2.5}
+          <NumberField value={weight} onChange={setWeight} step={exercise.inc||2.5}
             min={0} max={999} suffix="kg" size="sm"/>
         </div>
         <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:carried?C.yellow:C.ghost,marginBottom:14,lineHeight:1.5}}>
@@ -4361,8 +4459,9 @@ const SCALE = {
   stress:  {label:"Stress",   icon:"🌀", low:"Calm",   high:"Fried",  invert:true,  hint:"Life in general"},
 };
 
-function CheckIn({onSubmit, onSkip, bonus=false, onCancel}){
-  const [v,setV] = useState({sleep:3, energy:3, soreness:2, stress:2});
+function CheckIn({onSubmit, onSkip, bonus=false, onCancel, defaultMinutes=45, regenerationReason=""}){
+  const [v,setV] = useState({sleep:3, energy:3, soreness:2, stress:2,
+    availableMinutes:Number(defaultMinutes)||45, note:""});
   const adj = readinessAdjustment(v);
   return (<div className="rise" style={{paddingTop:8,paddingBottom:24}}>
     <SectionTitle sub={bonus
@@ -4380,6 +4479,16 @@ function CheckIn({onSubmit, onSkip, bonus=false, onCancel}){
         rep range and progression. It advances the block, but your usual weekly target does not change.
       </div>
     </Card>)}
+
+    {regenerationReason && <Card accent={C.orange} style={{marginBottom:14}}>
+      <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.orange,fontWeight:700,letterSpacing:".08em",marginBottom:5}}>
+        REBUILDING TODAY
+      </div>
+      <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.faint,lineHeight:1.6}}>
+        The previous draft was rejected because: <strong style={{color:C.text}}>{regenerationReason}</strong>.
+        Update the check-in below and the coach will build a different session without advancing the plan.
+      </div>
+    </Card>}
 
     <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:18}}>
       {Object.entries(SCALE).map(([k,cfg])=>(
@@ -4407,6 +4516,23 @@ function CheckIn({onSubmit, onSkip, bonus=false, onCancel}){
           </div>
         </Card>))}
     </div>
+
+    <Card style={{marginBottom:12}}>
+      <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:9}}>⏱ Time available today</div>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+        {[20,30,45,60,90].map(n=><button key={n} onClick={()=>setV(x=>({...x,availableMinutes:n}))} style={{
+          flex:"1 1 48px",height:38,borderRadius:9,cursor:"pointer",fontWeight:700,
+          border:`1.5px solid ${v.availableMinutes===n?C.blue:C.line}`,
+          background:v.availableMinutes===n?tint(C.blue,0x15):C.raised,
+          color:v.availableMinutes===n?C.blue:C.ghost}}>{n}m</button>)}
+      </div>
+    </Card>
+    <Card style={{marginBottom:16}}>
+      <Field label="Anything the coach should know?" hint="Optional — equipment, a time constraint, or something unusual about the last workout.">
+        <TextArea value={v.note} onChange={e=>setV(x=>({...x,note:e.target.value.slice(0,300)}))}
+          placeholder="Example: My shoulder feels fine now, but keep pressing conservative."/>
+      </Field>
+    </Card>
 
     <Card accent={adj.color} style={{marginBottom:16}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
@@ -4497,6 +4623,11 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
         <strong style={{color:C.purple}}>TEMPO</strong> · {ex.tempo}</div>}
       {ex.decisionLabel && (
         <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:ex.decisionColor,marginTop:3}}>{ex.decisionLabel}</div>)}
+      {ex.plateLoad && <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.blue,marginTop:4,lineHeight:1.55}}>
+        LOAD EACH SIDE: <strong>{ex.plateLoad.perSide}kg</strong>
+        {ex.plateLoad.plates?.length?` · ${ex.plateLoad.plates.map(p=>`${p.count}×${p.kg}`).join(" + ")}kg plates`:" · machine resistance only"}
+        {` · ${ex.plateLoad.total}kg total including machine`}
+      </div>}
       {offPlan && (
         <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.yellow,marginTop:3}}>
           You're {Math.abs(round25(shownWeight-ex.weight))}kg {shownWeight<ex.weight?"under":"over"} that.</div>)}
@@ -4735,7 +4866,7 @@ function WakeLockNotice({status,onRetry}){
 function TodayView({state, session, setSession, generating, onGenerate, onFinish, coach, aiOn,
                     rest, startRest, skipRest, apiKey, setTravel, clearTravel, forgetTravel,
                     bonusPending=false, onCancelBonus, onRecordDiscomfort, onResolveDiscomfort,
-                    wakeStatus="off", onRetryWake}){
+                    wakeStatus="off", onRetryWake, onRegenerate, regenerationReason=""}){
   const [picker,setPicker]   = useState(null);   // {exIdx,setIdx}
   const [explain,setExplain] = useState({});     // exId -> explanation
   const [explaining,setExplaining] = useState({});
@@ -4744,6 +4875,8 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
   const [setCoach,setSetCoach] = useState(null); // {exIdx,setIdx}
   const [swap,setSwap] = useState(null);         // {exIdx}
   const [supersetCue,setSupersetCue] = useState(null);
+  const [regen,setRegen] = useState(false);
+  const [regenNote,setRegenNote] = useState("");
   const prog = blockProgress(state);
 
   useEffect(()=>setSupersetCue(null),[session?.id]);
@@ -4813,6 +4946,8 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     const ww=workingWeight(replacement,state,prog.phase);
     const loadMult=session.readiness?.loadMult||1;
     const reasonMeta=SWAP_REASON_BY_KEY[reason]||SWAP_REASON_BY_KEY.preference;
+    const newWeight=availableWeight(replacement,capForVenue(replacement,ww.weight*loadMult,state),state);
+    const newPlateLoad=plateHintForExercise({...replacement,weight:newWeight},state);
     const event={id:uid(),at:new Date().toISOString(),fromExId:current.exId,fromName:current.name,
       toExId:replacement.id,toName:replacement.name,reason:reasonMeta.key,discomfortArea};
     setSession(s=>({...s,
@@ -4821,7 +4956,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
         ...old, exId:replacement.id, name:replacement.name,
         stations:stationsForExercise(replacement,state), pattern:replacement.pattern,
         primary:replacement.primary, compound:replacement.compound,kind:replacement.kind,
-        weight:availableWeight(replacement,capForVenue(replacement,ww.weight*loadMult,state),state), inc:exerciseIncrement(replacement,state),
+        weight:newWeight, plateLoad:newPlateLoad, inc:exerciseIncrement(replacement,state),
         tempo:tempoPrescription(replacement,prog.phase),
         why:replacement.why,
         decisionLabel:`${reasonMeta.label} swap · ${ww.decision?.label||"same plan, different tool"}`,
@@ -4877,7 +5012,8 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
   if(!session) return (<>
     <VenueRow state={state} onOpen={()=>setVenue(true)}/>
     <DiscomfortNotice flags={activeDiscomforts(state)} onResolve={onResolveDiscomfort} compact/>
-    <CheckIn bonus={bonusPending} onCancel={onCancelBonus}
+    <CheckIn bonus={bonusPending} onCancel={onCancelBonus} defaultMinutes={state.profile.sessionMinutes}
+      regenerationReason={regenerationReason}
       onSubmit={ci=>onGenerate(ci)} onSkip={()=>onGenerate(null)}/>
     {gymSheet}
   </>);
@@ -4898,6 +5034,10 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
         {session.source==="ai" ? <Chip color={C.green}>🤖 coached</Chip> : <Chip color={C.faint}>built-in plan</Chip>}
       </div>
       <h1 style={{fontSize:"2.2rem",color:C.text,lineHeight:1,marginBottom:6}}>{session.dayName.toUpperCase()}</h1>
+      <button onClick={()=>setRegen(true)} style={{border:"none",background:"transparent",padding:0,
+        color:C.orange,fontSize:"calc(.62rem * var(--ts, 1))",fontWeight:700,textDecoration:"underline",cursor:"pointer"}}>
+        Regenerate this session
+      </button>
     </div>
 
     <DiscomfortNotice flags={activeDiscomforts(state)} onResolve={onResolveDiscomfort} compact/>
@@ -5053,6 +5193,25 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
       sub="Nothing logged will be saved and your weights won't move."
       onCancel={()=>setConfirmEnd(false)}
       onConfirm={()=>{ setConfirmEnd(false); skipRest(); setSession(null); }}/>}
+
+    {regen && <Sheet title="Regenerate today's session" sub={loggedSets
+      ? `${loggedSets} logged set${loggedSets===1?"":"s"} will be discarded. The plan itself will not advance.`
+      : "Tell the coach what was wrong with this draft. The plan itself will not advance."}
+      onClose={()=>setRegen(false)}>
+      <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:12}}>
+        {["Equipment is unavailable","Too hard for today","Too easy for today","Not enough time","Pain or discomfort","I want different exercises"].map(reason=><button
+          key={reason} onClick={()=>setRegenNote(reason)} style={{padding:"10px 11px",borderRadius:10,textAlign:"left",cursor:"pointer",
+          border:`1px solid ${regenNote===reason?C.orange:C.line}`,background:regenNote===reason?tint(C.orange,0x12):C.raised,
+          color:regenNote===reason?C.orange:C.dim,fontWeight:regenNote===reason?700:500}}>{reason}</button>)}
+      </div>
+      <Field label="More detail" hint="Optional, but useful when equipment or discomfort is the reason.">
+        <TextArea value={regenNote} onChange={e=>setRegenNote(e.target.value.slice(0,300))}
+          placeholder="What should the next draft do differently?"/>
+      </Field>
+      <Btn kind="solid" size="lg" full disabled={!regenNote.trim()} onClick={()=>{
+        const reason=regenNote.trim(); setRegen(false); setRegenNote(""); skipRest(); onRegenerate?.(reason);
+      }}>REBUILD SESSION</Btn>
+    </Sheet>}
   </div>);
 }
 
@@ -5175,7 +5334,7 @@ function DebriefView({debrief, loading, onDone, aiOn, session, coach, onClarifie
    PLAN
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function PlanView({state, onReplan, replanning, aiOn, onAddBonus, currentSession}){
+function PlanView({state, onReplan, replanning, aiOn, onAddBonus, currentSession, onSetWeekTarget}){
   const b = state.block;
   const prog = blockProgress(state);
   const [confirm,setConfirm] = useState(false);
@@ -5184,6 +5343,8 @@ function PlanView({state, onReplan, replanning, aiOn, onAddBonus, currentSession
     body="Your training block is the multi-week plan that turns your goal into sessions. Set a goal to get one."/>);
 
   const split = SPLITS[prog.dpw] || SPLITS[3];
+  const normalTarget=clamp(Number(state.profile.daysPerWeek)||3,2,5);
+  const weekIsCustom=prog.dpw!==normalTarget;
   let weekCursor = 0;
 
   return (<div className="fade" style={{paddingTop:8,paddingBottom:20}}>
@@ -5220,6 +5381,24 @@ function PlanView({state, onReplan, replanning, aiOn, onAddBonus, currentSession
         <Chip color={C.yellow}>RPE ~{prog.phase.rpe}</Chip>
         <Chip color={C.faint}>{prog.phase.restMult>=1.2?"long rests":prog.phase.restMult<=0.85?"short rests":"normal rests"}</Chip>
       </div>
+    </Card>
+
+    <Card accent={weekIsCustom?C.orange:C.blue} style={{marginBottom:16}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7,flexWrap:"wrap"}}>
+        <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:weekIsCustom?C.orange:C.blue,fontWeight:700,letterSpacing:".08em"}}>
+          CUSTOMISE WEEK {prog.week}
+        </div>
+        {weekIsCustom && <Chip color={C.orange}>ONE-WEEK OVERRIDE</Chip>}
+      </div>
+      <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.faint,lineHeight:1.65,marginBottom:11}}>
+        Change only this block week's number of sessions. Your usual {normalTarget}-session schedule,
+        phase, history and following weeks stay unchanged.
+      </div>
+      <Choice cols={4} value={prog.dpw} onChange={onSetWeekTarget}
+        options={[2,3,4,5].map(n=>({value:n,label:`${n} sessions`}))}/>
+      {weekIsCustom && <Btn kind="ghost" size="sm" full style={{marginTop:9}} onClick={()=>onSetWeekTarget(normalTarget)}>
+        RESET WEEK {prog.week} TO {normalTarget} SESSIONS
+      </Btn>}
     </Card>
 
     <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:10}}>THE WHOLE BLOCK</div>
@@ -5287,7 +5466,7 @@ function PlanView({state, onReplan, replanning, aiOn, onAddBonus, currentSession
       <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,lineHeight:1.65,marginBottom:12}}>
         Add the next workout from this block whenever you have extra time. It uses the current phase,
         targets and progression and moves the <strong style={{color:C.text}}>NEXT</strong> marker normally,
-        without changing your usual {prog.dpw}-session weekly target.
+        without changing this week's {prog.dpw}-session target.
       </div>
       <Btn kind={currentSession?"solid":"green"} size="md" full onClick={onAddBonus}>
         {currentSession ? "GO TO CURRENT SESSION" : "ADD AN EXTRA SESSION +"}
@@ -5883,7 +6062,7 @@ function inspectJSON(text){
     throw new Error("That file contains JSON, but not a SnapFit backup — the top level should be an object.");
   if(raw.v == null)
     throw new Error("No version marker. That looks like a different app's export, not a SnapFit backup.");
-  if(Number(raw.v) > 2)
+  if(Number(raw.v) > 3)
     throw new Error(`That backup is from a newer version (v${raw.v}) than this app understands.`);
   if(raw.sessions != null && !Array.isArray(raw.sessions))
     throw new Error("The `sessions` field is corrupt — it should be a list.");
@@ -5976,6 +6155,92 @@ function importCSV(text, state){
   return {hist, weights, imported, skipped};
 }
 
+function EquipmentLoadsView({state,setState}){
+  const [targets,setTargets]=useState({});
+  const stations=Object.keys(PLATE_LOADED_DEFAULTS).sort((a,b)=>Number(a)-Number(b));
+  function update(station,patch){
+    setState(s=>({...s,equipment:{...s.equipment,loads:{...(s.equipment.loads||{}),
+      [station]:{...(s.equipment.loads?.[station]||{}),...patch}}}}));
+  }
+  function restore(station){
+    setState(s=>{
+      const loads={...(s.equipment.loads||{})}; delete loads[station];
+      return {...s,equipment:{...s.equipment,loads}};
+    });
+  }
+  return (<div>
+    <Card accent={C.blue} style={{marginBottom:12}}>
+      <div style={{fontSize:"calc(.84rem * var(--ts, 1))",color:C.text,fontWeight:700,marginBottom:6}}>
+        Watagan Park plate-loaded machines
+      </div>
+      <div style={{fontSize:"calc(.71rem * var(--ts, 1))",color:C.faint,lineHeight:1.65}}>
+        Starting resistance comes from official Hammer Strength / Life Fitness specifications where published.
+        Correct anything that differs on the physical machine here; your saved value is what workout generation and
+        plate calculations use. Snap's available plates default to 2.5, 5, 10 and 20 kg.
+      </div>
+    </Card>
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {stations.map(station=>{
+        const cfg=plateLoadConfig(state,station), base=PLATE_LOADED_DEFAULTS[station];
+        const target=targets[station]??"";
+        const calc=target!==""?platePrescription(Number(target),cfg):null;
+        const changed=!!state.equipment.loads?.[station];
+        return (<Card key={station} accent={changed?C.orange:cfg.verified?C.green:C.yellow}>
+          <div style={{display:"flex",gap:9,alignItems:"flex-start",marginBottom:11}}>
+            <Chip color={C.blue}>#{station}</Chip>
+            <div style={{flex:1,minWidth:0}}>
+              <Input value={cfg.model||""} onChange={e=>update(station,{model:e.target.value})}
+                aria-label={`Station ${station} machine model`} style={{fontWeight:650}}/>
+              <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:cfg.verified?C.green:C.yellow,marginTop:4}}>
+                {changed?"YOUR SAVED VALUES":cfg.verified?"MANUFACTURER DEFAULT":"VERIFY ON MACHINE"}
+              </div>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <Field label="Starting resistance (kg)" hint={cfg.startKg==null?"Not published":"Machine only, before plates"}>
+              <Input type="number" inputMode="decimal" step="0.1" value={cfg.startKg??""}
+                placeholder="Check machine" onChange={e=>update(station,{startKg:e.target.value===""?null:Number(e.target.value)})}/>
+            </Field>
+            <Field label="Resistance applies to">
+              <select value={cfg.mode} onChange={e=>update(station,{mode:e.target.value})}
+                style={{...inputStyle,appearance:"auto"}}>
+                <option value="per-arm">Each arm</option><option value="total">Whole machine</option>
+              </select>
+            </Field>
+          </div>
+          <Field label="Available plates (kg)" hint="Comma separated; calculations load the same plates on both sides.">
+            <Input value={(cfg.plates||DEFAULT_PLATES_KG).join(", ")} onChange={e=>{
+              const plates=e.target.value.split(",").map(x=>Number(x.trim())).filter(n=>Number.isFinite(n)&&n>0);
+              if(plates.length) update(station,{plates:[...new Set(plates)].sort((a,b)=>a-b)});
+            }}/>
+          </Field>
+          <Field label="Try a target load" hint="Shows the closest physically loadable total using equal plates on both sides.">
+            <Input type="number" inputMode="decimal" step="0.1" value={target}
+              onChange={e=>setTargets(t=>({...t,[station]:e.target.value}))} placeholder="Target total kg"/>
+          </Field>
+          {calc && <div style={{background:C.raised,borderRadius:10,padding:"9px 10px",marginBottom:9,
+            fontSize:"calc(.68rem * var(--ts, 1))",color:C.dim,lineHeight:1.6}}>
+            <strong style={{color:C.text}}>{calc.total} kg total</strong> = {calc.baseTotal} kg machine + {calc.perSide} kg per side
+            {calc.plates.length?` (${calc.plates.map(p=>`${p.count}×${p.kg}`).join(" + ")} kg each side)`:" (no added plates)"}.
+          </div>}
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <a href={cfg.source} target="_blank" rel="noopener noreferrer" style={{color:C.blue,fontSize:"calc(.62rem * var(--ts, 1))"}}>
+              Manufacturer specification ↗
+            </a>
+            {changed && <button onClick={()=>restore(station)} style={{marginLeft:"auto",border:"none",background:"transparent",
+              color:C.orange,textDecoration:"underline",cursor:"pointer",fontSize:"calc(.62rem * var(--ts, 1))"}}>
+              Restore researched default
+            </button>}
+          </div>
+          {!base.verified && cfg.startKg==null && <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.yellow,lineHeight:1.55,marginTop:8}}>
+            The manufacturer page does not publish starting resistance for this model. Enter the placard value after checking the machine.
+          </div>}
+        </Card>);
+      })}
+    </div>
+  </div>);
+}
+
 function LogView({state, setState, onRestore, apiKey}){
   const [detail,setDetail] = useState(null);   // exId
   const [session,setSession] = useState(null);
@@ -5983,8 +6248,11 @@ function LogView({state, setState, onRestore, apiKey}){
   const [msg,setMsg] = useState("");
   const [err,setErr] = useState("");
   const [pending,setPending] = useState(null);  // parsed JSON awaiting confirmation
+  const [moveWeek,setMoveWeek] = useState(null);
   const fileRef = useRef(null);
   const jsonRef = useRef(null);
+
+  useEffect(()=>setMoveWeek(session?planWeekForSession(session):null),[session?.id]);
 
   const exIds = Object.keys(state.exerciseHistory||{})
     .filter(id=>(state.exerciseHistory[id]||[]).length)
@@ -6024,7 +6292,7 @@ function LogView({state, setState, onRestore, apiKey}){
     <SectionTitle sub={`${state.sessions.length} sessions · ${exIds.length} exercises tracked`}>LOG</SectionTitle>
 
     <div style={{display:"flex",gap:6,marginBottom:14}}>
-      {[["sessions","Sessions"],["exercises","Exercises"],["data","Data"]].map(([k,l])=>(
+      {[["sessions","Sessions"],["exercises","Exercises"],["equipment","Loads"],["data","Data"]].map(([k,l])=>(
         <button key={k} onClick={()=>setTab(k)} style={{flex:1,padding:"9px 8px",borderRadius:10,cursor:"pointer",
           border:`1px solid ${tab===k?tint(C.red,0x55):C.line}`, background:tab===k?`${tint(C.red,0x0f)}`:C.raised,
           color:tab===k?C.text:C.dim, fontSize:"calc(.72rem * var(--ts, 1))", fontWeight:tab===k?700:400}}>{l}</button>))}
@@ -6043,7 +6311,8 @@ function LogView({state, setState, onRestore, apiKey}){
                   <div style={{fontSize:"calc(.85rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:3}}>{s.dayName}</div>
                   <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
                     <Chip color={C.faint}>{s.date}</Chip>
-                    <Chip color={C.purple}>wk {s.week}</Chip>
+                    <Chip color={C.purple}>wk {planWeekForSession(s)}</Chip>
+                    {s.planWeek!=null && Number(s.planWeek)!==Number(s.week) && <Chip color={C.orange}>MOVED</Chip>}
                     {s.bonus && <Chip color={C.green}>BONUS</Chip>}
                     {!!s.swaps?.length && <Chip color={C.orange}>{s.swaps.length} SWAP{s.swaps.length===1?"":"S"}</Chip>}
                     {s.readiness && <Chip color={s.readiness.color}>{s.readiness.label}</Chip>}
@@ -6078,6 +6347,8 @@ function LogView({state, setState, onRestore, apiKey}){
             </Card>);
           })}
         </div>)}
+
+    {tab==="equipment" && <EquipmentLoadsView state={state} setState={setState}/>}
 
     {tab==="data" && (<div>
       <Card style={{marginBottom:12}}>
@@ -6186,8 +6457,36 @@ function LogView({state, setState, onRestore, apiKey}){
       </Sheet>);
     })()}
 
-    {session && (<Sheet title={session.dayName} sub={`${session.date} · week ${session.week} · ${session.phaseName}`}
+    {session && (<Sheet title={session.dayName} sub={`${session.date} · plan week ${planWeekForSession(session)} · ${session.phaseName}`}
       onClose={()=>setSession(null)}>
+      <Card accent={session.planWeek!=null&&Number(session.planWeek)!==Number(session.week)?C.orange:C.blue} style={{marginBottom:12}}>
+        <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.blue,fontWeight:700,letterSpacing:".08em",marginBottom:5}}>
+          PLAN-WEEK PLACEMENT
+        </div>
+        <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,lineHeight:1.55,marginBottom:9}}>
+          Correct which week this session belongs to without changing its real date, exercises, sets or loads.
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <select value={moveWeek??planWeekForSession(session)} onChange={e=>setMoveWeek(Number(e.target.value))}
+            style={{...inputStyle,appearance:"auto",flex:1}}>
+            {Array.from({length:state.block?.totalWeeks||1},(_,i)=><option key={i+1} value={i+1}>Plan week {i+1}</option>)}
+          </select>
+          <Btn size="md" disabled={Number(moveWeek)===planWeekForSession(session)} onClick={()=>{
+            const destination=clamp(Number(moveWeek)||planWeekForSession(session),1,state.block?.totalWeeks||1);
+            const updated={...session,planWeek:destination};
+            setState(s=>({...s,sessions:s.sessions.map(x=>x.id===session.id?updated:x)}));
+            setSession(updated);
+            setMsg(`Moved ${session.dayName} to plan week ${destination}. Its workout date and logged sets were not changed.`);
+          }}>MOVE</Btn>
+        </div>
+        {session.planWeek!=null && Number(session.planWeek)!==Number(session.week) && <button onClick={()=>{
+          const updated={...session}; delete updated.planWeek;
+          setState(s=>({...s,sessions:s.sessions.map(x=>x.id===session.id?updated:x)}));
+          setSession(updated); setMoveWeek(Number(session.week));
+        }} style={{marginTop:8,padding:0,border:"none",background:"transparent",color:C.orange,textDecoration:"underline",cursor:"pointer",fontSize:"calc(.62rem * var(--ts, 1))"}}>
+          Restore original week {session.week}
+        </button>}
+      </Card>
       {session.debrief && (<Card style={{marginBottom:14}}>
         <div style={{fontSize:"calc(.84rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:8}}>{session.debrief.headline}</div>
         <Markdown text={session.debrief.body}/>
@@ -6423,7 +6722,7 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
     <Card style={{marginBottom:14}}>
       <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
         <Toggle on={sound} label="Rest timer sounds"
-          sub="Short whistle at 20 seconds, double at 10, ticks to zero, then a long whistle"
+          sub="Short whistle at 20 seconds, the same whistle every second from 10 to 1, then a long whistle"
           onChange={v=>{ setSound(v); cues.setEnabled(v); }}/>
         <Field label={`Timer volume — ${soundVolume}%`}
           hint="Controls only SnapFit's timer cues, not your music app.">
@@ -6437,7 +6736,7 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
           onChange={v=>{ setWake(v); wakeLock.setEnabled(v); }}/>
       </div>
       <Btn kind="solid" size="sm" onClick={()=>cues.test()} disabled={!sound || !cues.supported()}>
-        ▶ Test short + long whistles
+        ▶ Test countdown + long whistle
       </Btn>
       <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.ghost,lineHeight:1.7,marginTop:11,
         borderTop:`1px solid ${C.lineSoft}`,paddingTop:11}}>
@@ -6627,8 +6926,8 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
 const ACTIVE_KEY = "snapfit_v2_active";
 
 const NAV = [
-  {id:"today", label:"Today", icon:"⚡"},
   {id:"plan",  label:"Plan",  icon:"🗓"},
+  {id:"today", label:"Today", icon:"⚡"},
   {id:"goal",  label:"Goal",  icon:"🎯"},
   {id:"coach", label:"Coach", icon:"💬"},
   {id:"learn", label:"Learn", icon:"📖"},
@@ -6652,6 +6951,7 @@ function App(){
   const [reviewLoading,setReviewLoading]   = useState(false);
   const [offline,setOffline]       = useState(null);
   const [bonusPending,setBonusPending] = useState(false);
+  const [regenerationReason,setRegenerationReason] = useState("");
   const [updateWorker,setUpdateWorker] = useState(()=>window.__snapfitUpdateWorker||null);
   const [updatingApp,setUpdatingApp] = useState(false);
   const [wakeStatus,setWakeStatus] = useState(()=>wakeLock.status());
@@ -6682,6 +6982,9 @@ function App(){
     window.addEventListener("snapfit-api-status",sync);
     return ()=>window.removeEventListener("snapfit-api-status",sync);
   },[]);
+  /* Keep the credential durable even when it arrived through backup restore or
+     another state path rather than the Settings Save button. */
+  useEffect(()=>{ saveKey(apiKey); },[apiKey]);
 
   function applyAppUpdate(){
     if(updatingApp) return;
@@ -6762,22 +7065,30 @@ function App(){
   }
 
   /* ── session ────────────────────────────────────────────────────────── */
-  async function generate(checkin, {bonus=false}={}){
+  async function generate(checkin, {bonus=false,regenerateReason=""}={}){
     setGenerating(true);
     wakeLock.setWanted(true); // this call still sits inside the user's tap on iOS
     let built=false;
     try{
       if(checkin) setState(s=>({...s, checkins:[{date:todayISO(), ...checkin}, ...s.checkins].slice(0,60)}));
-      const sess = await coach.todaysSession(checkin, {bonus});
+      const sess = await coach.todaysSession(checkin, {bonus,regenerateReason});
       if(sess){
-        setSession({...sess, exercises: sess.exercises.map(e=>({...e, log:Array(e.sets).fill(null)}))});
+        setSession({...sess, exercises: sess.exercises.map(e=>({...e,
+          plateLoad:plateHintForExercise(e,stateRef.current),log:Array(e.sets).fill(null)}))});
         built=true;
         if(bonus) setBonusPending(false);
+        setRegenerationReason("");
       }
     } finally {
       if(!built) wakeLock.setWanted(false);
       setGenerating(false);
     }
+  }
+
+  function regenerateSession(reason){
+    setSession(null);
+    setRegenerationReason(String(reason||"I want a different session").slice(0,300));
+    setView("today");
   }
 
   async function finishSession(sess){
@@ -6827,7 +7138,7 @@ function App(){
   function resetAll(){
     try{ localStorage.removeItem(STORE_KEY); localStorage.removeItem(ACTIVE_KEY); localStorage.removeItem(API_STATUS_KEY); }catch{}
     skipRest(); setSession(null); setDebrief(null); setReview(null);
-    setBonusPending(false);
+    setBonusPending(false); setRegenerationReason("");
     setStateRaw(defaultState()); stateRef.current = defaultState();
     setView("today");
   }
@@ -6837,14 +7148,14 @@ function App(){
      go with it. */
   function restoreState(next, restoredApiKey=null){
     skipRest(); setSession(null); setDebrief(null); setReview(null);
-    setBonusPending(false);
+    setBonusPending(false); setRegenerationReason("");
     if(restoredApiKey !== null){
       setApiKey(restoredApiKey);
       saveKey(restoredApiKey);
     }
     setState(next);
     setView("today");
-    setDebriefSession(stored);
+    setDebriefSession(null);
   }
 
   /* ── away gym ───────────────────────────────────────────────────────────
@@ -6981,7 +7292,7 @@ function App(){
             : view==="today"    ? <TodayView state={state} session={session} setSession={setSession}
                                     generating={generating} onGenerate={ci=>{
                                       if(prog?.complete && !bonusPending) buildBlock();
-                                      else generate(ci,{bonus:bonusPending});
+                                      else generate(ci,{bonus:bonusPending,regenerateReason:regenerationReason});
                                     }}
                                     onFinish={finishSession} coach={coach} aiOn={aiOn}
                                     rest={rest} startRest={startRest} skipRest={skipRest}
@@ -6989,8 +7300,13 @@ function App(){
                                     forgetTravel={forgetTravel} bonusPending={bonusPending}
                                     onCancelBonus={()=>setBonusPending(false)}
                                     onRecordDiscomfort={recordDiscomfort} onResolveDiscomfort={resolveDiscomfort}
-                                    wakeStatus={wakeStatus} onRetryWake={()=>wakeLock.retry()}/>
+                                    wakeStatus={wakeStatus} onRetryWake={()=>wakeLock.retry()}
+                                    regenerationReason={regenerationReason} onRegenerate={regenerateSession}/>
             : view==="plan"     ? <PlanView state={state} onReplan={()=>buildBlock()} replanning={replanning} aiOn={aiOn}
+                                    onSetWeekTarget={v=>setState(s=>{
+                                      const current=blockProgress(s);
+                                      return setPlanWeekTarget(s,current?.week||1,v);
+                                    })}
                                     currentSession={session} onAddBonus={()=>{
                                       if(!session) setBonusPending(true);
                                       setView("today");

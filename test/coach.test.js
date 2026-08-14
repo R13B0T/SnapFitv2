@@ -480,15 +480,14 @@ function mockGym(){
 
   const offsets = audio.planned.map(c=>c.offset);
   check("short whistle at 20s remaining", audio.planned.some(c=>c.at===20 && c.kind==="short" && c.offset===10), JSON.stringify(audio.planned.slice(0,2)));
-  check("cue at 10s remaining", audio.planned.some(c=>c.at===10 && c.kind==="double" && c.offset===20));
-  check("a tick every second from 9 to 1",
-    [9,8,7,6,5,4,3,2,1].every(n=>audio.planned.some(c=>c.at===n && c.kind==="tick" && c.offset===30-n)),
-    JSON.stringify(audio.planned.filter(c=>c.kind==="tick").map(c=>c.at)));
+  check("the same whistle sounds every second from 10 to 1",
+    [10,9,8,7,6,5,4,3,2,1].every(n=>audio.planned.some(c=>c.at===n && c.kind==="short" && c.offset===30-n)),
+    JSON.stringify(audio.planned.filter(c=>c.kind==="short").map(c=>c.at)));
   check("long whistle exactly at zero", audio.planned.some(c=>c.at===0 && c.kind==="long" && c.offset===30));
   check("twelve cues in total", audio.planned.length===12, `${audio.planned.length} cues`);
   check("offsets are in ascending order",
     offsets.every((o,i)=>i===0 || o >= offsets[i-1]), JSON.stringify(offsets));
-  check("the double beep really is two tones", audio.withSound.length === 13, `${audio.withSound.length} oscillators for 12 cues`);
+  check("each cue is scheduled once", audio.withSound.length === 12, `${audio.withSound.length} oscillators for 12 cues`);
   check("an iPhone-interrupted context is restarted",
     audio.suspends >= 1 && audio.resumes >= 1, `${audio.suspends} suspend / ${audio.resumes} resume`);
   check("the tap primes Web Audio for iPhone", audio.primes >= 1, `${audio.primes} primes`);
@@ -518,7 +517,7 @@ function mockGym(){
   });
   check("skips the 20s cue when rest is shorter than that", !late.some(c=>c.at===20), JSON.stringify(late.map(c=>c.at)));
   check("skips the 10s cue too", !late.some(c=>c.at===10));
-  check("still ticks down and whistles", late.some(c=>c.at===0) && late.some(c=>c.kind==="tick"),
+  check("still counts down and whistles", late.some(c=>c.at===0) && late.some(c=>c.kind==="short"),
     JSON.stringify(late.map(c=>c.at)));
 
   /* ── AWAY GYM ──────────────────────────────────────────────────────── */

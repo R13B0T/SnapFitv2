@@ -474,7 +474,7 @@ function check(name, ok, detail){
   check("sound toggle present", /Rest timer sounds/.test(st));
   check("timer volume control present", /timer volume/i.test(st));
   check("wake lock toggle present", /Keep the screen awake/.test(st));
-  check("test whistles button present", /Test short \+ long whistles/.test(st));
+  check("test whistles button present", /Test countdown \+ long whistle/.test(st));
 
   const scheduleBefore = await page.evaluate(()=>{
     const s=JSON.parse(localStorage.getItem("snapfit_v2")), p=blockProgress(s);
@@ -715,8 +715,24 @@ function check(name, ok, detail){
     /weekStartsOn/.test(appSrc) && /showExerciseWhy/.test(appSrc) && /showExerciseHow/.test(appSrc));
   check("advanced learning is an optional layer",
     /showAdvancedLearn:false/.test(appSrc) && (appSrc.match(/level:"advanced"/g)||[]).length>=4);
+  check("Plan and Today have swapped navigation positions",
+    appSrc.indexOf('{id:"plan",  label:"Plan"') < appSrc.indexOf('{id:"today", label:"Today"'));
+  check("one-week targets do not replace the global schedule",
+    /function setPlanWeekTarget\(/.test(appSrc) && /weekTargets/.test(appSrc));
+  check("logged sessions can be reassigned without changing their date",
+    /PLAN-WEEK PLACEMENT/.test(appSrc) && /planWeekForSession/.test(appSrc));
+  check("a generated session can be rebuilt without advancing the block",
+    /Regenerate this session/.test(appSrc) && /function regenerateSession\(/.test(appSrc));
+  check("pre-generation questions include time and a coach note",
+    /Time available today/.test(appSrc) && /Anything the coach should know/.test(appSrc));
+  check("the full floor plan and editable plate loads are present",
+    /PLATE_LOADED_DEFAULTS/.test(appSrc) && /EquipmentLoadsView/.test(appSrc) && /Watagan Park plate-loaded machines/.test(appSrc));
+  check("the API key is persisted from every supported save path",
+    /useEffect\(\(\)=>\{ saveKey\(apiKey\); \},\[apiKey\]\)/.test(appSrc));
+  check("post-session coaching can correct the review",
+    /function PostSessionChat\(/.test(appSrc) && /postSessionChatStream/.test(appSrc));
   check("busy-equipment swaps stay inside the catalogue and do not call AI",
-    /function exerciseSwapOptions\(/.test(appSrc) && /Machine busy\? Swap exercise/.test(appSrc));
+    /function exerciseSwapOptions\(/.test(appSrc) && /Swap exercise \/ flag discomfort/.test(appSrc));
   const swSrc = fs.readFileSync(path.join(ROOT,"sw.js"),"utf8");
   const shortWhistle = path.join(ROOT,"assets","sounds","countdown-whistle.mp3");
   const longWhistle = path.join(ROOT,"assets","sounds","start-whistle.mp3");

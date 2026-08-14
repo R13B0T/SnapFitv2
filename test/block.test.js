@@ -191,6 +191,57 @@ const VENDOR={"react.production.min.js":"react.js","react-dom.production.min.js"
   check("new frequency and split apply to the next session",
     cadence.after.dpw===4 && cadence.split.includes(cadence.next), JSON.stringify(cadence));
 
+  console.log("\n── ONE-WEEK TARGETS & LOG REASSIGNMENT ────────");
+  const weekControl = await page.evaluate(()=>{
+    let st=defaultState();
+    st.onboarded=true; st.goal={type:"build_muscle"};
+    st.profile={...st.profile,daysPerWeek:4};
+    st.block=buildBlockRules(st);
+    st=setPlanWeekTarget(st,1,5);
+    for(let i=0;i<4;i++){
+      const sess=buildSessionRules(st,null);
+      st.sessions=[{...sess,finishedAt:new Date().toISOString()},...st.sessions];
+    }
+    const afterFour=blockProgress(st);
+    const fifth=buildSessionRules(st,null);
+    st.sessions=[{...fifth,finishedAt:new Date().toISOString()},...st.sessions];
+    const afterFive=blockProgress(st);
+    st.sessions=st.sessions.map((s,i)=>i===0?{...s,planWeek:2}:s);
+    const afterMove=blockProgress(st);
+    return {
+      customTarget:afterFour.dpw,afterFour:{week:afterFour.week,dayIdx:afterFour.dayIdx},
+      afterFive:{week:afterFive.week,dayIdx:afterFive.dayIdx},
+      afterMove:{week:afterMove.week,dayIdx:afterMove.dayIdx},
+      movedWeek:planWeekForSession(st.sessions[0]),usual:st.profile.daysPerWeek,
+    };
+  });
+  check("a five-session override applies only to the selected week",
+    weekControl.customTarget===5 && weekControl.usual===4,JSON.stringify(weekControl));
+  check("the custom week advances after its fifth session",
+    weekControl.afterFour.week===1 && weekControl.afterFour.dayIdx===4 && weekControl.afterFive.week===2,
+    JSON.stringify(weekControl));
+  check("moving a log to another week recalculates plan progress",
+    weekControl.movedWeek===2 && weekControl.afterMove.week===1 && weekControl.afterMove.dayIdx===4,
+    JSON.stringify(weekControl));
+
+  console.log("\n── PLATE-LOADED MACHINE MATH ────────────────");
+  const machineLoads=await page.evaluate(()=>{
+    const st=defaultState();
+    const incline=platePrescription(47.2,plateLoadConfig(st,"21"));
+    const leg=platePrescription(93,plateLoadConfig(st,"35"));
+    const unknown=platePrescription(40,plateLoadConfig(st,"36"));
+    return {incline,leg,unknown,stations:Object.keys(PLATE_LOADED_DEFAULTS).length,
+      catalogue:SEED_STATIONS.length};
+  });
+  check("the complete 50-station floor plan plus sandbags is seeded",machineLoads.catalogue===51,String(machineLoads.catalogue));
+  check("incline press includes 3.6kg per arm and equal 20kg plates",
+    machineLoads.incline.total===47.2 && machineLoads.incline.baseTotal===7.2 && machineLoads.incline.perSide===20,
+    JSON.stringify(machineLoads.incline));
+  check("linear leg press includes its 53kg carriage and 20kg per side",
+    machineLoads.leg.total===93 && machineLoads.leg.baseTotal===53 && machineLoads.leg.perSide===20,
+    JSON.stringify(machineLoads.leg));
+  check("an unpublished starting resistance is never guessed",machineLoads.unknown===null,JSON.stringify(machineLoads));
+
   console.log("\n── RAMP SETS & BUSY-EQUIPMENT SWAPS ────────────");
   const workingSets = await page.evaluate(()=>{
     const ramp=performanceSummary([

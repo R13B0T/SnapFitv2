@@ -49,8 +49,8 @@ built-in, work offline and use no AI credits; ramp sets are clearly kept out of 
 night and the weights come down and a set comes off. After the session: what happened, what
 it means, and what moves next time.
 
-**The rest timer runs on the audio clock.** Beep at 20 seconds, double beep at 10, a tick
-every second after that, and a whistle when rest is up — so you can put the phone down. It
+**The rest timer runs on the audio clock.** A short whistle at 20 seconds, the same whistle
+every second from 10 through 1, and a long whistle when rest is up — so you can put the phone down. It
 keeps counting when you switch tabs, and it survives a reload mid-workout. A watchdog detects
 the iPhone/WebKit failure where an audio context says it is running while its clock is frozen,
 restarts it, and re-anchors all remaining cues to the rest timer's real end time.
@@ -62,6 +62,16 @@ overriding a weight never loses track of the target.
 from the current block without permanently changing the weekly target. It uses the same split,
 phase, sets, rep range, effort and progression as the rest of the plan, and advances the block
 normally when finished. The log and weekly review label it as an extra so attendance stays honest.
+
+**One busy week does not rewrite the whole block.** Plan can set a two-to-five-session target for
+the current block week only. The normal weekly frequency and later weeks stay unchanged. If history
+lands in the wrong block week, Log can move that session's plan placement without changing its real
+date, exercises, sets or loads.
+
+**Today is generated deliberately.** Opening Today shows a readiness check rather than silently
+building a workout. Sleep, energy, soreness, stress, time available and an optional note shape the
+session. A draft can be regenerated with a reason before training; rejecting it does not advance the
+block.
 
 **Changing weekly frequency keeps the block intact.** Moving from three sessions to four (or
 back again) applies the new split from the next generated session while preserving the current
@@ -182,9 +192,9 @@ aloud, while the phone reads it with its best available English voice. That keep
 free of a second API key and sends no audio to another service; voice quality depends on the
 voices installed on the device.
 
-**Rest timer sounds.** On by default, with a saved 0–100% volume control and a *Test short +
-long whistles* button. A short whistle sounds at 20 seconds, twice at 10 seconds, ticks count
-down from 9, and a long whistle announces the next set. Both Mixkit samples are bundled for
+**Rest timer sounds.** On by default, with a saved 0–100% volume control and a *Test countdown +
+long whistle* button. A short whistle sounds at 20 seconds and every second from 10 through 1;
+a long whistle announces the next set. Both Mixkit samples are bundled for
 offline use ([whistle collection](https://mixkit.co/free-sound-effects/whistle/),
 [free sound-effects licence](https://mixkit.co/free-sound-effects/)). The sequence is scheduled
 against the audio clock rather than a JavaScript timer, which can be throttled in a backgrounded
@@ -223,6 +233,14 @@ Seeded with the full Snap Fitness Watagan Park station list, so it works out of 
 exactly like v1. Settings has an editor — untick what your gym doesn't have, add your own.
 Only ticked equipment ever gets programmed, so it still produces sensible sessions if all
 you have is a bench and some dumbbells.
+
+The full 50-station Watagan Park floor plan is seeded by number. **Log → Loads** holds the
+plate-loaded Hammer Strength starting resistance, whether it applies per arm or to the whole
+machine, and the available plate sizes. Manufacturer values are editable because a placard on the
+physical machine is the final authority. Snap's seeded plate set is 2.5, 5, 10 and 20kg; prescriptions
+are rounded to equal, physically loadable plates on both sides and include machine resistance in the
+displayed total. The Glute Drive stays marked *verify on machine* because its official product page
+does not publish a starting resistance.
 
 Injury flags work the same way: tick *knees* and nothing knee-loading gets programmed at all.
 
