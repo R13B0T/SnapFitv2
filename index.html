@@ -175,6 +175,9 @@ h1,h2,h3{font-family:'Bebas Neue',sans-serif;font-weight:400;letter-spacing:0.04
 .md strong{color:${C.text};font-weight:600}
 .md code{background:${C.raised};padding:1px 5px;border-radius:4px;font-size:.9em}
 .md h3{font-family:'DM Sans',sans-serif;font-weight:700;font-size:calc(.85rem * var(--ts, 1));color:${C.text};margin:1em 0 .4em;letter-spacing:0}
+.week-session-choice{--choice-cols:4}
+html[data-text-scale="large"] .week-session-choice,
+html[data-text-scale="largest"] .week-session-choice{--choice-cols:2}
 `;
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -3035,6 +3038,7 @@ function loadScaleId(){
 function applyScale(id){
   const step = TEXT_STEPS.find(s=>s.id===id) || TEXT_STEPS.find(s=>s.id===DEFAULT_SCALE);
   document.documentElement.style.setProperty("--ts", String(step.v));
+  document.documentElement.dataset.textScale=step.id;
   return step;
 }
 function saveScaleId(id){ try{ localStorage.setItem(SCALE_KEY,id); }catch{} applyScale(id); }
@@ -3527,12 +3531,12 @@ const inputStyle = {
 function Input(props){ return <input {...props} style={{...inputStyle, ...(props.style||{})}}/>; }
 function TextArea(props){ return <textarea {...props} style={{...inputStyle, minHeight:80, resize:"vertical", lineHeight:1.6, ...(props.style||{})}}/>; }
 
-function Choice({options, value, onChange, cols=2}){
-  return (<div style={{display:"grid",gridTemplateColumns:`repeat(${cols},1fr)`,gap:8}}>
+function Choice({options, value, onChange, cols=2, className=""}){
+  return (<div className={className} style={{display:"grid",gridTemplateColumns:`repeat(var(--choice-cols, ${cols}),minmax(0,1fr))`,gap:8}}>
     {options.map(o=>{
       const on = value===o.value;
       return (<button key={o.value} onClick={()=>onChange(o.value)} style={{
-        padding:"11px 10px", borderRadius:11, cursor:"pointer", textAlign:"left",
+        padding:"11px 10px", borderRadius:11, cursor:"pointer", textAlign:"left",minWidth:0,overflowWrap:"anywhere",
         border:`1.5px solid ${on?C.red:C.line}`, background:on?`${tint(C.red,0x12)}`:C.raised,
         color:on?C.text:C.dim, fontSize:"calc(.78rem * var(--ts, 1))", fontWeight:on?600:400}}>
         {o.icon && <span style={{marginRight:6}}>{o.icon}</span>}{o.label}
@@ -5598,7 +5602,7 @@ function PlanView({state, onReplan, replanning, aiOn, onAddBonus, currentSession
         Change only this block week's number of sessions. Your usual {normalTarget}-session schedule,
         phase, history and following weeks stay unchanged.
       </div>
-      <Choice cols={4} value={prog.dpw} onChange={onSetWeekTarget}
+      <Choice cols={4} className="week-session-choice" value={prog.dpw} onChange={onSetWeekTarget}
         options={[2,3,4,5].map(n=>({value:n,label:`${n} sessions`}))}/>
       {weekIsCustom && <Btn kind="ghost" size="sm" full style={{marginTop:9}} onClick={()=>onSetWeekTarget(normalTarget)}>
         RESET WEEK {prog.week} TO {normalTarget} SESSIONS

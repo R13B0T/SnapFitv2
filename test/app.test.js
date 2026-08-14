@@ -781,6 +781,31 @@ function check(name, ok, detail){
   check("headings do not", Math.abs(largest.heading - beforeSize.heading) < 0.5,
     `${beforeSize.heading} → ${largest.heading}`);
 
+  await page.getByText("PLAN", {exact:true}).last().click();
+  await page.waitForTimeout(350);
+  const weekChoiceLayout=async()=>page.locator(".week-session-choice").evaluate(grid=>{
+    const outer=grid.getBoundingClientRect();
+    const buttons=[...grid.querySelectorAll("button")].map(b=>b.getBoundingClientRect());
+    return {
+      columns:new Set(buttons.map(r=>Math.round(r.left))).size,
+      rows:new Set(buttons.map(r=>Math.round(r.top))).size,
+      inside:buttons.every(r=>r.left>=outer.left-1 && r.right<=outer.right+1),
+    };
+  });
+  const largestWeekChoices=await weekChoiceLayout();
+  check("Largest text keeps week-session choices inside a two-column grid",
+    largestWeekChoices.columns===2 && largestWeekChoices.rows===2 && largestWeekChoices.inside,
+    JSON.stringify(largestWeekChoices));
+  await page.evaluate(()=>saveScaleId("large"));
+  await page.waitForTimeout(150);
+  const largeWeekChoices=await weekChoiceLayout();
+  check("Large text keeps week-session choices inside a two-column grid",
+    largeWeekChoices.columns===2 && largeWeekChoices.rows===2 && largeWeekChoices.inside,
+    JSON.stringify(largeWeekChoices));
+  await page.evaluate(()=>saveScaleId("largest"));
+  await page.locator("text=⚙").click();
+  await page.waitForTimeout(350);
+
   await aBtns.nth(0).click();                 // Compact
   await page.waitForTimeout(400);
   const compact = await sizes();
