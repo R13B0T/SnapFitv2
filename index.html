@@ -2401,6 +2401,20 @@ function buildSystemBlock(state, extra){
 
 /* ── Transport ────────────────────────────────────────────────────────────── */
 
+function schemaForAnthropic(schema){
+  const copy = JSON.parse(JSON.stringify(schema));
+  const visit = value=>{
+    if(!value || typeof value!=="object") return;
+    /* Anthropic currently accepts array minItems only as 0 or 1. Keep this
+       transport guard even though the declared schemas are compatible, so a
+       future Snap schema cannot take the whole coach offline again. */
+    if(value.type==="array" && Number(value.minItems)>1) value.minItems=1;
+    Object.values(value).forEach(visit);
+  };
+  visit(copy);
+  return copy;
+}
+
 async function callAnthropic({state, key, model, userText, schema, effort="low", maxTokens=4000, systemExtra, timeoutMs=45000}){
   if(!key) throw new CoachError("No API key","nokey");
   const ctrl = new AbortController();
@@ -2413,7 +2427,7 @@ async function callAnthropic({state, key, model, userText, schema, effort="low",
       messages: [{ role:"user", content: userText }],
       output_config: { effort },
     };
-    if(schema) body.output_config.format = { type:"json_schema", schema };
+    if(schema) body.output_config.format = { type:"json_schema", schema:schemaForAnthropic(schema) };
 
     const res = await fetch(API_URL, {method:"POST", headers:apiHeaders(key), body:JSON.stringify(body), signal:ctrl.signal});
     if(!res.ok){

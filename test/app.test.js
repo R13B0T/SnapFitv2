@@ -754,6 +754,8 @@ function check(name, ok, detail){
   check("long whistle is bundled", fs.existsSync(longWhistle) && fs.statSync(longWhistle).size > 1000);
   check("both whistles are cached for offline use",
     /assets\/sounds\/countdown-whistle\.mp3/.test(swSrc) && /assets\/sounds\/start-whistle\.mp3/.test(swSrc));
+  check("online app launches are network-first before the offline shell",
+    /req\.mode === "navigate"/.test(swSrc) && /fetch\(req,\{cache:"no-store"\}\)/.test(swSrc));
 
   console.log("\n── TEXT SIZE ────────────────────────────────────");
   // Body text scales; the big headings deliberately do not.

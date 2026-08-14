@@ -248,6 +248,15 @@ function mockGym(){
   });
   check("structured-output schemas use Anthropic-supported array minima",
     schemaMins.every(x=>x.value===0 || x.value===1),JSON.stringify(schemaMins));
+  const transportGuard = await page.evaluate(()=>{
+    const original={type:"array",minItems:2,maxItems:5,items:{type:"array",minItems:3,maxItems:4}};
+    const sent=schemaForAnthropic(original);
+    return {original,sent};
+  });
+  check("the API transport sanitises unsupported array minima",
+    transportGuard.original.minItems===2 && transportGuard.original.items.minItems===3
+      && transportGuard.sent.minItems===1 && transportGuard.sent.items.minItems===1,
+    JSON.stringify(transportGuard));
   apiMode = "badshape";
   const invalidBlock = await page.evaluate(async()=>{
     let fallbackKind="";

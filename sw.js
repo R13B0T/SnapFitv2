@@ -3,11 +3,9 @@
    Anything that talks to the coach is network-only — a stale answer is worse
    than an honest failure, and the app falls back to its built-in coach anyway. */
 
-/* Bump this on any shell change. The fetch handler below is
-   stale-while-revalidate, so without a bump an installed app serves the old
-   index.html on first open and only picks up the new one on the launch after
-   that — which looks exactly like the update having failed. */
-const CACHE = "snapfit-v2-21";
+/* Bump this on any shell change. Navigations are network-first when online so
+   an accepted update cannot reopen an older app document from the cache. */
+const CACHE = "snapfit-v2-22";
 
 const SHELL = [
   "./",
@@ -56,6 +54,23 @@ self.addEventListener("fetch", event => {
 
   // Fonts: cache-first, they never change.
   const isFont = url.hostname.includes("fonts.googleapis.com") || url.hostname.includes("fonts.gstatic.com");
+
+  /* The app document controls the API schema and migration code, so it must be
+     current whenever the phone has a connection. The cached shell remains the
+     fallback in a gym dead-spot. Cache both launch forms because installed
+     iPhone PWAs may navigate to either the folder root or index.html. */
+  if(req.mode === "navigate"){
+    event.respondWith(
+      fetch(req,{cache:"no-store"}).then(async res=>{
+        if(res && res.ok){
+          const cache=await caches.open(CACHE);
+          await Promise.all([cache.put("./",res.clone()),cache.put("./index.html",res.clone())]);
+        }
+        return res;
+      }).catch(()=>caches.match(req).then(hit=>hit||caches.match("./index.html")))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(req).then(hit => {
