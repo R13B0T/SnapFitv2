@@ -2545,7 +2545,9 @@ async function shrinkImage(file, maxEdge=PHOTO_MAX_EDGE){
   return { b64, mediaType:"image/jpeg", w, h, bytes: Math.round(b64.length*3/4), preview: dataUrl };
 }
 
-/* ── Schemas ──────────────────────────────────────────────────────────────── */
+/* ── Schemas ────────────────────────────────────────────────────────────────
+   Anthropic's structured-output subset accepts array minItems only as 0 or 1.
+   Snap's stricter domain minima are checked after the response is parsed. */
 
 const S_BLOCK = {
   type:"object", additionalProperties:false,
@@ -2553,14 +2555,14 @@ const S_BLOCK = {
   properties:{
     name:{type:"string", description:"Short name for the block, e.g. '8 week hypertrophy block'"},
     rationale:{type:"string", description:"2-3 sentences: why this block, for this person, for this goal. Plain language, second person."},
-    phases:{ type:"array", minItems:2, maxItems:5, items:{
+    phases:{ type:"array", minItems:1, maxItems:5, items:{
       type:"object", additionalProperties:false,
       required:["name","weeks","sets","repRange","rpe","restMult","intent"],
       properties:{
         name:{type:"string"},
         weeks:{type:"integer"},
         sets:{type:"integer"},
-        repRange:{type:"array", items:{type:"integer"}, minItems:2, maxItems:2},
+        repRange:{type:"array", items:{type:"integer"}, minItems:1, maxItems:2},
         rpe:{type:"integer"},
         restMult:{type:"number"},
         intent:{type:"string", description:"One or two sentences the user reads: what this phase is for and how it should feel."},
@@ -2574,7 +2576,7 @@ const S_SESSION = {
     brief:{type:"string", description:"The coach's brief for today, read before they start. Markdown, 2-3 short paragraphs, second person. Cover three things: what this session is for and how it serves their goal; what's required of them to make it count (rep range, effort level, tempo, which exercise matters most); and the standard — how they'll know they got it right, and what to do if they can't hit it. Reference their own numbers where you have them. Write it as a coach talking, not a summary."},
     focusTip:{type:"string", description:"One coaching cue for today, max 16 words."},
     adaptationNote:{type:"string", description:"If you changed the session because of their check-in or recent performance, one sentence saying what and why. Empty string if unchanged."},
-    exercises:{ type:"array", minItems:2, maxItems:8, items:{
+    exercises:{ type:"array", minItems:1, maxItems:8, items:{
       type:"object", additionalProperties:false,
       required:["exId","sets","targetReps","weight","rest","why"],
       properties:{
@@ -2593,7 +2595,7 @@ const S_EXPLAIN = {
   properties:{
     setup:{type:"string"},
     execution:{type:"string"},
-    mistakes:{type:"array", items:{type:"string"}, minItems:2, maxItems:5},
+    mistakes:{type:"array", items:{type:"string"}, minItems:1, maxItems:5},
     feel:{type:"string"},
     why:{type:"string", description:"Why this exercise earns its place in THEIR plan, referencing their goal."},
   }};
@@ -2652,6 +2654,11 @@ const S_GYM = {
 function makeCoach(getState, getKey, getModel, onFallback){
   const fallback = (kind, err) => { try{ onFallback && onFallback(kind, err); }catch{} };
 
+  function rejectAIResponse(message){
+    saveApiStatus(false,"response",message);
+    throw new CoachError(message,"response");
+  }
+
   async function tryAI(fn, rulesFn, kind){
     const key = getKey();
     if(!key) return rulesFn();
@@ -2682,7 +2689,16 @@ Requirements:
 - restMult is a multiplier on standard rest (1.0 = normal, 1.4 = long rests for heavy strength work, 0.8 = short rests for density work).
 - The "intent" of each phase is read by the user. Write it to them, in plain language, saying what the phase is for and how it should feel.`,
         });
+        if(!Array.isArray(raw?.phases) || raw.phases.length < 2 || raw.phases.length > 5){
+          rejectAIResponse("The coach returned an invalid number of training phases");
+        }
+        if(raw.phases.some(p=>!Array.isArray(p?.repRange) || p.repRange.length !== 2)){
+          rejectAIResponse("The coach returned an invalid phase rep range");
+        }
         const totalWeeks = raw.phases.reduce((n,p)=>n+(p.weeks||1),0);
+        if(totalWeeks < 4 || totalWeeks > 10){
+          rejectAIResponse("The coach returned a block outside the 4 to 10 week range");
+        }
         return { id:uid(), source:"ai", name:raw.name, rationale:raw.rationale,
           phases: raw.phases.map(p=>({...p, repRange:[p.repRange[0],p.repRange[1]]})),
           totalWeeks, startedAt: todayISO(),
@@ -2721,6 +2737,12 @@ Rules:
 - Respect the phase's rep range and set count, and adjust for their check-in if it warrants it.
 - "why" is read at the rack between sets. Make it specific to them and worth reading.`,
         });
+        if(!Array.isArray(raw?.exercises) || raw.exercises.length !== base.exercises.length){
+          rejectAIResponse(`The coach returned ${raw?.exercises?.length||0} exercises instead of ${base.exercises.length}`);
+        }
+        if(new Set(raw.exercises.map(r=>r?.exId)).size !== raw.exercises.length){
+          rejectAIResponse("The coach returned duplicate exercises");
+        }
         const byId = Object.fromEntries(base.exercises.map(e=>[e.exId,e]));
         const exercises = raw.exercises.map(r=>{
           const ex = EX_BY_ID[r.exId];
@@ -2742,7 +2764,9 @@ Rules:
             decisionLabel: calculated.decisionLabel || "", decisionColor: calculated.decisionColor || C.faint,
             why: r.why };
         }).filter(Boolean);
-        if(exercises.length < 2) throw new CoachError("Too few valid exercises","shape");
+        if(exercises.length !== base.exercises.length){
+          rejectAIResponse("The coach returned an exercise outside Snap's catalogue");
+        }
         const plannedExercises=assignSupersets(exercises,state,prog.phase);
         return {...base, source:"ai", brief:raw.brief || base.brief,
           focusTip:raw.focusTip,
@@ -2762,6 +2786,9 @@ ${entry ? `They're currently working at ${entry.weight}kg for about ${entry.last
 
 Write it as if you're standing at the machine with them. Setup, then how to execute the rep, the mistakes you actually see people make on this exercise, and what it should feel like when it's right. Then why it's in their plan specifically.`,
         });
+        if(!Array.isArray(raw?.mistakes) || raw.mistakes.length < 2 || raw.mistakes.length > 5){
+          rejectAIResponse("The coach returned an invalid exercise explanation");
+        }
         return {source:"ai", exId, ...raw};
       }, ()=>explainRules(exId), "explain");
     },

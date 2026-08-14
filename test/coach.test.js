@@ -43,14 +43,13 @@ function mockBlock(){
     {name:"Deload", weeks:1, sets:2, repRange:[10,12], rpe:6, restMult:0.9, intent:"Back off."},
   ]};
 }
-function mockSession(){
+function mockSession(count=3){
+  const ids=["leg_press","chest_press_mach","seated_row","shoulder_press_mach","leg_curl","leg_extension","lat_pulldown","db_bench"];
   return { brief:"Mock brief paragraph one.\n\n**What's required.** Mock requirement.\n\n**The standard.** Mock standard.",
     focusTip:"Mock cue for today.", adaptationNote:"Trimmed because you slept badly.",
-    exercises:[
-      {exId:"leg_press", sets:3, targetReps:10, weight:100, rest:120, why:"Mock reason one."},
-      {exId:"chest_press_mach", sets:3, targetReps:10, weight:40, rest:90, why:"Mock reason two."},
-      {exId:"seated_row", sets:3, targetReps:10, weight:45, rest:90, why:"Mock reason three."},
-    ]};
+    exercises:ids.slice(0,count).map((exId,i)=>({
+      exId, sets:3, targetReps:10, weight:i===0?100:40+i*2.5, rest:i===0?120:90, why:`Mock reason ${i+1}.`,
+    }))};
 }
 
 /* A real PNG, so createImageBitmap in the page can actually decode it and the
@@ -147,8 +146,11 @@ function mockGym(){
     let payload;
     const props = schema ? Object.keys(schema.properties||{}) : [];
     if(props.includes("extras"))            payload = mockGym();
-    else if(props.includes("phases"))       payload = mockBlock();
-    else if(props.includes("exercises"))    payload = mockSession();
+    else if(props.includes("phases"))       payload = apiMode==="badshape" ? {...mockBlock(),phases:[mockBlock().phases[0]]} : mockBlock();
+    else if(props.includes("exercises")){
+      const requested=Number(JSON.stringify(lastRequest.messages||[]).match(/Exactly (\d+) exercises/)?.[1]||3);
+      payload = mockSession(requested);
+    }
     else if(props.includes("setup"))        payload = {setup:"Mock setup.",execution:"Mock execution.",mistakes:["Mock mistake one","Mock mistake two"],feel:"Mock feel.",why:"Mock why."};
     else if(props.includes("nextFocus"))    payload = {headline:"Mock headline.",body:"Mock **debrief** body.",nextFocus:"Mock next focus.",voiceSummary:"Mock spoken debrief.",note:"Mock note."};
     else if(props.includes("headline"))     payload = {headline:"Mock review.",body:"Mock review body.",voiceSummary:"Mock spoken weekly review.",note:""};
@@ -234,6 +236,29 @@ function mockGym(){
   check("a saved key refreshes itself without generating tokens",healthChecks>=1,`${healthChecks} health checks`);
   const startupStatus=await page.evaluate(()=>JSON.parse(localStorage.getItem("snapfit_v2_api_status")||"null"));
   check("automatic connection refresh updates the visible API status",startupStatus?.ok===true,JSON.stringify(startupStatus));
+  const schemaMins = await page.evaluate(()=>{
+    const found=[];
+    const walk=(value,path)=>{
+      if(!value || typeof value!=="object") return;
+      if(Object.prototype.hasOwnProperty.call(value,"minItems")) found.push({path,value:value.minItems});
+      Object.entries(value).forEach(([key,child])=>walk(child,`${path}.${key}`));
+    };
+    [S_BLOCK,S_SESSION,S_EXPLAIN,S_DEBRIEF,S_REVIEW,S_GYM].forEach((schema,i)=>walk(schema,`schema${i}`));
+    return found;
+  });
+  check("structured-output schemas use Anthropic-supported array minima",
+    schemaMins.every(x=>x.value===0 || x.value===1),JSON.stringify(schemaMins));
+  apiMode = "badshape";
+  const invalidBlock = await page.evaluate(async()=>{
+    let fallbackKind="";
+    const c=makeCoach(()=>defaultState(),()=>"sk-ant-test",()=>"claude-opus-5",kind=>{ fallbackKind=kind; });
+    const block=await c.buildBlock();
+    return {source:block.source,fallbackKind,status:loadApiStatus()};
+  });
+  check("an undersized AI block is rejected safely",
+    invalidBlock.source!=="ai" && invalidBlock.fallbackKind==="block" && invalidBlock.status?.kind==="response",
+    JSON.stringify(invalidBlock));
+  apiMode = "ok";
 
   await page.getByText("LET'S GO").click(); await page.waitForTimeout(200);
   for(let i=0;i<3;i++){ await page.getByText("NEXT →").click(); await page.waitForTimeout(220); }
