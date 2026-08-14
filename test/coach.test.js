@@ -35,6 +35,7 @@ let apiMode = "ok";
 let lastRequest = null;
 let requestCount = 0;
 let healthChecks = 0;
+let schemaRejects = 0;
 
 function mockBlock(){
   return { name:"Test 6 week block", rationale:"Built for the test.", phases:[
@@ -135,6 +136,10 @@ function mockGym(){
     if(apiMode==="fail")  return route.fulfill({status:500, contentType:"application/json", body:JSON.stringify({error:{message:"upstream boom"}})});
     if(apiMode==="auth")  return route.fulfill({status:401, contentType:"application/json", body:JSON.stringify({error:{message:"invalid x-api-key"}})});
     if(apiMode==="abort") return route.abort("failed");
+    if(apiMode==="schemafail" && lastRequest.output_config?.format){
+      schemaRejects++;
+      return route.fulfill({status:400,contentType:"application/json",body:JSON.stringify({error:{message:"output_config.format.schema could not be compiled"}})});
+    }
 
     if(lastRequest.stream){
       const chunks = ["Your ","bench ","stalled ","because ","you're ","under-recovered."];
@@ -145,6 +150,7 @@ function mockGym(){
     const schema = lastRequest.output_config?.format?.schema;
     let payload;
     const props = schema ? Object.keys(schema.properties||{}) : [];
+    const prompt = JSON.stringify(lastRequest.messages||[]);
     if(props.includes("extras"))            payload = mockGym();
     else if(props.includes("phases"))       payload = apiMode==="badshape" ? {...mockBlock(),phases:[mockBlock().phases[0]]} : mockBlock();
     else if(props.includes("exercises")){
@@ -154,9 +160,11 @@ function mockGym(){
     else if(props.includes("setup"))        payload = {setup:"Mock setup.",execution:"Mock execution.",mistakes:["Mock mistake one","Mock mistake two"],feel:"Mock feel.",why:"Mock why."};
     else if(props.includes("nextFocus"))    payload = {headline:"Mock headline.",body:"Mock **debrief** body.",nextFocus:"Mock next focus.",voiceSummary:"Mock spoken debrief.",note:"Mock note."};
     else if(props.includes("headline"))     payload = {headline:"Mock review.",body:"Mock review body.",voiceSummary:"Mock spoken weekly review.",note:""};
+    else if(/Design a training block/.test(prompt)) payload = mockBlock();
     else                                    payload = {ok:true};
+    const responseText=apiMode==="schemafail" ? `\`\`\`json\n${JSON.stringify(payload)}\n\`\`\`` : JSON.stringify(payload);
     return route.fulfill({status:200, contentType:"application/json", body:JSON.stringify({
-      content:[{type:"thinking",thinking:""},{type:"text",text:JSON.stringify(payload)}],
+      content:[{type:"thinking",thinking:""},{type:"text",text:responseText}],
       stop_reason:"end_turn", usage:{input_tokens:10,output_tokens:10,cache_read_input_tokens:0},
     })});
   });
@@ -257,6 +265,18 @@ function mockGym(){
     transportGuard.original.minItems===2 && transportGuard.original.items.minItems===3
       && transportGuard.sent.minItems===1 && transportGuard.sent.items.minItems===1,
     JSON.stringify(transportGuard));
+  apiMode = "schemafail";
+  schemaRejects = 0;
+  const recoveredBlock = await page.evaluate(async()=>{
+    let fallbackKind="";
+    const c=makeCoach(()=>defaultState(),()=>"sk-ant-test",()=>"claude-opus-5",kind=>{ fallbackKind=kind; });
+    const block=await c.buildBlock();
+    return {source:block.source,fallbackKind,status:loadApiStatus()};
+  });
+  check("a rejected structured Plan request retries as locally validated JSON",
+    recoveredBlock.source==="ai" && !recoveredBlock.fallbackKind && recoveredBlock.status?.ok===true
+      && schemaRejects===1 && !lastRequest?.output_config?.format,
+    JSON.stringify({recoveredBlock,schemaRejects,lastFormat:lastRequest?.output_config?.format}));
   apiMode = "badshape";
   const invalidBlock = await page.evaluate(async()=>{
     let fallbackKind="";

@@ -236,7 +236,8 @@ function check(name, ok, detail){
   check("reuse keeps the same equipment", reused.stations.slice().sort().join(",")==="25,26,29",
     reused.stations.join(","));
   check("reuse keeps the dumbbell ceiling", reused.dumbbellMax===15, `got ${reused.dumbbellMax}`);
-  check("reuse stamps today's date", reused.date === new Date().toISOString().slice(0,10), reused.date);
+  const browserToday=await page.evaluate(()=>todayISO());
+  check("reuse stamps today's date", reused.date === browserToday, reused.date);
 
   // And forget it entirely, so the row goes back to the plain home-gym state.
   await page.getByText("Your usual gym", {exact:false}).click().catch(()=>{});

@@ -5,7 +5,7 @@
 
 /* Bump this on any shell change. Navigations are network-first when online so
    an accepted update cannot reopen an older app document from the cache. */
-const CACHE = "snapfit-v2-22";
+const CACHE = "snapfit-v2-23";
 
 const SHELL = [
   "./",

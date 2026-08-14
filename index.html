@@ -2415,6 +2415,22 @@ function schemaForAnthropic(schema){
   return copy;
 }
 
+function jsonFallbackContent(content,schema){
+  const instruction=`The structured-output service was unavailable. Return ONLY one valid JSON object matching this schema. Do not use markdown fences or add commentary.\n${JSON.stringify(schemaForAnthropic(schema))}`;
+  return Array.isArray(content) ? [...content,{type:"text",text:instruction}] : `${content}\n\n${instruction}`;
+}
+
+function parseCoachJson(text){
+  const raw=String(text||"").trim();
+  try{ return JSON.parse(raw); }catch{}
+  const unfenced=raw.replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/i,"").trim();
+  try{ return JSON.parse(unfenced); }catch{}
+  const start=unfenced.indexOf("{");
+  const end=unfenced.lastIndexOf("}");
+  if(start>=0 && end>start) return JSON.parse(unfenced.slice(start,end+1));
+  throw new SyntaxError("No JSON object in coach response");
+}
+
 async function callAnthropic({state, key, model, userText, schema, effort="low", maxTokens=4000, systemExtra, timeoutMs=45000}){
   if(!key) throw new CoachError("No API key","nokey");
   const ctrl = new AbortController();
@@ -2429,7 +2445,17 @@ async function callAnthropic({state, key, model, userText, schema, effort="low",
     };
     if(schema) body.output_config.format = { type:"json_schema", schema:schemaForAnthropic(schema) };
 
-    const res = await fetch(API_URL, {method:"POST", headers:apiHeaders(key), body:JSON.stringify(body), signal:ctrl.signal});
+    let res = await fetch(API_URL, {method:"POST", headers:apiHeaders(key), body:JSON.stringify(body), signal:ctrl.signal});
+    /* Chat uses plain text and can remain healthy while Anthropic rejects the
+       separate structured-output grammar. A 400 here is therefore a format
+       failure, not proof that the coach is offline. Retry once as JSON text;
+       the same local domain validation still runs before Snap accepts it. */
+    if(!res.ok && schema && res.status===400){
+      const fallbackBody={...body,
+        messages:[{role:"user",content:jsonFallbackContent(userText,schema)}],
+        output_config:{effort}};
+      res = await fetch(API_URL, {method:"POST", headers:apiHeaders(key), body:JSON.stringify(fallbackBody), signal:ctrl.signal});
+    }
     if(!res.ok){
       let msg = `HTTP ${res.status}`;
       try{ const j = await res.json(); msg = j?.error?.message || msg; }catch{}
@@ -2450,7 +2476,7 @@ async function callAnthropic({state, key, model, userText, schema, effort="low",
     }
     saveApiStatus(true);
     if(!schema) return text;
-    try{ return JSON.parse(text); }
+    try{ return parseCoachJson(text); }
     catch{
       saveApiStatus(false,"response","The coach returned an unreadable structured response");
       throw new CoachError("The coach returned an unreadable response.","response");
