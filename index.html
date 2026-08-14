@@ -203,11 +203,28 @@ function saveKey(k){
 function loadModel(){ try{ return localStorage.getItem(MODEL_KEY)||DEFAULT_MODEL; }catch{ return DEFAULT_MODEL; } }
 function saveModel(m){ try{ localStorage.setItem(MODEL_KEY,m); }catch{} }
 function loadApiStatus(){ try{ return JSON.parse(localStorage.getItem(API_STATUS_KEY)||"null"); }catch{ return null; } }
-function saveApiStatus(ok,kind="ok"){
-  const status={ok:!!ok,kind,at:new Date().toISOString()};
+function saveApiStatus(ok,kind="ok",message=""){
+  const status={ok:!!ok,kind,at:new Date().toISOString(),
+    message:String(message||"").replace(/\s+/g," ").trim().slice(0,180)};
   try{ localStorage.setItem(API_STATUS_KEY,JSON.stringify(status)); }catch{}
   try{ window.dispatchEvent(new CustomEvent("snapfit-api-status",{detail:status})); }catch{}
   return status;
+}
+
+function coachConnectionMeta(key,status){
+  if(!key) return {label:"BUILT-IN",color:C.faint,title:"Built-in coach",
+    sub:"Rule-based. Works offline, forever."};
+  if(status?.ok) return {label:"🤖 COACH",color:C.green,title:"🤖 Coach connected",
+    sub:"The last AI request connected successfully."};
+  if(status?.kind==="auth") return {label:"KEY REJECTED",color:C.red,title:"⚠ Coach key rejected",
+    sub:"The last request was rejected. Test the key again before relying on AI."};
+  if(status?.kind==="rate") return {label:"RATE LIMITED",color:C.yellow,title:"⚠ Coach rate limited",
+    sub:"The API refused the last request temporarily. Retry in a minute."};
+  if(["http","network","timeout","response"].includes(status?.kind)) return {
+    label:"COACH OFFLINE",color:C.yellow,title:"⚠ Coach unavailable",
+    sub:`The last AI request failed${status?.message?`: ${status.message}`:""}.`};
+  return {label:"KEY SAVED",color:C.yellow,title:"🤖 Coach key saved",
+    sub:"Not connected yet. The next AI action will try the saved key."};
 }
 
 /* Calendar dates must be local. `toISOString()` is UTC and can tell an
@@ -1810,6 +1827,20 @@ function setPlanWeekTarget(state,week,target){
   return {...state,block:{...state.block,weekTargets}};
 }
 
+function setCurrentPlanWeek(state,week){
+  if(!state.block) return state;
+  const weekFloor=clamp(Number(week)||1,1,state.block.totalWeeks||1);
+  return {...state,block:{...state.block,weekFloor,weekFloorSetAt:new Date().toISOString()}};
+}
+
+function clearCurrentPlanWeek(state){
+  if(!state.block) return state;
+  const block={...state.block};
+  delete block.weekFloor;
+  delete block.weekFloorSetAt;
+  return {...state,block};
+}
+
 function blockProgress(state){
   const b = state.block;
   if(!b) return null;
@@ -1820,8 +1851,12 @@ function blockProgress(state){
   const done  = blockSessions.length;
   const bonusDone = blockSessions.filter(s=>s.bonus).length;
   const total = b.totalWeeks;
+  /* A manual floor is the failsafe for imports, missed logs or a plan that was
+     started outside the app. It never manufactures sessions or edits history;
+     it only prevents an incomplete earlier week pulling the cursor backwards. */
+  const weekFloor=clamp(Number(b.weekFloor)||1,1,total);
   let rawWeek=total+1, dayIdx=0, dpw=targetForPlanWeek(state,total);
-  for(let week=1;week<=total;week++){
+  for(let week=weekFloor;week<=total;week++){
     const target=targetForPlanWeek(state,week);
     const completed=blockSessions.filter(s=>planWeekForSession(s)===week).length;
     if(completed<target){ rawWeek=week; dayIdx=completed; dpw=target; break; }
@@ -2279,7 +2314,36 @@ function strengthDigest(state){
   return rows.length ? `CURRENT WORKING WEIGHTS:\n${rows.join("\n")}` : "CURRENT WORKING WEIGHTS: none logged yet — this is their first session.";
 }
 
-function historyDigest(state, n=6){
+function journeyDigest(state){
+  const sessions=(state.sessions||[]).filter(s=>s?.finishedAt);
+  if(!sessions.length) return "WHOLE TRAINING JOURNEY: no completed sessions yet.";
+  const dates=sessions.map(s=>s.date).filter(Boolean).sort();
+  let workingSets=0,totalReps=0;
+  const exerciseCounts={};
+  sessions.forEach(s=>(s.exercises||[]).forEach(e=>{
+    const logged=(e.log||[]).filter(x=>x&&x.reps!=null);
+    if(!logged.length) return;
+    workingSets+=logged.length;
+    totalReps+=logged.reduce((n,x)=>n+(Number(x.reps)||0),0);
+    exerciseCounts[e.exId]=(exerciseCounts[e.exId]||0)+1;
+  }));
+  const mostUsed=Object.entries(exerciseCounts).sort((a,b)=>b[1]-a[1]).slice(0,8)
+    .map(([id,n])=>`${EX_NAME[id]||id} (${n} sessions)`).join(", ");
+  const trends=Object.entries(state.exerciseHistory||{}).map(([id,rows])=>{
+    const valid=(rows||[]).filter(r=>Number(r.weight)>0 && Number(r.avgReps)>0);
+    if(valid.length<2) return null;
+    const first=valid[0],last=valid[valid.length-1];
+    return {uses:valid.length,text:`${EX_NAME[id]||id}: ${first.weight}kg × ${first.avgReps} avg → ${last.weight}kg × ${last.avgReps} avg across ${valid.length} logged sessions`};
+  }).filter(Boolean).sort((a,b)=>b.uses-a.uses).slice(0,10).map(x=>x.text);
+  return [
+    `WHOLE TRAINING JOURNEY: ${sessions.length} completed sessions from ${dates[0]||"unknown"} to ${dates[dates.length-1]||"unknown"}, ${workingSets} logged working sets and ${totalReps} logged reps.`,
+    mostUsed?`MOST CONSISTENT EXERCISES ACROSS THE JOURNEY: ${mostUsed}.`:"",
+    trends.length?`LONG-RANGE PROGRESSION:\n${trends.map(x=>`- ${x}`).join("\n")}`:"",
+    "Use this whole-journey summary for long-range decisions. The recent-session section below supplies the detailed set-by-set context.",
+  ].filter(Boolean).join("\n");
+}
+
+function historyDigest(state, n=8){
   const s = state.sessions.slice(0,n);
   if(!s.length) return "RECENT SESSIONS: none yet.";
   return "RECENT SESSIONS (newest first):\n" + s.map(x=>{
@@ -2314,6 +2378,7 @@ function buildSystemBlock(state, extra){
     equipmentDigest(state),
     catalogueDigest(state),
     blockDigest(state),
+    journeyDigest(state),
     strengthDigest(state),
     historyDigest(state),
     notesDigest(state),
@@ -2342,7 +2407,7 @@ async function callAnthropic({state, key, model, userText, schema, effort="low",
       let msg = `HTTP ${res.status}`;
       try{ const j = await res.json(); msg = j?.error?.message || msg; }catch{}
       const kind=res.status===401?"auth":res.status===429?"rate":"http";
-      saveApiStatus(false,kind);
+      saveApiStatus(false,kind,msg);
       throw new CoachError(msg,kind);
     }
     const data = await res.json();
@@ -2357,7 +2422,19 @@ async function callAnthropic({state, key, model, userText, schema, effort="low",
       console.log("[snapfit] usage", data.usage);
     }
     saveApiStatus(true);
-    return schema ? JSON.parse(text) : text;
+    if(!schema) return text;
+    try{ return JSON.parse(text); }
+    catch{
+      saveApiStatus(false,"response","The coach returned an unreadable structured response");
+      throw new CoachError("The coach returned an unreadable response.","response");
+    }
+  } catch(err){
+    if(err instanceof CoachError) throw err;
+    const timedOut=err?.name==="AbortError";
+    const kind=timedOut?"timeout":"network";
+    const msg=timedOut?"The coach request timed out":"The browser could not reach the Anthropic API";
+    saveApiStatus(false,kind,msg);
+    throw new CoachError(msg,kind);
   } finally { clearTimeout(timer); }
 }
 
@@ -2374,6 +2451,7 @@ function buildLeanCoachBlock(state, extra){
 
 async function streamAnthropic({state, key, model, messages, onDelta, signal, systemExtra, lean=false}){
   if(!key) throw new CoachError("No API key","nokey");
+  try{
   const body = {
     model: model || DEFAULT_MODEL,
     max_tokens: 3000,
@@ -2387,7 +2465,7 @@ async function streamAnthropic({state, key, model, messages, onDelta, signal, sy
     let msg = `HTTP ${res.status}`;
     try{ const j = await res.json(); msg = j?.error?.message || msg; }catch{}
     const kind=res.status===401?"auth":res.status===429?"rate":"http";
-    saveApiStatus(false,kind);
+    saveApiStatus(false,kind,msg);
     throw new CoachError(msg,kind);
   }
   const reader = res.body.getReader();
@@ -2415,6 +2493,12 @@ async function streamAnthropic({state, key, model, messages, onDelta, signal, sy
   }
   saveApiStatus(true);
   return out;
+  }catch(err){
+    if(err instanceof CoachError || err?.name==="AbortError") throw err;
+    const msg="The browser could not reach the Anthropic API";
+    saveApiStatus(false,"network",msg);
+    throw new CoachError(msg,"network");
+  }
 }
 
 /* ── Photos ───────────────────────────────────────────────────────────────
@@ -2808,18 +2892,25 @@ How to do this well:
     },
 
     async testKey(key){
+      try{
       const res = await fetch(API_URL, {method:"POST", headers:apiHeaders(key), body:JSON.stringify({
         model:getModel(), max_tokens:16, messages:[{role:"user",content:"Reply with the single word: ready"}],
       })});
       if(!res.ok){
         let msg = `HTTP ${res.status}`;
         try{ const j = await res.json(); msg = j?.error?.message || msg; }catch{}
-        const kind=res.status===401?"auth":"http";
-        saveApiStatus(false,kind);
+        const kind=res.status===401?"auth":res.status===429?"rate":"http";
+        saveApiStatus(false,kind,msg);
         throw new CoachError(msg,kind);
       }
       saveApiStatus(true);
       return true;
+      }catch(err){
+        if(err instanceof CoachError) throw err;
+        const msg="The browser could not reach the Anthropic API";
+        saveApiStatus(false,"network",msg);
+        throw new CoachError(msg,"network");
+      }
     },
   };
 }
@@ -4866,7 +4957,7 @@ function WakeLockNotice({status,onRetry}){
 function TodayView({state, session, setSession, generating, onGenerate, onFinish, coach, aiOn,
                     rest, startRest, skipRest, apiKey, setTravel, clearTravel, forgetTravel,
                     bonusPending=false, onCancelBonus, onRecordDiscomfort, onResolveDiscomfort,
-                    wakeStatus="off", onRetryWake, onRegenerate, regenerationReason=""}){
+                    wakeStatus="off", onRetryWake, onRegenerate, onRetryAI, regenerationReason=""}){
   const [picker,setPicker]   = useState(null);   // {exIdx,setIdx}
   const [explain,setExplain] = useState({});     // exId -> explanation
   const [explaining,setExplaining] = useState({});
@@ -5042,6 +5133,22 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
 
     <DiscomfortNotice flags={activeDiscomforts(state)} onResolve={onResolveDiscomfort} compact/>
     <WakeLockNotice status={wakeStatus} onRetry={onRetryWake}/>
+
+    {aiOn && session.source!=="ai" && <Card accent={C.yellow} style={{marginBottom:12,padding:14}}>
+      <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.yellow,fontWeight:800,letterSpacing:".08em",marginBottom:5}}>
+        THIS SESSION IS NOT AI-GENERATED
+      </div>
+      <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,lineHeight:1.62,marginBottom:10}}>
+        The coach request failed, so Snap used its safe built-in session. It still follows your current block,
+        logged working weights, readiness and restrictions, but it does not contain an AI interpretation of your journey.
+      </div>
+      <Btn kind="solid" size="sm" onClick={()=>onRetryAI?.(session)} disabled={generating||loggedSets>0}>
+        RETRY AI GENERATION
+      </Btn>
+      {loggedSets>0 && <div style={{fontSize:"calc(.61rem * var(--ts, 1))",color:C.ghost,lineHeight:1.5,marginTop:7}}>
+        Retry is locked after logging begins so no completed sets can be discarded.
+      </div>}
+    </Card>}
 
     {/* The brief — what today is for and what's being asked of you. */}
     {session.brief && (<Card accent={C.blue} style={{marginBottom:12,padding:briefOpen?16:"10px 13px"}}>
@@ -5334,7 +5441,8 @@ function DebriefView({debrief, loading, onDone, aiOn, session, coach, onClarifie
    PLAN
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function PlanView({state, onReplan, replanning, aiOn, onAddBonus, currentSession, onSetWeekTarget}){
+function PlanView({state, onReplan, replanning, aiOn, onAddBonus, currentSession, onSetWeekTarget,
+                   onSetCurrentWeek,onClearCurrentWeek}){
   const b = state.block;
   const prog = blockProgress(state);
   const [confirm,setConfirm] = useState(false);
@@ -5349,6 +5457,20 @@ function PlanView({state, onReplan, replanning, aiOn, onAddBonus, currentSession
 
   return (<div className="fade" style={{paddingTop:8,paddingBottom:20}}>
     <SectionTitle sub={`${prog.done} block sessions done${prog.bonusDone?` · ${prog.bonusDone} added extra`:""} · ${prog.dpw} per week`}>YOUR BLOCK</SectionTitle>
+
+    {aiOn && b.source!=="ai" && <Card accent={C.yellow} style={{marginBottom:14}}>
+      <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.yellow,fontWeight:800,letterSpacing:".08em",marginBottom:5}}>
+        THIS BLOCK IS NOT AI-GENERATED
+      </div>
+      <div style={{fontSize:"calc(.71rem * var(--ts, 1))",color:C.faint,lineHeight:1.65,marginBottom:10}}>
+        It is the safe built-in template. It still uses your goal, schedule and logged working weights,
+        but an AI coach did not interpret your journey when this block was created. Reconnect, then retry
+        to build an AI block from your whole-journey summary and recent sessions.
+      </div>
+      <Btn kind="solid" size="sm" onClick={()=>setConfirm(true)} disabled={replanning}>
+        {replanning?"RETRYING…":"RETRY WITH AI"}
+      </Btn>
+    </Card>}
 
     <Card accent={C.red} style={{marginBottom:14}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:10}}>
@@ -5399,6 +5521,25 @@ function PlanView({state, onReplan, replanning, aiOn, onAddBonus, currentSession
       {weekIsCustom && <Btn kind="ghost" size="sm" full style={{marginTop:9}} onClick={()=>onSetWeekTarget(normalTarget)}>
         RESET WEEK {prog.week} TO {normalTarget} SESSIONS
       </Btn>}
+      <div style={{borderTop:`1px solid ${C.lineSoft}`,marginTop:13,paddingTop:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,flexWrap:"wrap"}}>
+          <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.orange,fontWeight:700,letterSpacing:".08em"}}>
+            CURRENT BLOCK WEEK FAILSAFE
+          </div>
+          {b.weekFloor!=null && <Chip color={C.orange}>MANUAL FLOOR</Chip>}
+        </div>
+        <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,lineHeight:1.55,marginBottom:9}}>
+          If missed or imported logs pull the plan backwards, set the week you are actually in.
+          This does not invent workouts or change any logged dates.
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <select value={prog.week} onChange={e=>onSetCurrentWeek(Number(e.target.value))}
+            style={{...inputStyle,appearance:"auto",flex:1}}>
+            {Array.from({length:b.totalWeeks||1},(_,i)=><option key={i+1} value={i+1}>Week {i+1}</option>)}
+          </select>
+          {b.weekFloor!=null && <Btn kind="ghost" size="sm" onClick={onClearCurrentWeek}>AUTOMATIC</Btn>}
+        </div>
+      </div>
     </Card>
 
     <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em",marginBottom:10}}>THE WHOLE BLOCK</div>
@@ -6588,6 +6729,7 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
   }
 
   const p = state.profile, l = state.limits;
+  const connection=coachConnectionMeta(apiKey,apiStatus);
   const discomforts = activeDiscomforts(state);
   const coachStyle = {...DEFAULT_COACH_STYLE, ...(state.coachStyle||{})};
   const uiPrefs = {...DEFAULT_UI_PREFS, ...(state.uiPrefs||{})};
@@ -6605,17 +6747,17 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
     <SectionTitle sub="Everything lives on this device.">SETTINGS</SectionTitle>
 
     {/* ── API key ─────────────────────────────────────────────────────── */}
-    <Card accent={apiKey?C.green:C.faint} style={{marginBottom:14}}>
+    <Card accent={connection.color} style={{marginBottom:14}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
         <div>
           <div style={{fontSize:"calc(.82rem * var(--ts, 1))",color:C.text,fontWeight:700}}>
-            {apiKey ? (apiStatus?.ok?"🤖 Coach connected":"🤖 Coach key saved") : "Built-in coach"}
+            {connection.title}
           </div>
           <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.faint,marginTop:2}}>
-            {apiKey ? (apiStatus?.ok?"Connected automatically on the last request":"Will reconnect automatically when you use AI") : "Rule-based. Works offline, forever."}
+            {connection.sub}
           </div>
         </div>
-        {apiKey && <Chip color={apiStatus?.ok?C.green:C.yellow}>{apiStatus?.ok?"CONNECTED":"SAVED"}</Chip>}
+        {apiKey && <Chip color={connection.color}>{connection.label}</Chip>}
       </div>
 
       <Field label="Anthropic API key">
@@ -7041,9 +7183,11 @@ function App(){
   useEffect(()=>{ wakeLock.setWanted(!!session); },[!!session]);
 
   const flagOffline = useCallback((kind, err)=>{
-    setOffline({kind, msg: err?.kind==="auth" ? "API key rejected — using the built-in coach."
-                        : err?.kind==="rate" ? "Rate limited — using the built-in coach."
-                        : "Couldn't reach the coach — using the built-in plan."});
+    const detail=String(err?.message||"").replace(/\s+/g," ").trim().slice(0,120);
+    setOffline({kind, msg: err?.kind==="auth" ? "API key rejected — this result is built-in, not AI-generated."
+                        : err?.kind==="rate" ? "Rate limited — this result is built-in, not AI-generated."
+                        : err?.kind==="timeout" ? "The coach timed out — this result is built-in, not AI-generated."
+                        : `Couldn't reach the coach${detail?` (${detail})`:""} — this result is built-in, not AI-generated.`});
     setTimeout(()=>setOffline(null), 6000);
   },[]);
 
@@ -7052,6 +7196,7 @@ function App(){
   ),[flagOffline]);
 
   const aiOn = !!apiKey;
+  const connection=coachConnectionMeta(apiKey,apiStatus);
   const prog = blockProgress(state);
 
   /* ── block ──────────────────────────────────────────────────────────── */
@@ -7059,8 +7204,15 @@ function App(){
     setReplanning(true);
     try{
       if(baseState) stateRef.current = baseState;
+      const previous=stateRef.current.block;
       const block = await coach.buildBlock();
+      /* With a saved key, an explicit AI retry must be transactional. A second
+         connection failure returns the rules fallback, but replacing an
+         existing block with it would silently reset the user's week and block
+         id. Keep the current block unless the AI actually answered. */
+      if(previous && keyRef.current && block?.source!=="ai") return false;
       setState(s=>({...s, block}));
+      return true;
     } finally { setReplanning(false); }
   }
 
@@ -7089,6 +7241,14 @@ function App(){
     setSession(null);
     setRegenerationReason(String(reason||"I want a different session").slice(0,300));
     setView("today");
+  }
+
+  async function retryAiSession(current){
+    if(!current || generating) return;
+    const saved=(stateRef.current.checkins||[]).find(c=>c.date===todayISO());
+    const checkin=saved ? (({date,...answers})=>answers)(saved) : null;
+    await generate(checkin,{bonus:!!current.bonus,
+      regenerateReason:"Retrying because the previous AI coach request failed."});
   }
 
   async function finishSession(sess){
@@ -7238,8 +7398,8 @@ function App(){
             {prog && <div style={{fontSize:"calc(.55rem * var(--ts, 1))",color:C.ghost,marginTop:1}}>
               Week {prog.week}/{prog.total} · {prog.phase.name}</div>}
           </div>
-          <Chip color={aiOn?C.green:C.faint} onClick={()=>setView("settings")}
-            style={{cursor:"pointer"}}>{aiOn?"🤖 COACH":"BUILT-IN"}</Chip>
+          <Chip color={connection.color} onClick={()=>setView("settings")}
+            style={{cursor:"pointer"}}>{connection.label}</Chip>
           <button onClick={()=>setView("settings")} style={{background:"transparent",border:"none",
             color:view==="settings"?C.red:C.faint,fontSize:"calc(1.05rem * var(--ts, 1))",cursor:"pointer",padding:"4px 2px",flexShrink:0}}>⚙</button>
         </div>
@@ -7301,12 +7461,15 @@ function App(){
                                     onCancelBonus={()=>setBonusPending(false)}
                                     onRecordDiscomfort={recordDiscomfort} onResolveDiscomfort={resolveDiscomfort}
                                     wakeStatus={wakeStatus} onRetryWake={()=>wakeLock.retry()}
-                                    regenerationReason={regenerationReason} onRegenerate={regenerateSession}/>
+                                    regenerationReason={regenerationReason} onRegenerate={regenerateSession}
+                                    onRetryAI={retryAiSession}/>
             : view==="plan"     ? <PlanView state={state} onReplan={()=>buildBlock()} replanning={replanning} aiOn={aiOn}
                                     onSetWeekTarget={v=>setState(s=>{
                                       const current=blockProgress(s);
                                       return setPlanWeekTarget(s,current?.week||1,v);
                                     })}
+                                    onSetCurrentWeek={week=>setState(s=>setCurrentPlanWeek(s,week))}
+                                    onClearCurrentWeek={()=>setState(clearCurrentPlanWeek)}
                                     currentSession={session} onAddBonus={()=>{
                                       if(!session) setBonusPending(true);
                                       setView("today");

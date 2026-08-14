@@ -719,6 +719,8 @@ function check(name, ok, detail){
     appSrc.indexOf('{id:"plan",  label:"Plan"') < appSrc.indexOf('{id:"today", label:"Today"'));
   check("one-week targets do not replace the global schedule",
     /function setPlanWeekTarget\(/.test(appSrc) && /weekTargets/.test(appSrc));
+  check("the current plan week has a non-destructive manual failsafe",
+    /function setCurrentPlanWeek\(/.test(appSrc) && /CURRENT BLOCK WEEK FAILSAFE/.test(appSrc));
   check("logged sessions can be reassigned without changing their date",
     /PLAN-WEEK PLACEMENT/.test(appSrc) && /planWeekForSession/.test(appSrc));
   check("a generated session can be rebuilt without advancing the block",
@@ -729,6 +731,12 @@ function check(name, ok, detail){
     /PLATE_LOADED_DEFAULTS/.test(appSrc) && /EquipmentLoadsView/.test(appSrc) && /Watagan Park plate-loaded machines/.test(appSrc));
   check("the API key is persisted from every supported save path",
     /useEffect\(\(\)=>\{ saveKey\(apiKey\); \},\[apiKey\]\)/.test(appSrc));
+  check("AI fallback is persistent and never presented as an active coach",
+    /THIS SESSION IS NOT AI-GENERATED/.test(appSrc) && /COACH OFFLINE/.test(appSrc) && /RETRY AI GENERATION/.test(appSrc));
+  check("a failed AI block retry preserves the existing block",
+    /previous && keyRef\.current && block\?\.source!=="ai"/.test(appSrc));
+  check("the AI receives a whole-journey summary plus detailed recent history",
+    /function journeyDigest\(/.test(appSrc) && /WHOLE TRAINING JOURNEY/.test(appSrc) && /function historyDigest\(state, n=8\)/.test(appSrc));
   check("post-session coaching can correct the review",
     /function PostSessionChat\(/.test(appSrc) && /postSessionChatStream/.test(appSrc));
   check("busy-equipment swaps stay inside the catalogue and do not call AI",

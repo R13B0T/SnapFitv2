@@ -372,6 +372,14 @@ function mockGym(){
   t = await page.locator("body").innerText();
   check("falls back to built-in plan", /built-in plan/.test(t), t.slice(0,220));
   check("offline warning surfaced", /Couldn't reach the coach/.test(t), t.slice(0,300));
+  check("the header stops claiming the coach is active",
+    await page.getByText("COACH OFFLINE",{exact:true}).count()===1,t.slice(0,220));
+  check("fallback remains visibly marked after the short banner",
+    /THIS SESSION IS NOT AI-GENERATED/.test(t) && /RETRY AI GENERATION/.test(t),t.slice(0,420));
+  const failedStatus=await page.evaluate(()=>JSON.parse(localStorage.getItem("snapfit_v2_api_status")||"null"));
+  check("the failed API result and useful detail are persisted",
+    failedStatus?.ok===false && failedStatus?.kind==="http" && /upstream boom/.test(failedStatus?.message||""),
+    JSON.stringify(failedStatus));
   check("session still generated", await page.locator('button[aria-label$=" exercise details"]').count() >= 2);
   check("no crash on API failure", errors.length===0, errors.slice(0,3).join(" | "));
 
@@ -383,6 +391,8 @@ function mockGym(){
   await page.waitForTimeout(2200);
   t = await page.locator("body").innerText();
   check("bad key message is specific", /API key rejected/.test(t), t.slice(0,260));
+  check("the header identifies a rejected key",
+    await page.getByText("KEY REJECTED",{exact:true}).count()===1,t.slice(0,220));
   check("still produces a session", await page.locator('button[aria-label$=" exercise details"]').count() >= 2);
 
   console.log("\n── NETWORK DROP MID-SESSION ─────────────────────");
@@ -393,6 +403,9 @@ function mockGym(){
   await page.waitForTimeout(1500);
   t = await page.locator("body").innerText();
   check("form coaching falls back offline", /SET UP/.test(t) && /COMMON MISTAKES/.test(t), t.slice(0,200));
+  const networkStatus=await page.evaluate(()=>JSON.parse(localStorage.getItem("snapfit_v2_api_status")||"null"));
+  check("a browser-level network failure also clears connected status",
+    networkStatus?.ok===false && networkStatus?.kind==="network",JSON.stringify(networkStatus));
   check("no crash when the network dies", errors.length===0, errors.slice(0,3).join(" | "));
 
   console.log("\n── STREAMING CHAT ───────────────────────────────");

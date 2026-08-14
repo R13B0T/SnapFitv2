@@ -66,12 +66,21 @@ normally when finished. The log and weekly review label it as an extra so attend
 **One busy week does not rewrite the whole block.** Plan can set a two-to-five-session target for
 the current block week only. The normal weekly frequency and later weeks stay unchanged. If history
 lands in the wrong block week, Log can move that session's plan placement without changing its real
-date, exercises, sets or loads.
+date, exercises, sets or loads. A separate current-week failsafe can move the plan cursor forward
+when missed or imported logs make the app think the user is still in an earlier week; it changes no
+session dates and fabricates no history.
 
 **Today is generated deliberately.** Opening Today shows a readiness check rather than silently
 building a workout. Sleep, energy, soreness, stress, time available and an optional note shape the
 session. A draft can be regenerated with a reason before training; rejecting it does not advance the
 block.
+
+**AI and fallback are never blurred together.** The header reflects the most recent real API result,
+not merely whether a key is saved. If an AI request fails, the built-in result remains permanently
+marked as not AI-generated and offers a one-tap retry. AI prompts include an aggregate of the whole
+logged journey, long-range exercise progression and eight recent sessions in set-by-set detail. A
+failed AI block retry keeps the existing block and current week; only a successful AI response can
+replace it.
 
 **Changing weekly frequency keeps the block intact.** Moving from three sessions to four (or
 back again) applies the new split from the next generated session while preserving the current

@@ -224,6 +224,25 @@ const VENDOR={"react.production.min.js":"react.js","react-dom.production.min.js"
     weekControl.movedWeek===2 && weekControl.afterMove.week===1 && weekControl.afterMove.dayIdx===4,
     JSON.stringify(weekControl));
 
+  const weekFailsafe=await page.evaluate(()=>{
+    let st=defaultState(); st.onboarded=true; st.goal={type:"build_muscle"}; st.block=buildBlockRules(st);
+    const automatic=blockProgress(st).week;
+    st=setCurrentPlanWeek(st,2);
+    const manual=blockProgress(st);
+    const floor=st.block.weekFloor;
+    const generated=buildSessionRules(st,null);
+    st.sessions=[{...generated,finishedAt:new Date().toISOString()},...st.sessions];
+    const afterOne=blockProgress(st);
+    st=clearCurrentPlanWeek(st);
+    return {automatic,manual:{week:manual.week,floor},generatedWeek:generated.week,
+      afterOne:afterOne.week,cleared:blockProgress(st).week};
+  });
+  check("the manual current-week failsafe can skip an incomplete earlier week",
+    weekFailsafe.automatic===1 && weekFailsafe.manual.week===2 && weekFailsafe.generatedWeek===2,
+    JSON.stringify(weekFailsafe));
+  check("returning to automatic never edits or fabricates session history",
+    weekFailsafe.cleared===1,JSON.stringify(weekFailsafe));
+
   console.log("\n── PLATE-LOADED MACHINE MATH ────────────────");
   const machineLoads=await page.evaluate(()=>{
     const st=defaultState();
