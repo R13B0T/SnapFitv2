@@ -34,6 +34,7 @@ const VENDOR = {
 let apiMode = "ok";
 let lastRequest = null;
 let requestCount = 0;
+let healthChecks = 0;
 
 function mockBlock(){
   return { name:"Test 6 week block", rationale:"Built for the test.", phases:[
@@ -130,6 +131,7 @@ function mockGym(){
   await ctx.route("**/api.anthropic.com/**", route=>{
     const req = route.request();
     requestCount++;
+    if(req.method()==="GET" && /\/v1\/models/.test(req.url())) healthChecks++;
     lastRequest = JSON.parse(req.postData()||"{}");
     if(apiMode==="fail")  return route.fulfill({status:500, contentType:"application/json", body:JSON.stringify({error:{message:"upstream boom"}})});
     if(apiMode==="auth")  return route.fulfill({status:401, contentType:"application/json", body:JSON.stringify({error:{message:"invalid x-api-key"}})});
@@ -229,6 +231,9 @@ function mockGym(){
   await page.evaluate(()=>{ localStorage.setItem("snapfit_v2_apikey","sk-ant-test"); localStorage.removeItem("snapfit_v2"); localStorage.removeItem("snapfit_v2_active"); });
   await page.reload({waitUntil:"networkidle"});
   await page.waitForTimeout(1800);
+  check("a saved key refreshes itself without generating tokens",healthChecks>=1,`${healthChecks} health checks`);
+  const startupStatus=await page.evaluate(()=>JSON.parse(localStorage.getItem("snapfit_v2_api_status")||"null"));
+  check("automatic connection refresh updates the visible API status",startupStatus?.ok===true,JSON.stringify(startupStatus));
 
   await page.getByText("LET'S GO").click(); await page.waitForTimeout(200);
   for(let i=0;i<3;i++){ await page.getByText("NEXT →").click(); await page.waitForTimeout(220); }

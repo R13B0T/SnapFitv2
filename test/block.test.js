@@ -238,7 +238,7 @@ const VENDOR={"react.production.min.js":"react.js","react-dom.production.min.js"
       afterOne:afterOne.week,cleared:blockProgress(st).week};
   });
   check("the manual current-week failsafe can skip an incomplete earlier week",
-    weekFailsafe.automatic===1 && weekFailsafe.manual.week===2 && weekFailsafe.generatedWeek===2,
+    weekFailsafe.automatic===1 && weekFailsafe.manual.week===2 && weekFailsafe.manual.floor===2 && weekFailsafe.generatedWeek===2,
     JSON.stringify(weekFailsafe));
   check("returning to automatic never edits or fabricates session history",
     weekFailsafe.cleared===1,JSON.stringify(weekFailsafe));

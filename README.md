@@ -68,7 +68,8 @@ the current block week only. The normal weekly frequency and later weeks stay un
 lands in the wrong block week, Log can move that session's plan placement without changing its real
 date, exercises, sets or loads. A separate current-week failsafe can move the plan cursor forward
 when missed or imported logs make the app think the user is still in an earlier week; it changes no
-session dates and fabricates no history.
+session dates and fabricates no history. The selected week is applied only after pressing *Lock in
+Week X*, persists across reloads, and still advances normally when that week's sessions are complete.
 
 **Today is generated deliberately.** Opening Today shows a readiness check rather than silently
 building a workout. Sleep, energy, soreness, stress, time available and an optional note shape the
@@ -80,7 +81,9 @@ not merely whether a key is saved. If an AI request fails, the built-in result r
 marked as not AI-generated and offers a one-tap retry. AI prompts include an aggregate of the whole
 logged journey, long-range exercise progression and eight recent sessions in set-by-set detail. A
 failed AI block retry keeps the existing block and current week; only a successful AI response can
-replace it.
+replace it. A saved key now verifies itself automatically through Anthropic's models endpoint: every
+12 hours while healthy and every two minutes after a failure. That health check generates no content
+and consumes no message tokens, so reopening the app does not require a manual reconnect.
 
 **Changing weekly frequency keeps the block intact.** Moving from three sessions to four (or
 back again) applies the new split from the next generated session while preserving the current

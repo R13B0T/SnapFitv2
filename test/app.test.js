@@ -66,6 +66,10 @@ function check(name, ok, detail){
     route.fulfill({status:200, contentType:"application/javascript", body:fs.readFileSync(file[1])});
   });
   await ctx.route("**/fonts.googleapis.com/**", route=>route.fulfill({status:200,contentType:"text/css",body:""}));
+  // Backup restore deliberately includes a fake key. The app now verifies a
+  // saved key automatically, so keep this general harness off the real API.
+  await ctx.route("**/api.anthropic.com/v1/models**", route=>route.fulfill({
+    status:200,contentType:"application/json",body:JSON.stringify({data:[{id:"claude-opus-5"}]})}));
 
   page.on("console", m=>{ logs.push(`${m.type()}: ${m.text()}`); if(m.type()==="error") errors.push(m.text()); });
   page.on("pageerror", e=>errors.push("pageerror: "+e.message));
@@ -720,7 +724,7 @@ function check(name, ok, detail){
   check("one-week targets do not replace the global schedule",
     /function setPlanWeekTarget\(/.test(appSrc) && /weekTargets/.test(appSrc));
   check("the current plan week has a non-destructive manual failsafe",
-    /function setCurrentPlanWeek\(/.test(appSrc) && /CURRENT BLOCK WEEK FAILSAFE/.test(appSrc));
+    /function setCurrentPlanWeek\(/.test(appSrc) && /CURRENT BLOCK WEEK FAILSAFE/.test(appSrc) && /LOCK IN WEEK/.test(appSrc));
   check("logged sessions can be reassigned without changing their date",
     /PLAN-WEEK PLACEMENT/.test(appSrc) && /planWeekForSession/.test(appSrc));
   check("a generated session can be rebuilt without advancing the block",
@@ -731,6 +735,8 @@ function check(name, ok, detail){
     /PLATE_LOADED_DEFAULTS/.test(appSrc) && /EquipmentLoadsView/.test(appSrc) && /Watagan Park plate-loaded machines/.test(appSrc));
   check("the API key is persisted from every supported save path",
     /useEffect\(\(\)=>\{ saveKey\(apiKey\); \},\[apiKey\]\)/.test(appSrc));
+  check("a saved API key refreshes automatically without message tokens",
+    /API_MODELS_URL/.test(appSrc) && /nextApiCheckDelay\(apiStatus\)/.test(appSrc) && /API_OK_RECHECK_MS/.test(appSrc));
   check("AI fallback is persistent and never presented as an active coach",
     /THIS SESSION IS NOT AI-GENERATED/.test(appSrc) && /COACH OFFLINE/.test(appSrc) && /RETRY AI GENERATION/.test(appSrc));
   check("a failed AI block retry preserves the existing block",

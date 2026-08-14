@@ -211,9 +211,21 @@ function saveApiStatus(ok,kind="ok",message=""){
   return status;
 }
 
-function coachConnectionMeta(key,status){
+const API_OK_RECHECK_MS = 12*60*60*1000;
+const API_FAIL_RETRY_MS = 2*60*1000;
+function nextApiCheckDelay(status){
+  if(!status || status.kind==="saved") return 600;
+  const at=Date.parse(status.at||"");
+  if(!Number.isFinite(at)) return 600;
+  const ttl=status.ok?API_OK_RECHECK_MS:API_FAIL_RETRY_MS;
+  return Math.max(600,ttl-(Date.now()-at));
+}
+
+function coachConnectionMeta(key,status,checking=false){
   if(!key) return {label:"BUILT-IN",color:C.faint,title:"Built-in coach",
     sub:"Rule-based. Works offline, forever."};
+  if(checking) return {label:"CHECKING",color:C.blue,title:"🤖 Checking coach connection",
+    sub:"Verifying the saved key automatically. This health check uses no generated tokens."};
   if(status?.ok) return {label:"🤖 COACH",color:C.green,title:"🤖 Coach connected",
     sub:"The last AI request connected successfully."};
   if(status?.kind==="auth") return {label:"KEY REJECTED",color:C.red,title:"⚠ Coach key rejected",
@@ -2183,6 +2195,7 @@ function weeklyReviewRules(state){
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const API_URL = "https://api.anthropic.com/v1/messages";
+const API_MODELS_URL = "https://api.anthropic.com/v1/models?limit=1";
 
 function apiHeaders(key){
   return {
@@ -2893,9 +2906,9 @@ How to do this well:
 
     async testKey(key){
       try{
-      const res = await fetch(API_URL, {method:"POST", headers:apiHeaders(key), body:JSON.stringify({
-        model:getModel(), max_tokens:16, messages:[{role:"user",content:"Reply with the single word: ready"}],
-      })});
+      /* Listing one model verifies authentication without generating content or
+         spending message tokens. It is safe to use for automatic refreshes. */
+      const res = await fetch(API_MODELS_URL, {method:"GET", headers:apiHeaders(key)});
       if(!res.ok){
         let msg = `HTTP ${res.status}`;
         try{ const j = await res.json(); msg = j?.error?.message || msg; }catch{}
@@ -5446,6 +5459,8 @@ function PlanView({state, onReplan, replanning, aiOn, onAddBonus, currentSession
   const b = state.block;
   const prog = blockProgress(state);
   const [confirm,setConfirm] = useState(false);
+  const [weekDraft,setWeekDraft] = useState(prog?.week||1);
+  useEffect(()=>setWeekDraft(prog?.week||1),[b?.id,prog?.week]);
 
   if(!b) return (<Empty icon="🧭" title="No block yet"
     body="Your training block is the multi-week plan that turns your goal into sessions. Set a goal to get one."/>);
@@ -5526,18 +5541,23 @@ function PlanView({state, onReplan, replanning, aiOn, onAddBonus, currentSession
           <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.orange,fontWeight:700,letterSpacing:".08em"}}>
             CURRENT BLOCK WEEK FAILSAFE
           </div>
-          {b.weekFloor!=null && <Chip color={C.orange}>MANUAL FLOOR</Chip>}
+          {b.weekFloor!=null && <Chip color={C.orange}>WEEK {b.weekFloor} LOCKED</Chip>}
         </div>
         <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,lineHeight:1.55,marginBottom:9}}>
-          If missed or imported logs pull the plan backwards, set the week you are actually in.
-          This does not invent workouts or change any logged dates.
+          Choose the week you are actually in, then lock it in. The lock survives reloads and prevents
+          earlier incomplete weeks pulling the plan backwards. It does not invent workouts or change logged dates;
+          completing this week's target still advances the plan normally.
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <select value={prog.week} onChange={e=>onSetCurrentWeek(Number(e.target.value))}
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <select value={weekDraft} onChange={e=>setWeekDraft(Number(e.target.value))}
             style={{...inputStyle,appearance:"auto",flex:1}}>
             {Array.from({length:b.totalWeeks||1},(_,i)=><option key={i+1} value={i+1}>Week {i+1}</option>)}
           </select>
-          {b.weekFloor!=null && <Btn kind="ghost" size="sm" onClick={onClearCurrentWeek}>AUTOMATIC</Btn>}
+          <Btn kind="solid" size="sm" disabled={Number(b.weekFloor)===Number(weekDraft)}
+            onClick={()=>onSetCurrentWeek(Number(weekDraft))}>
+            {Number(b.weekFloor)===Number(weekDraft)?`WEEK ${weekDraft} LOCKED`:`LOCK IN WEEK ${weekDraft}`}
+          </Btn>
+          {b.weekFloor!=null && <Btn kind="ghost" size="sm" onClick={onClearCurrentWeek}>UNLOCK</Btn>}
         </div>
       </div>
     </Card>
@@ -6664,7 +6684,7 @@ function LogView({state, setState, onRestore, apiKey}){
    SETTINGS
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coach, onReset, clearTravel, apiStatus}){
+function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coach, onReset, clearTravel, apiStatus,apiChecking}){
   const [draftKey,setDraftKey] = useState(apiKey);
   const [keyState,setKeyState] = useState("idle");
   const [keyMsg,setKeyMsg]     = useState("");
@@ -6725,11 +6745,11 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
     if(k) saveApiStatus(false,"saved");
     else try{ localStorage.removeItem(API_STATUS_KEY); }catch{}
     setKeyState(k?"saved":"idle");
-    setKeyMsg(k ? "Saved. It will connect automatically on the next coach request — no separate test needed." : "Key removed. The built-in coach takes over.");
+    setKeyMsg(k ? "Saved. The app will verify it automatically without generating content or spending message tokens." : "Key removed. The built-in coach takes over.");
   }
 
   const p = state.profile, l = state.limits;
-  const connection=coachConnectionMeta(apiKey,apiStatus);
+  const connection=coachConnectionMeta(apiKey,apiStatus,apiChecking);
   const discomforts = activeDiscomforts(state);
   const coachStyle = {...DEFAULT_COACH_STYLE, ...(state.coachStyle||{})};
   const uiPrefs = {...DEFAULT_UI_PREFS, ...(state.uiPrefs||{})};
@@ -7098,6 +7118,7 @@ function App(){
   const [updatingApp,setUpdatingApp] = useState(false);
   const [wakeStatus,setWakeStatus] = useState(()=>wakeLock.status());
   const [apiStatus,setApiStatus] = useState(loadApiStatus);
+  const [apiChecking,setApiChecking] = useState(false);
 
   /* Rest timer lives here, not in TodayView, so it survives tab changes.
      Persisted so a reload mid-workout resumes it rather than losing it. */
@@ -7195,8 +7216,23 @@ function App(){
     ()=>stateRef.current, ()=>keyRef.current, ()=>modelRef.current, flagOffline
   ),[flagOffline]);
 
+  /* A saved key should stay hands-off. Verify it on launch, every 12 hours
+     while healthy, and every two minutes after a failure. The models endpoint
+     authenticates the key without generating content or spending tokens. */
+  useEffect(()=>{
+    if(!apiKey){ setApiChecking(false); return; }
+    let cancelled=false;
+    const id=setTimeout(async()=>{
+      if(cancelled) return;
+      setApiChecking(true);
+      try{ await coach.testKey(apiKey); }catch{}
+      finally{ if(!cancelled) setApiChecking(false); }
+    },nextApiCheckDelay(apiStatus));
+    return ()=>{ cancelled=true; clearTimeout(id); };
+  },[apiKey,apiStatus?.at,coach]);
+
   const aiOn = !!apiKey;
-  const connection=coachConnectionMeta(apiKey,apiStatus);
+  const connection=coachConnectionMeta(apiKey,apiStatus,apiChecking);
   const prog = blockProgress(state);
 
   /* ── block ──────────────────────────────────────────────────────────── */
@@ -7484,6 +7520,7 @@ function App(){
                                     }}/>
             : view==="log"      ? <LogView state={state} setState={setState} onRestore={restoreState} apiKey={apiKey}/>
             : <SettingsView state={state} setState={setState} apiKey={apiKey} setApiKey={setApiKey} apiStatus={apiStatus}
+                apiChecking={apiChecking}
                 model={model} setModel={setModel} coach={coach} onReset={resetAll}
                 clearTravel={clearTravel}/>}
         </div>
