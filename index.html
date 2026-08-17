@@ -305,7 +305,8 @@ const SEED_STATIONS = [
 /* Official Hammer Strength / Life Fitness starting resistance where the
    floor-plan machine can be identified confidently. User corrections live in
    state.equipment.loads and always win. The Glute Drive page does not publish
-   a starting resistance, so that value stays null until checked on the unit. */
+   a starting resistance; its 20.4kg value was confirmed from the gym's unit
+   and therefore remains marked as user-verified rather than official. */
 const DEFAULT_PLATES_KG = [2.5,5,10,20];
 const PLATE_LOADED_DEFAULTS = {
   "19":{model:"Hammer Strength Iso-Lateral Shoulder Press",startKg:4.5,mode:"per-arm",verified:true,
@@ -318,7 +319,7 @@ const PLATE_LOADED_DEFAULTS = {
     source:"https://shop.lifefitness.com/products/hammer-strength-plate-loaded-hack-squat"},
   "35":{model:"Hammer Strength Linear Leg Press",startKg:53,mode:"total",verified:true,
     source:"https://shop.lifefitness.com/products/hammer-strength-plate-loaded-linear-leg-press"},
-  "36":{model:"Hammer Strength Plate-Loaded Glute Drive",startKg:null,mode:"total",verified:false,
+  "36":{model:"Hammer Strength Plate-Loaded Glute Drive",startKg:20.4,mode:"total",verified:false,
     source:"https://shop.lifefitness.com/products/hammer-strength-plate-loaded-glute-drive"},
   "38":{model:"Hammer Strength Iso-Lateral High Row",startKg:0.9,mode:"per-arm",verified:true,
     source:"https://shop.lifefitness.com/products/hammer-strength-iso-lateral-high-row"},
@@ -605,23 +606,23 @@ const EX = [
       execution:"Pull with the elbows, not the hands — drive them back and down to the lower ribs. Squeeze the shoulder blades together for a beat, release slowly.",
       mistakes:["Yanking with the arms while the back stays rigid","Leaning back to heave the weight","Letting the weight rip your arms forward at the end of the rep"],
       feel:"Between and below the shoulder blades. Biceps should feel like helpers, not the main event."} },
-  { id:"high_row", name:"High Row", stations:["38"], pattern:P.PULL_H, compound:true,
-    primary:"Upper Back", secondary:["Lats","Biceps"], kind:"machine", inc:2.5, start:35, reps:[8,12], tags:["upper","back"],
+  { id:"high_row", name:"Hammer Strength Iso-Lateral High Row", stations:["38"], pattern:P.PULL_H, compound:true,
+    primary:"Upper Back", secondary:["Lats","Biceps"], kind:"plate-loaded", inc:2.5, start:35, reps:[8,12], tags:["upper","back","row"],
     why:"A higher pulling angle that catches the upper back and rear delts more than a flat row.",
     cues:{ setup:"Chest on the pad, grip the high handles.",
       execution:"Pull the elbows down and back, squeeze, release slowly.",
       mistakes:["Shrugging instead of rowing","Using the whole torso to swing"],
       feel:"Upper back and rear shoulders."} },
-  { id:"iso_row", name:"Iso-Lateral Row", stations:["39"], pattern:P.PULL_H, compound:true,
-    primary:"Mid Back", secondary:["Lats","Biceps"], kind:"machine", inc:5, start:20.8, reps:[8,15], tags:["upper","back"],
+  { id:"iso_row", name:"Hammer Strength Iso-Lateral Row", stations:["39"], pattern:P.PULL_H, compound:true,
+    primary:"Mid Back", secondary:["Lats","Biceps"], kind:"plate-loaded", inc:5, start:20.8, reps:[8,15], tags:["upper","back","row"],
     why:"A supported horizontal pull that lets each side work independently, useful for building the back without turning the set into a lower-back exercise.",
     cues:{
       setup:"Set the seat so the chest pad supports you without rounding the shoulders. Start with long arms and both feet planted.",
       execution:"Pull the elbows back and slightly out, pause with the shoulder blades together, then return until the upper back reaches forward under control.",
       mistakes:["Bouncing the chest off the pad","Shrugging through the pull","Cutting off the controlled reach at the front"],
       feel:"Mid-back and lats doing the pull while the chest stays firmly supported."} },
-  { id:"low_row", name:"Low Row", stations:["40"], pattern:P.PULL_H, compound:true,
-    primary:"Mid Back", secondary:["Lats","Biceps"], kind:"machine", inc:2.5, start:40, reps:[8,12], tags:["upper","back"],
+  { id:"low_row", name:"Hammer Strength Iso-Lateral Low Row", stations:["40"], pattern:P.PULL_H, compound:true,
+    primary:"Mid Back", secondary:["Lats","Biceps"], kind:"plate-loaded", inc:2.5, start:40, reps:[8,12], tags:["upper","back","row"],
     why:"A low pulling line that emphasises the thickness of the mid-back.",
     cues:{ setup:"Chest supported, sit tall, full reach at the start.",
       execution:"Elbows to the hips, squeeze the blades, control the return.",
@@ -6421,8 +6422,9 @@ function EquipmentLoadsView({state,setState}){
           <div style={{display:"flex",gap:9,alignItems:"flex-start",marginBottom:11}}>
             <Chip color={C.blue}>#{station}</Chip>
             <div style={{flex:1,minWidth:0}}>
-              <Input value={cfg.model||""} onChange={e=>update(station,{model:e.target.value})}
-                aria-label={`Station ${station} machine model`} style={{fontWeight:650}}/>
+              <TextArea rows={2} value={cfg.model||""} onChange={e=>update(station,{model:e.target.value})}
+                aria-label={`Station ${station} machine model`} style={{fontWeight:650,minHeight:58,
+                  resize:"vertical",overflowWrap:"anywhere"}}/>
               <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:cfg.verified?C.green:C.yellow,marginTop:4}}>
                 {changed?"YOUR SAVED VALUES":cfg.verified?"MANUFACTURER DEFAULT":"VERIFY ON MACHINE"}
               </div>
@@ -7376,6 +7378,7 @@ function App(){
 
     const stored = {...sess, finishedAt:new Date().toISOString()};
     setState(s=>({...s, weights, exerciseHistory:hist, sessions:[stored, ...s.sessions].slice(0,300)}));
+    setDebriefSession(stored);
     setSession(null);
     setView("today");
     setDebriefLoading(true);

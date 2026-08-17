@@ -745,7 +745,16 @@ function check(name, ok, detail){
   check("the AI receives a whole-journey summary plus detailed recent history",
     /function journeyDigest\(/.test(appSrc) && /WHOLE TRAINING JOURNEY/.test(appSrc) && /function historyDigest\(state, n=8\)/.test(appSrc));
   check("post-session coaching can correct the review",
-    /function PostSessionChat\(/.test(appSrc) && /postSessionChatStream/.test(appSrc));
+    /function PostSessionChat\(/.test(appSrc) && /postSessionChatStream/.test(appSrc)
+      && /setDebriefSession\(stored\)/.test(appSrc));
+  check("Hammer Strength row variants are explicit workout exercises",
+    ["Hammer Strength Iso-Lateral Row","Hammer Strength Iso-Lateral High Row","Hammer Strength Iso-Lateral Low Row"]
+      .every(name=>appSrc.includes(`name:"${name}"`)));
+  check("Glute Drive includes its confirmed base resistance",
+    /"36":\{model:"Hammer Strength Plate-Loaded Glute Drive",startKg:20\.4,mode:"total"/.test(appSrc));
+  check("long equipment names wrap on the Loads screen",
+    /<TextArea rows=\{2\} value=\{cfg\.model\|\|""\}/.test(appSrc)
+      && /aria-label=\{`Station \$\{station\} machine model`\}/.test(appSrc));
   check("busy-equipment swaps stay inside the catalogue and do not call AI",
     /function exerciseSwapOptions\(/.test(appSrc) && /Swap exercise \/ flag discomfort/.test(appSrc));
   const swSrc = fs.readFileSync(path.join(ROOT,"sw.js"),"utf8");

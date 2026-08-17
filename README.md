@@ -251,7 +251,7 @@ plate-loaded Hammer Strength starting resistance, whether it applies per arm or 
 machine, and the available plate sizes. Manufacturer values are editable because a placard on the
 physical machine is the final authority. Snap's seeded plate set is 2.5, 5, 10 and 20kg; prescriptions
 are rounded to equal, physically loadable plates on both sides and include machine resistance in the
-displayed total. The Glute Drive stays marked *verify on machine* because its official product page
+displayed total. The Glute Drive uses the gym-confirmed 20.4kg base resistance and stays marked *verify on machine* because its official product page
 does not publish a starting resistance.
 
 Injury flags work the same way: tick *knees* and nothing knee-loading gets programmed at all.
