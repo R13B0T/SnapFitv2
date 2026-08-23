@@ -1363,7 +1363,7 @@ const LEARN_BY_ID = Object.fromEntries(LEARN.map(t=>[t.id,t]));
    STATE
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const DEFAULT_PROFILE = { age:"", sex:"", heightCm:"", experience:"beginner", daysPerWeek:3, sessionMinutes:45, freeWeightPct:30, dumbbellStep:2, weekStartsOn:1, useSupersets:true };
+const DEFAULT_PROFILE = { age:"", sex:"", heightCm:"", experience:"no_experience", baselineWeights:{}, daysPerWeek:3, sessionMinutes:45, freeWeightPct:30, dumbbellStep:2, weekStartsOn:1, useSupersets:true };
 const WEEKDAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
 function trainingWeek(state, onDate=todayISO()){
@@ -1555,6 +1555,22 @@ function workingWeight(ex, state, phase){
   if(entry) w = Math.max(0, w + dec.delta);
   if(phase.name==="Deload") w *= 0.6;
   return { weight: availableWeight(ex,w,state), decision: dec, e1rm: entry ? estimate1RM(entry.weight, entry.lastAvgReps||0) : 0 };
+}
+
+/* Optional onboarding anchors for lifters who already know their working
+   weights. They are deliberately not exercise-history rows: no workout was
+   completed, and the first session should hold the stated load rather than
+   applying a progression bump. */
+function onboardingWeights(profile){
+  const out = {};
+  Object.entries(profile?.baselineWeights||{}).forEach(([exId,value])=>{
+    if(value==="" || value==null) return;
+    const ex = EX_BY_ID[exId], weight = Number(value);
+    if(ex && Number.isFinite(weight) && weight>=0){
+      out[exId] = {weight:availableWeight(ex,weight,{profile,equipment:{loads:{}}}), updated:todayISO(), source:"onboarding"};
+    }
+  });
+  return out;
 }
 
 /* ── Duration shaping ─────────────────────────────────────────────────────── */
@@ -4354,7 +4370,9 @@ function Onboarding({state, setState, onDone, onRestore, coach}){
   async function finish(){
     setBuilding(true);
     saveKey(key.trim());
-    const next = {...state, goal, profile:prof, limits:lim, equipment:equip, onboarded:true};
+    const seededWeights = prof.experience==="no_experience" ? {} : onboardingWeights(prof);
+    const next = {...state, goal, profile:prof, limits:lim, equipment:equip,
+      weights:{...state.weights,...seededWeights}, onboarded:true};
     setState(next);
     // Block is built by the caller once state has settled.
     await new Promise(r=>setTimeout(r,60));
@@ -4488,11 +4506,26 @@ function Onboarding({state, setState, onDone, onRestore, coach}){
     <Field label="Experience">
       <Choice cols={1} value={prof.experience} onChange={v=>setProf(p=>({...p,experience:v}))}
         options={[
-          {value:"beginner",     label:"New to this", sub:"Under 6 months of consistent lifting"},
+          {value:"no_experience",label:"No lifting experience", sub:"I haven't trained with weights before"},
+          {value:"beginner",     label:"Some experience", sub:"Under 6 months of consistent lifting"},
           {value:"intermediate", label:"Been around", sub:"6 months to 2 years, know the machines"},
           {value:"advanced",     label:"Experienced", sub:"2+ years, know what a hard set feels like"},
         ]}/>
     </Field>
+    {prof.experience!=="no_experience" && (<Card accent={C.blue} style={{marginBottom:14}}>
+      <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.text,fontWeight:700,marginBottom:4}}>Your recent working weights</div>
+      <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,lineHeight:1.55,marginBottom:12}}>
+        Optional. Enter a weight you could lift for about 6–12 clean reps. This gives the first plan a safer, more useful starting point.</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}}>
+        {[["leg_press","Leg press"],["chest_press_mach","Chest press"],["lat_pulldown","Lat pulldown"],["seated_row","Seated row"]].map(([id,label])=>(
+          <Field key={id} label={`${label} (kg)`}>
+            <Input type="number" inputMode="decimal" min="0" step="0.5" placeholder="Not sure"
+              value={prof.baselineWeights?.[id]||""}
+              onChange={e=>setProf(p=>({...p,baselineWeights:{...(p.baselineWeights||{}),[id]:e.target.value}}))}/>
+          </Field>
+        ))}
+      </div>
+    </Card>)}
     <Field label={`Days per week — ${prof.daysPerWeek}`} hint="Pick the number you'll actually hit, not the number you'd like to hit. Three consistent days beats five you skip.">
       <Slider min={2} max={5} value={prof.daysPerWeek} onChange={v=>setProf(p=>({...p,daysPerWeek:v}))}
         format={v=>`${v} days`}/>
@@ -4731,7 +4764,7 @@ function CheckIn({onSubmit, onSkip, bonus=false, onCancel, defaultMinutes=45, re
    ═══════════════════════════════════════════════════════════════════════════ */
 
 function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaining, aiOn,
-                       showWhy=true, showHow=true, onAskCoach, onSwap}){
+                       showWhy=true, showHow=true, onAskCoach, onSwap, onViewHistory}){
   const [open,setOpen] = useState(null);   // "why" | "how" | null
   const [expanded,setExpanded] = useState(false);
   const done  = logs.filter(l=>l&&l.reps!=null).length;
@@ -4784,6 +4817,12 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
           letterSpacing:".04em"}}>{expanded?"HIDE ▴":all?"COMPLETE · VIEW ▾":"OPEN ▾"}</div>
       </div>
     </button>
+
+    {onViewHistory && <button onClick={onViewHistory} style={{width:"100%",marginTop:8,padding:"7px 10px",borderRadius:8,
+      cursor:"pointer",fontSize:"calc(.64rem * var(--ts, 1))",fontWeight:700,textAlign:"left",
+      border:`1px solid ${C.line}`,background:C.raised,color:C.blue}}>
+      VIEW PREVIOUS {ex.name.toUpperCase()} LOGS →
+    </button>}
 
     {expanded && (<>
 
@@ -5039,7 +5078,7 @@ function WakeLockNotice({status,onRetry}){
    TODAY
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function TodayView({state, session, setSession, generating, onGenerate, onFinish, coach, aiOn,
+function TodayView({state, session, setSession, generating, onGenerate, onFinish, coach, aiOn, onViewHistory,
                     rest, startRest, skipRest, apiKey, setTravel, clearTravel, forgetTravel,
                     bonusPending=false, onCancelBonus, onRecordDiscomfort, onResolveDiscomfort,
                     wakeStatus="off", onRetryWake, onRegenerate, onRetryAI, regenerationReason=""}){
@@ -5297,6 +5336,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
         showWhy={state.uiPrefs?.showExerciseWhy??true}
         showHow={state.uiPrefs?.showExerciseHow??true}
         onSwap={()=>setSwap({exIdx:i,reason:null,area:null})}
+        onViewHistory={()=>onViewHistory?.(ex.exId)}
         onAskCoach={()=>setSetCoach({exIdx:i,setIdx:Math.min((ex.log||[]).filter(x=>x&&x.reps!=null).length,ex.sets-1)})}/>
     ))}
 
@@ -6475,7 +6515,7 @@ function EquipmentLoadsView({state,setState}){
   </div>);
 }
 
-function LogView({state, setState, onRestore, apiKey}){
+function LogView({state, setState, onRestore, apiKey, initialExerciseId, onInitialExerciseOpened}){
   const [detail,setDetail] = useState(null);   // exId
   const [session,setSession] = useState(null);
   const [tab,setTab] = useState("sessions");
@@ -6487,6 +6527,12 @@ function LogView({state, setState, onRestore, apiKey}){
   const jsonRef = useRef(null);
 
   useEffect(()=>setMoveWeek(session?planWeekForSession(session):null),[session?.id]);
+  useEffect(()=>{
+    if(!initialExerciseId) return;
+    setTab("exercises");
+    setDetail(initialExerciseId);
+    onInitialExerciseOpened?.();
+  },[initialExerciseId]);
 
   const exIds = Object.keys(state.exerciseHistory||{})
     .filter(id=>(state.exerciseHistory[id]||[]).length)
@@ -7174,6 +7220,7 @@ function App(){
   const [apiKey,setApiKey]  = useState(loadKey);
   const [model,setModel]    = useState(loadModel);
   const [view,setView]      = useState("today");
+  const [logExerciseId,setLogExerciseId] = useState(null);
   const [session,setSessionRaw] = useState(()=>{
     try{ const r = localStorage.getItem(ACTIVE_KEY); return r ? JSON.parse(r) : null; }catch{ return null; }
   });
@@ -7572,6 +7619,7 @@ function App(){
                                     onRecordDiscomfort={recordDiscomfort} onResolveDiscomfort={resolveDiscomfort}
                                     wakeStatus={wakeStatus} onRetryWake={()=>wakeLock.retry()}
                                     regenerationReason={regenerationReason} onRegenerate={regenerateSession}
+                                    onViewHistory={exId=>{setLogExerciseId(exId);setView("log");}}
                                     onRetryAI={retryAiSession}/>
             : view==="plan"     ? <PlanView state={state} onReplan={()=>buildBlock()} replanning={replanning} aiOn={aiOn}
                                     onSetWeekTarget={v=>setState(s=>{
@@ -7592,7 +7640,8 @@ function App(){
                                       setState(s=>({...s,uiPrefs:{...DEFAULT_UI_PREFS,...(s.uiPrefs||{}),showLearnHub:false}}));
                                       setView("today");
                                     }}/>
-            : view==="log"      ? <LogView state={state} setState={setState} onRestore={restoreState} apiKey={apiKey}/>
+            : view==="log"      ? <LogView state={state} setState={setState} onRestore={restoreState} apiKey={apiKey}
+                                    initialExerciseId={logExerciseId} onInitialExerciseOpened={()=>setLogExerciseId(null)}/>
             : <SettingsView state={state} setState={setState} apiKey={apiKey} setApiKey={setApiKey} apiStatus={apiStatus}
                 apiChecking={apiChecking}
                 model={model} setModel={setModel} coach={coach} onReset={resetAll}
