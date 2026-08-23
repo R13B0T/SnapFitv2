@@ -4818,12 +4818,6 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
       </div>
     </button>
 
-    {onViewHistory && <button onClick={onViewHistory} style={{width:"100%",marginTop:8,padding:"7px 10px",borderRadius:8,
-      cursor:"pointer",fontSize:"calc(.64rem * var(--ts, 1))",fontWeight:700,textAlign:"left",
-      border:`1px solid ${C.line}`,background:C.raised,color:C.blue}}>
-      VIEW PREVIOUS {ex.name.toUpperCase()} LOGS →
-    </button>}
-
     {expanded && (<>
 
     {/* The prescription. Never changes as you log, so the target is always on
@@ -4875,7 +4869,7 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
     </div>}
 
     {/* Optional help controls can be hidden in Settings to keep cards lean. */}
-    {(showWhy||showHow||aiOn||onSwap) && <div style={{display:"flex",gap:6,borderTop:`1px solid ${C.lineSoft}`,paddingTop:10,flexWrap:"wrap"}}>
+    {(showWhy||showHow||aiOn||onSwap||onViewHistory) && <div style={{display:"flex",gap:6,borderTop:`1px solid ${C.lineSoft}`,paddingTop:10,flexWrap:"wrap"}}>
       {showWhy && <button onClick={()=>setOpen(o=>o==="why"?null:"why")} style={{
         flex:1,padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
         border:`1px solid ${open==="why"?tint(C.yellow,0x55):C.line}`,
@@ -4897,6 +4891,11 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
         flex:"1 1 100%",padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
         border:`1px solid ${tint(C.green,0x45)}`,background:`${tint(C.green,0x0d)}`,color:C.green}}>
         Ask coach about this set →
+      </button>}
+      {onViewHistory && <button onClick={onViewHistory} style={{
+        flex:"1 1 100%",padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
+        border:`1px solid ${tint(C.blue,0x45)}`,background:`${tint(C.blue,0x0d)}`,color:C.blue}}>
+        View previous {ex.name} logs →
       </button>}
     </div>}
 
