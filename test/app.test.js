@@ -143,8 +143,8 @@ function check(name, ok, detail){
   await page.waitForTimeout(400);
   let vt = await page.locator("body").innerText();
   check("venue sheet opens", /WHERE ARE YOU TRAINING/.test(vt), vt.slice(0,300));
-  check("photo path is offered", /Photograph it/.test(vt));
-  check("photo path explains it needs a key", /no way to read a photo offline/.test(vt), vt.slice(0,600));
+  check("photo or description path is offered", /Photograph or describe it/.test(vt));
+  check("photo or description path explains it needs a key", /Needs an API key to interpret photos or free text/.test(vt), vt.slice(0,600));
 
   await page.getByText("✋ Pick by hand").click();
   await page.waitForTimeout(400);

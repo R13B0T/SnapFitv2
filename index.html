@@ -1845,7 +1845,7 @@ function normaliseTravel(raw){
     custom: Array.isArray(raw.custom)
       ? raw.custom.filter(c=>c&&c.num&&c.name).map(c=>({num:String(c.num), name:String(c.name), kind:"travel"}))
       : [],
-    note: String(raw.note||"").slice(0,400),
+    note: String(raw.note||"").slice(0,800),
     dumbbellMax: Number(raw.dumbbellMax)>0 ? Number(raw.dumbbellMax) : null,
     source: raw.source==="photo" ? "photo" : "manual",
     date: typeof raw.date==="string" ? raw.date : todayISO(),
@@ -3192,23 +3192,29 @@ Answer the immediate set question directly and briefly. Use only this exercise c
        gym is already active, is exactly the wrong list to match against, and
        putting the full catalogue there would break the cache for every other
        call. */
-    async scanGym(photos){
+    async scanGym(photos, description=""){
       const state = getState();
       const key = getKey();
-      if(!key) throw new CoachError("Reading a photo needs an API key.","nokey");
-      if(!photos?.length) throw new CoachError("No photo to look at.","photo");
+      const userDescription = String(description||"").trim().slice(0,600);
+      if(!key) throw new CoachError("Reading photos or a description needs an API key.","nokey");
+      if(!photos?.length && !userDescription) throw new CoachError("Add a photo or describe the gym first.","photo");
 
       const list = SEED_STATIONS.map(s=>`${s.num} = ${s.name} (${s.kind})`).join("\n");
       const content = [
         ...photos.slice(0,PHOTO_MAX).map(p=>({
           type:"image", source:{type:"base64", media_type:p.mediaType, data:p.b64}})),
-        { type:"text", text:`${photos.length===1?"This photo shows":"These photos show"} a gym the user is training in today, away from their usual one. Work out what they can train with.
+        { type:"text", text:`The user is training today in a gym away from their usual one. ${photos.length ? `${photos.length===1?"One photo is":"Photos are"} attached.` : "There are no photos; use their first-hand description."} Work out what they can train with.
+
+${userDescription ? `USER'S DESCRIPTION — treat explicit equipment and limits here as first-hand information, including things outside the photos:
+${userDescription}
+` : ""}
 
 STATION LIST — match what you see to these, and only these, by number:
 ${list}
 
 How to do this well:
-- Only report a station if you can actually see something that is that piece of equipment. A room that "probably has" a leg press does not have one.
+- Only report a station if it is visible in a photo or explicitly named in the user's description. A room that "probably has" a leg press does not have one.
+- Match clearly described equipment even when it is outside the photos. If the description is ambiguous, mark the match likely or unsure instead of inventing certainty.
 - Match on function, not on brand or colour. Any adjustable bench is #25. Any rack of dumbbells is #29. A cable crossover or functional trainer is #17. A single cable tower is #24. Functional sandbags, power bags or Life Fitness Core Bags are #SB.
 - A "likely" or "unsure" is genuinely useful to the user, so use them rather than dropping a partly visible machine or promoting it to certain. They will confirm your list before it's used.
 - If you can read weight numbers on the dumbbells, give the heaviest. If you cannot read them, return 0. Guessing a ceiling from how big they look is worse than admitting you can't tell, because they'll be handed a weight they can't lift.
@@ -3233,7 +3239,8 @@ How to do this well:
         stations,
         extras: (raw.extras||[]).filter(e=>e?.name).map(e=>({name:String(e.name).slice(0,40), note:String(e.note||"")})),
         dumbbellMax: Number(raw.dumbbellMax)>0 ? round25(Number(raw.dumbbellMax)) : null,
-        note: String(raw.note||""),
+        note: [userDescription ? `User description: ${userDescription}` : "", String(raw.note||"")]
+          .filter(Boolean).join(" ").slice(0,800),
         summary: String(raw.summary||""),
       };
     },
@@ -4158,6 +4165,7 @@ function GymSheet({state, coach, apiKey, onApply, onClear, onForget, onClose}){
   const [ticked,setTicked] = useState(new Set());
   const [name,setName]   = useState("");
   const [dbMax,setDbMax] = useState("");
+  const [description,setDescription] = useState("");
   const fileRef = useRef(null);
 
   const stationName = num => (SEED_STATIONS.find(s=>s.num===num)||{}).name || `#${num}`;
@@ -4193,7 +4201,7 @@ function GymSheet({state, coach, apiKey, onApply, onClear, onForget, onClose}){
   async function runScan(){
     setErr(""); setBusy(true);
     try{
-      const r = await coach.scanGym(photos);
+      const r = await coach.scanGym(photos, description);
       setFound(r);
       setName(r.name);
       setDbMax(r.dumbbellMax ? String(r.dumbbellMax) : "");
@@ -4202,7 +4210,7 @@ function GymSheet({state, coach, apiKey, onApply, onClear, onForget, onClose}){
       setTicked(new Set(r.stations.filter(s=>s.confidence!=="unsure").map(s=>s.num)));
       setMode("review");
     }catch(e2){
-      setErr(e2.kind==="nokey" ? "Reading a photo needs an API key. Settings has the field, or pick your equipment by hand below."
+      setErr(e2.kind==="nokey" ? "Reading photos or a description needs an API key. Settings has the field, or pick your equipment by hand below."
            : e2.kind==="auth"  ? "Your API key was rejected. Check it in Settings."
            : `Couldn't read the photos: ${e2.message}`);
     }
@@ -4245,7 +4253,7 @@ function GymSheet({state, coach, apiKey, onApply, onClear, onForget, onClose}){
       <div style={{display:"flex",gap:8,marginTop:10}}>
         {/* Somewhere new means starting clean — inheriting the last venue's
             name and dumbbell ceiling would quietly mislabel the new one. */}
-        <Btn kind="solid" full onClick={()=>{ setName(""); setDbMax(""); setMode("menu"); }}>Somewhere new</Btn>
+        <Btn kind="solid" full onClick={()=>{ setName(""); setDbMax(""); setDescription(""); setMode("menu"); }}>Somewhere new</Btn>
         <Btn kind="ghost" full onClick={onForget}>Forget it</Btn>
       </div>
     </Sheet>);
@@ -4341,8 +4349,8 @@ function GymSheet({state, coach, apiKey, onApply, onClear, onForget, onClose}){
 
   /* ── the photo step ──────────────────────────────────────────────────── */
   if(mode==="photo"){
-    return (<Sheet onClose={onClose} title="PHOTOGRAPH THE GYM"
-      sub={`Up to ${PHOTO_MAX} photos. Wide shots of the walls beat close-ups of one machine.`}>
+    return (<Sheet onClose={onClose} title="PHOTOGRAPH OR DESCRIBE"
+      sub={`Add up to ${PHOTO_MAX} photos, a description, or both. Wide shots of the walls beat close-ups.`}>
 
       <input ref={fileRef} type="file" accept="image/*" capture="environment" multiple
         onChange={addPhotos} style={{display:"none"}}/>
@@ -4362,14 +4370,19 @@ function GymSheet({state, coach, apiKey, onApply, onClear, onForget, onClose}){
           {busy ? <><Spinner/> PREPARING</> : photos.length ? "＋ ANOTHER PHOTO" : "📷 TAKE OR CHOOSE PHOTOS"}
         </Btn>)}
 
+      <Field label="Describe this gym" hint="Optional with photos. Mention equipment outside the frame, cable attachments, benches or weight limits.">
+        <TextArea value={description} onChange={e=>setDescription(e.target.value.slice(0,600))}
+          maxLength={600} placeholder="e.g. There is also a Smith machine, adjustable bench, cable tower with a rope and handles, and dumbbells up to 22.5kg."/>
+      </Field>
+
       <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.ghost,margin:"10px 0 14px",lineHeight:1.6}}>
-        Photos are resized on your phone and sent straight to Anthropic to be read, exactly like
-        everything else the coach does. They aren't stored anywhere — not on a server, not in the app.
-        Once you've confirmed the equipment list, the photos are gone.
+        Photos are resized on your phone, then the photos and description are sent straight to Anthropic
+        to be read, exactly like everything else the coach does. Photos aren't stored anywhere — not on
+        a server, not in the app. Your description is kept with today's away-gym setup so the coach can use it.
       </div>
 
-      <Btn size="lg" full onClick={runScan} disabled={busy || !photos.length}>
-        {busy ? <><Spinner color="#fff"/> READING THE ROOM</> : "READ THE EQUIPMENT →"}
+      <Btn size="lg" full onClick={runScan} disabled={busy || (!photos.length && !description.trim())}>
+        {busy ? <><Spinner color="#fff"/> READING THE ROOM</> : photos.length ? "READ THE EQUIPMENT →" : "USE DESCRIPTION →"}
       </Btn>
       <Btn kind="ghost" full style={{marginTop:10}} onClick={()=>setMode("menu")}>Back</Btn>
       {err && <ErrLine text={err}/>}
@@ -4443,11 +4456,11 @@ function GymSheet({state, coach, apiKey, onApply, onClear, onForget, onClose}){
         border:`1px solid ${apiKey?tint(C.red,0x55):C.line}`, background:apiKey?`${tint(C.red,0x0d)}`:C.raised,
         cursor:apiKey?"pointer":"not-allowed", opacity:apiKey?1:.55}}>
       <div style={{fontSize:"calc(.86rem * var(--ts, 1))",color:C.text,fontWeight:700,marginBottom:3}}>
-        📷 Photograph it</div>
+        📷 Photograph or describe it</div>
       <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.faint,lineHeight:1.55}}>
         {apiKey
-          ? "Your coach reads the equipment off the photos. You confirm the list before anything changes."
-          : "Needs an API key — there's no way to read a photo offline. Pick by hand instead, it works the same."}
+          ? "Add photos, a written description, or both. You confirm the equipment list before anything changes."
+          : "Needs an API key to interpret photos or free text. Pick by hand instead — it works offline."}
       </div>
     </button>
 
@@ -4508,7 +4521,7 @@ function VenueRow({state, onOpen}){
       <span style={{display:"block",fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,marginTop:2}}>
         {away
           ? `${t.stations.length} stations${t.dumbbellMax?` · dumbbells to ${t.dumbbellMax}kg`:""} · just for today`
-          : "Somewhere else today? Photograph it and the session adapts."}
+          : "Somewhere else today? Photograph or describe it and the session adapts."}
       </span>
     </span>
     <span style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,flexShrink:0}}>Change</span>

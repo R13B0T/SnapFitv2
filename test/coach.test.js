@@ -349,13 +349,19 @@ function mockGym(){
 
   await page.getByText("Your usual gym").click(); await page.waitForTimeout(400);
   let g = await page.locator("body").innerText();
-  check("photo path is enabled with a key", /Your coach reads the equipment off the photos/.test(g), g.slice(0,500));
-  await page.getByText("📷 Photograph it").click(); await page.waitForTimeout(400);
+  check("photo and description path is enabled with a key", /photos, a written description, or both/.test(g), g.slice(0,500));
+  await page.getByText("📷 Photograph or describe it").click(); await page.waitForTimeout(400);
   g = await page.locator("body").innerText();
-  check("photo step opens", /PHOTOGRAPH THE GYM/.test(g), g.slice(0,300));
-  check("says photos aren't stored", /aren't stored anywhere/.test(g));
-  check("cannot scan with no photos",
-    await page.getByText("READ THE EQUIPMENT").first().isDisabled().catch(()=>false));
+  check("photo or description step opens", /PHOTOGRAPH OR DESCRIBE/.test(g), g.slice(0,300));
+  check("says photos aren't stored", /Photos aren't stored anywhere/.test(g));
+  check("free-text description is offered", /DESCRIBE THIS GYM/.test(g));
+  check("cannot scan without a photo or description",
+    await page.getByText("USE DESCRIPTION").first().isDisabled().catch(()=>false));
+
+  const gymDescription = page.locator('textarea[placeholder*="Smith machine"]');
+  await gymDescription.fill("There is a cable tower with a rope, plus kettlebells outside the photos.");
+  check("description alone enables analysis",
+    !(await page.getByText("USE DESCRIPTION").first().isDisabled().catch(()=>true)));
 
   await page.locator('input[type="file"][accept="image/*"]').setInputFiles([
     {name:"gym1.png", mimeType:"image/png", buffer:png(600,400)},
@@ -400,6 +406,8 @@ function mockGym(){
   check("the unticked guess was excluded", !scanned.stations.includes("35"), scanned.stations.join(","));
   check("the invented station was never stored", !scanned.stations.includes("999"));
   check("the venue note came across", /Small room/.test(scanned.note||""), scanned.note);
+  check("the written gym description was retained",
+    /cable tower with a rope/i.test(scanned.note||""), scanned.note);
   check("dumbbell ceiling stored from the photo", scanned.dumbbellMax===20, `got ${scanned.dumbbellMax}`);
 
   await page.getByText("BUILD TODAY'S SESSION").click();
@@ -684,7 +692,7 @@ function mockGym(){
   const scan = await page.evaluate(async()=>{
     const c = makeCoach(()=>defaultState(), ()=>"sk-ant-test", ()=>"claude-opus-5", ()=>{});
     const photos = [{b64:"QUJD", mediaType:"image/jpeg"},{b64:"REVG", mediaType:"image/jpeg"}];
-    const r = await c.scanGym(photos);
+    const r = await c.scanGym(photos, "Cable tower with rope and handles; dumbbells stop at 20kg.");
     return r;
   });
   check("scan returns a venue name", scan.name==="Hotel gym", scan.name);
@@ -700,6 +708,8 @@ function mockGym(){
   check("what it saw is carried through", /pillar/.test(scan.stations.find(s=>s.num==="35")?.seen||""));
   check("extras are kept", scan.extras.length===2, JSON.stringify(scan.extras));
   check("dumbbell max read off the photo", scan.dumbbellMax===20, `got ${scan.dumbbellMax}`);
+  check("the user's description is retained for the venue coach",
+    /Cable tower with rope/.test(scan.note||""), scan.note);
 
   const req = lastRequest;
   const blocks = req?.messages?.[0]?.content || [];
@@ -711,8 +721,16 @@ function mockGym(){
   check("media type is declared", blocks[0]?.source?.media_type==="image/jpeg");
   check("the station list is in the user turn, not the cached system block",
     /29 = Dumbbells & Rack/.test(blocks.find(b=>b.type==="text")?.text||""));
+  check("free-text context is sent with the photos",
+    /Cable tower with rope and handles/.test(blocks.find(b=>b.type==="text")?.text||""));
   check("a structured schema is demanded", !!req?.output_config?.format?.schema?.properties?.extras);
   check("the system block is still cached", req?.system?.[0]?.cache_control?.type==="ephemeral");
+
+  const textOnly = await page.evaluate(async()=>{
+    const c = makeCoach(()=>defaultState(), ()=>"sk-ant-test", ()=>"claude-opus-5", ()=>{});
+    return c.scanGym([], "Adjustable bench and dumbbells up to 15kg.");
+  });
+  check("a description can be analysed without a photo", textOnly.name==="Hotel gym", JSON.stringify(textOnly));
 
   console.log("\n── SCANNING WITHOUT A KEY ───────────────────────");
   const noKey = await page.evaluate(async()=>{

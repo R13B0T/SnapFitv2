@@ -108,8 +108,8 @@ then rank same-pattern alternatives by target-muscle overlap. Functional sandbag
 progressive front squats, reverse lunges, deadlifts, clean-and-presses and Russian twists using the
 gym's 5–25kg set.
 
-**Photograph a strange gym and it adapts.** In a hotel, at a friend's place, anywhere that
-isn't your gym: take up to three photos and the coach reads what's there. You confirm the list
+**Photograph or describe a strange gym and it adapts.** In a hotel, at a friend's place, anywhere that
+isn't your gym: take up to three photos, add a free-text description, or use both, and the coach reads what's there. You confirm the list
 — it flags what it's sure about and what it's guessing — and the day's session is built from
 that instead. Tell it the heaviest dumbbell and nothing gets prescribed above it. Your real
 gym, block, history and working weights are untouched, and it switches itself off overnight so
@@ -267,11 +267,12 @@ Injury flags work the same way: tick *knees* and nothing knee-loading gets progr
 
 ### Training somewhere else
 
-The Today screen has a venue row. Tap it and you can either photograph the gym you're standing
-in — the coach reads the equipment and you confirm the list before it applies — or pick from a
-list by hand, starting from a preset for the usual hotel setups.
+The Today screen has a venue row. Tap it and you can photograph the gym you're standing in,
+describe it in free text, combine both, or pick from a list by hand starting from a preset for
+the usual hotel setups. The coach interprets the photos and description, then you confirm the
+equipment list before it applies.
 
-The photo path needs an API key, because there is no way to read a picture offline. **The
+The photo/free-text interpretation path needs an API key. **The
 by-hand path needs nothing**, which matters: hotel gyms are in basements and basements have no
 signal. Presets get you to a working list in one tap.
 
@@ -340,10 +341,10 @@ so no view ever branches on whether a key exists.
 | `debrief` | Templated from progression outcomes | Written narrative |
 | `weeklyReview` | Adherence + e1RM deltas | Coaching read on the week |
 | `chat` | *(needs a key)* | Streamed, grounded in your data |
-| `scanGym` | *(impossible offline)* | Vision, matched to the station list |
+| `scanGym` | *(impossible offline)* | Photos and/or free text, matched to the station list |
 
-`scanGym` is the exception to the two-engines rule, because you cannot read a photograph
-without a model. It throws rather than falling through, and the UI answers that by offering
+`scanGym` is the exception to the two-engines rule, because interpreting unstructured photos or
+free text against the equipment catalogue needs a model. It throws rather than falling through, and the UI answers that by offering
 the by-hand picker instead — which is why the feature still works with no key.
 
 One choke point makes the away gym work: `activeStations(state)`. The exercise pool, the
