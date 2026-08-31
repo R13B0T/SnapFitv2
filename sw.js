@@ -3,13 +3,17 @@
    Anything that talks to the coach is network-only — a stale answer is worse
    than an honest failure, and the app falls back to its built-in coach anyway. */
 
+importScripts("./release.js");
+
 /* Bump this on any shell change. Navigations are network-first when online so
    an accepted update cannot reopen an older app document from the cache. */
-const CACHE = "snapfit-v2-27";
+const ACTIVE_RELEASE = self.SNAPFIT_RELEASES?.[0]?.version || "dev";
+const CACHE = `snapfit-v2-${ACTIVE_RELEASE}`;
 
 const SHELL = [
   "./",
   "./index.html",
+  "./release.js",
   "./manifest.json",
   "./assets/sounds/countdown-whistle.mp3",
   "./assets/sounds/start-whistle.mp3",

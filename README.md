@@ -24,6 +24,12 @@ right. Opening *How to do it* makes one coaching call when AI is enabled. The sa
 a direct YouTube Shorts search for the exercise; that link does not use the AI or spend credits.
 The Why and How controls can each be hidden in Settings when you want a quieter workout screen.
 
+**It coaches every working set.** Logging a set opens a live trainer while the rest timer runs.
+It gives a clear raise, hold-and-build, or reduce call, plus the exact next load, rep target and one
+technique cue. Accepting the call preloads the next set. A hold is framed as useful progression through
+cleaner reps or an extra rep, rather than as a failure to add weight, and the final set uses the same
+progression calculation as the session debrief.
+
 **Swap the exercise without losing the reason.** Before logging the first set, *Swap exercise*
 records whether equipment was busy, the movement caused discomfort, or the change was a preference,
 then offers up to two available alternatives from the same movement pattern. Sets, reps, rest and
@@ -71,6 +77,10 @@ when missed or imported logs make the app think the user is still in an earlier 
 session dates and fabricates no history. The selected week is applied only after pressing *Lock in
 Week X*, persists across reloads, and still advances normally when that week's sessions are complete.
 
+If travel, illness or life breaks up the current week, Plan can restart that week. Existing sessions
+remain visible as earlier attempts but stop counting toward the plan cursor, so the week can be repeated
+cleanly. The restart never deletes history or blindly applies a load increase from the extra volume.
+
 **Today is generated deliberately.** Opening Today shows a readiness check rather than silently
 building a workout. Sleep, energy, soreness, stress, time available and an optional note shape the
 session. A draft can be regenerated with a reason before training; rejecting it does not advance the
@@ -108,12 +118,14 @@ then rank same-pattern alternatives by target-muscle overlap. Functional sandbag
 progressive front squats, reverse lunges, deadlifts, clean-and-presses and Russian twists using the
 gym's 5–25kg set.
 
-**Photograph or describe a strange gym and it adapts.** In a hotel, at a friend's place, anywhere that
-isn't your gym: take up to three photos, add a free-text description, or use both, and the coach reads what's there. You confirm the list
-— it flags what it's sure about and what it's guessing — and the day's session is built from
-that instead. Tell it the heaviest dumbbell and nothing gets prescribed above it. Your real
-gym, block, history and working weights are untouched, and it switches itself off overnight so
-you never walk into your own gym holding a hotel session.
+**Photograph or describe a strange gym and choose how the plan behaves.** In a hotel, at a friend's
+place, anywhere that isn't your gym: take up to three photos, add a free-text description, or use both,
+and the coach reads what's there. You confirm the list — it flags what it's sure about and what it's
+guessing — then choose between pausing the program for a balanced standalone one-day session or adapting
+the next scheduled workout to that equipment. The standalone option is logged without advancing the
+block, changing programmed working weights or carrying its coach note into the resumed plan. The adapted
+option follows and advances the current split normally. Tell it the heaviest dumbbell and nothing gets
+prescribed above it; either away setup switches itself off overnight.
 
 **A Learn hub for the concepts.** Progressive overload, RPE and reps-in-reserve, the muscle
 map, rep ranges, why deloads exist, warming up, stretching, recovery, what to do when a lift stalls.
@@ -149,6 +161,8 @@ and runs offline.
 When a newer PWA version finishes downloading, a visible **Update available** banner waits for the
 user. **Update & Reload** activates the waiting service worker and reloads the installed app; it never
 silently refreshes during a set. The active session is already persisted and resumes after the reload.
+After the updated app opens, a one-time **What's New** screen explains the release before returning to
+the preserved workout. The same release notes remain available from Settings.
 
 On a fresh install, *Load from JSON backup* sits directly below *Let's go*. Selecting a validated
 SnapFit backup restores the goal, block, history, settings and included API key and skips the setup
@@ -203,6 +217,10 @@ debrief, weekly review and chat reply. *Sass* runs from straight coaching to a f
 roast; *Hard truth* runs from gentle delivery to no sugar-coating. The defaults are Cheeky
 (3/5) and Blunt (4/5). Both scales keep fixed guardrails: no fake praise, personal insults,
 body-shaming, invented failures or unsafe training advice.
+
+Hard truth also changes the delivery of the built-in live trainer after each set, but never its
+load calculation or safety thresholds. Even at maximum bluntness, a sensible hold receives a concrete
+path forward instead of punishment for not loading more weight.
 
 **Training week start.** Choose Sunday through Saturday. Weekly reviews and exact week references
 sent to the coach use that window; changing it does not reset the block or move its phase.

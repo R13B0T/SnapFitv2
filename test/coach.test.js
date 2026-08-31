@@ -198,6 +198,36 @@ function mockGym(){
   check("no history → start", prog.first.action==="start", JSON.stringify(prog.first));
   check("Epley e1RM 100x10 = 133.3", Math.abs(prog.e1rm-133.3)<0.2, String(prog.e1rm));
 
+  console.log("\n── LIVE SET TRAINER ─────────────────────────────");
+  const liveTrainer = await page.evaluate(()=>{
+    const st=defaultState();
+    const ex={...EX_BY_ID.db_bench,exId:"db_bench",sets:3,targetReps:12,repRange:[8,12],weight:20,rpe:8,rest:90,inc:2};
+    const decide=(row,standalone=false)=>postSetDecision({exercise:ex,logs:[row,null,null],setIndex:0,state:st,phaseName:"Build",standalone});
+    const final=postSetDecision({exercise:ex,logs:Array(3).fill({weight:20,reps:12,effort:"good"}),setIndex:2,state:st,phaseName:"Build"});
+    return {raise:decide({weight:20,reps:12,effort:"easy"}),hold:decide({weight:20,reps:10,effort:"good"}),
+      down:decide({weight:20,reps:5,effort:"failed"}),final};
+  });
+  check("easy top-range set gets a small increase", liveTrainer.raise.action==="up" && liveTrainer.raise.nextWeight>20, JSON.stringify(liveTrainer.raise));
+  check("productive set holds and adds a rep target", liveTrainer.hold.action==="hold" && liveTrainer.hold.nextReps===11, JSON.stringify(liveTrainer.hold));
+  check("form breakdown reduces the next load", liveTrainer.down.action==="down" && liveTrainer.down.nextWeight<20, JSON.stringify(liveTrainer.down));
+  check("last-set verdict uses next-session progression", liveTrainer.final.complete===true && liveTrainer.final.action==="up", JSON.stringify(liveTrainer.final));
+
+  console.log("\n── STANDALONE AWAY DAY & WEEK RESTART ───────────");
+  const pause = await page.evaluate(()=>{
+    let st=defaultState(); st.onboarded=true; st.goal={type:"build_muscle"}; st.block=buildBlockRules(st);
+    st.travel={name:"Hotel",stations:["29","25","26"],custom:[],dumbbellMax:20,source:"manual",planMode:"oneoff",date:todayISO(),active:true};
+    const one=buildOneOffSessionRules(st,{sleep:4,energy:4,soreness:2,stress:2,availableMinutes:45});
+    const before=blockProgress(st), after=blockProgress({...st,sessions:[{...one,finishedAt:new Date().toISOString()}]});
+    const program={id:"p1",blockId:st.block.id,week:1,planWeek:1,date:todayISO(),exercises:[]};
+    const restarted=restartCurrentPlanWeek({...st,sessions:[program]});
+    return {one:{standalone:one.standalone,blockId:one.blockId,count:one.exercises.length},
+      paused:before.dayIdx===after.dayIdx&&before.week===after.week,
+      restart:{dayIdx:blockProgress(restarted).dayIdx,excluded:restarted.sessions[0].excludedFromPlanProgress}};
+  });
+  check("standalone away day has no block id", pause.one.standalone===true && pause.one.blockId==null && pause.one.count>=3, JSON.stringify(pause.one));
+  check("standalone away day does not move the program", pause.paused===true);
+  check("week restart preserves but excludes the earlier attempt", pause.restart.dayIdx===0 && pause.restart.excluded===true, JSON.stringify(pause.restart));
+
   console.log("\n── READINESS ────────────────────────────────────");
   const rd = await page.evaluate(()=>({
     great:   readinessAdjustment({sleep:5,energy:5,soreness:1,stress:1}),

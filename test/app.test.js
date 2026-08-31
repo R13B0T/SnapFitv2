@@ -82,6 +82,9 @@ function check(name, ok, detail){
   check("app mounts", rootHtml.length > 200, `root had ${rootHtml.length} chars`);
   check("no console errors on boot", errors.length===0, errors.slice(0,3).join(" | "));
   check("welcome screen renders", await page.getByText("NOT JUST A").isVisible().catch(()=>false));
+  const release = await page.evaluate(()=>CURRENT_RELEASE);
+  check("release manifest has versioned change notes", /^\d+\.\d+\.\d+$/.test(release?.version||"") && release?.changes?.length>=1, JSON.stringify(release));
+  check("fresh installs do not get an update popup during onboarding", !/WHAT'S NEW/.test(await page.locator("body").innerText()));
 
   console.log("\n── ONBOARDING (no key) ──────────────────────────");
   await page.getByText("LET'S GO").click();
@@ -162,6 +165,9 @@ function check(name, ok, detail){
   vt = await page.locator("body").innerText();
   check("preset reports how much it can build", /exercises available here/.test(vt), vt.slice(0,400));
   check("preset is honest about what's missing", /Missing:|Every main movement pattern/.test(vt));
+  check("away flow offers a standalone program pause", /Pause program · build one day/.test(vt));
+  check("away flow can still adapt the next programmed workout", /Continue program · adapt next workout/.test(vt));
+  await page.getByText("Continue program · adapt next workout", {exact:true}).click();
 
   const dbField = page.locator('input[inputmode="decimal"]').last();
   await dbField.click();
@@ -174,7 +180,7 @@ function check(name, ok, detail){
   await page.waitForTimeout(600);
   vt = await page.locator("body").innerText();
   check("away gym now shown on Today", /Dumbbells and a bench/.test(vt), vt.slice(0,300));
-  check("away gym says it's only for today", /just for today/.test(vt));
+  check("away gym says the next workout is adapted", /next workout adapted/.test(vt));
   const travel = await page.evaluate(()=>JSON.parse(localStorage.getItem("snapfit_v2")).travel);
   check("away gym persisted and active", travel?.active === true, JSON.stringify(travel));
   check("dumbbell ceiling stored", travel?.dumbbellMax === 15, `got ${travel?.dumbbellMax}`);
@@ -321,6 +327,14 @@ function check(name, ok, detail){
   let t2 = await page.locator("body").innerText();
   check("set logged", /1 of \d+ sets logged/.test(t2));
   check("rest timer appeared", /REST/.test(t2));
+  check("post-set trainer appears after logging", /YOUR TRAINER/.test(t2) && /WHY/.test(t2) && /NEXT-SET CUE/.test(t2));
+  check("post-set trainer gives an actionable target", /Next set:/.test(t2) && /USE [\d.]+KG · AIM \d+/.test(t2));
+
+  const useTarget = page.getByText(/USE [\d.]+KG · AIM \d+/).first();
+  const useLabel = await useTarget.innerText();
+  const coachedWeight = String(useLabel).match(/USE ([\d.]+)KG/)?.[1];
+  await useTarget.click();
+  await page.waitForTimeout(300);
 
   console.log("\n── PRESCRIPTION VS REALITY ──────────────────────");
   check("prescription unchanged after an override",
@@ -331,8 +345,8 @@ function check(name, ok, detail){
   await page.getByText("SET 2", {exact:true}).first().click();
   await page.waitForTimeout(400);
   const w2 = page.locator('input[inputmode="decimal"]').first();
-  check("set 2 offers the weight you actually lifted", (await w2.inputValue()) === "47.5",
-    `got ${JSON.stringify(await w2.inputValue())}`);
+  check("set 2 offers the accepted trainer target", (await w2.inputValue()) === coachedWeight,
+    `expected ${coachedWeight}, got ${JSON.stringify(await w2.inputValue())}`);
   check("and still names the coach's number",
     /Coach says [\d.]+kg/.test(await page.locator("body").innerText()));
   await page.keyboard.press("Escape");
@@ -480,6 +494,21 @@ function check(name, ok, detail){
   check("timer volume control present", /timer volume/i.test(st));
   check("wake lock toggle present", /Keep the screen awake/.test(st));
   check("test whistles button present", /Test countdown \+ long whistle/.test(st));
+  check("settings can reopen release notes", /What's new in 2\.1\.0/.test(st));
+  await page.getByText(/What's new in 2\.1\.0/).click();
+  await page.waitForTimeout(250);
+  const whatsNew = await page.locator("body").innerText();
+  check("What's New modal outlines the release", /WHAT'S NEW/.test(whatsNew) && /trainer after every set/i.test(whatsNew) && /Away gyms can now pause/.test(whatsNew), whatsNew.slice(-700));
+  await page.getByText(/LET'S TRAIN|CONTINUE WORKOUT/).click();
+  await page.waitForTimeout(200);
+  await page.evaluate(()=>localStorage.setItem("snapfit_v2_release_seen","2.0.0"));
+  await page.reload();
+  await page.waitForTimeout(700);
+  const automaticNotes=await page.locator("body").innerText();
+  check("an existing install sees release notes once after an update", /WHAT'S NEW/.test(automaticNotes) && /SNAPFIT 2\.1\.0/.test(automaticNotes));
+  check("active workout survives the update notes screen", /active workout was preserved/i.test(automaticNotes));
+  await page.getByText(/CONTINUE WORKOUT|LET'S TRAIN/).click();
+  await page.waitForTimeout(200);
 
   const scheduleBefore = await page.evaluate(()=>{
     const s=JSON.parse(localStorage.getItem("snapfit_v2")), p=blockProgress(s);
