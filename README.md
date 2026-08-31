@@ -94,10 +94,19 @@ tap one to reveal *Coach Says*, set logging, and the Why/How coaching. Finishing
 folds the card closed again and gives it a light-green background, so what's done is obvious.
 
 **The exercise catalogue reflects the whole functional area.** The dumbbell coverage already
-spans every major movement pattern. The Signature Series Multi-Jungle now contributes its row,
-pulldown, pushdown and adjustable-pulley movements without pretending two cable stations are
-required at once. Functional sandbags/Core Bags add progressive front squats, reverse lunges,
-deadlifts, clean-and-presses and Russian twists using the gym's 5–25kg set.
+spans every major movement pattern. The Life Fitness Multi-Jungle is modelled as a multi-purpose
+cable system rather than a fixed machine: high, middle and low positions; single- and two-arm
+methods; standing, seated, kneeling and bench-supported setups; presses, rows, pulldowns, squats,
+hinges, lunges, glute work, arm work, rotation and anti-rotation. Each cable method records its
+station, height, attachment, body position, laterality, difficulty, extra equipment and complete
+coaching cues. Bench methods only enter the pool when a nearby bench is enabled.
+
+Exercises are stored separately from their equipment methods. That lets a seated row, chest press,
+curl or other movement have dedicated-machine, cable and free-weight implementations while keeping
+one training intent. Swaps prefer the same canonical movement on different available equipment,
+then rank same-pattern alternatives by target-muscle overlap. Functional sandbags/Core Bags add
+progressive front squats, reverse lunges, deadlifts, clean-and-presses and Russian twists using the
+gym's 5–25kg set.
 
 **Photograph a strange gym and it adapts.** In a hotel, at a friend's place, anywhere that
 isn't your gym: take up to three photos and the coach reads what's there. You confirm the list

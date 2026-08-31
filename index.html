@@ -382,7 +382,7 @@ const PATTERN_LABEL = {
   arms:"Arms", delts:"Side & rear delts", core:"Core", calf:"Calves",
 };
 
-const EX = [
+const LEGACY_EXERCISE_METHODS = [
   /* ── Knee-dominant ────────────────────────────────────────────────────── */
   { id:"leg_press", name:"Linear Leg Press", stations:["35"], pattern:P.SQUAT, compound:true,
     primary:"Quads", secondary:["Glutes"], kind:"machine", inc:5, start:80, reps:[8,15], tags:["lower","knee"],
@@ -424,7 +424,7 @@ const EX = [
       execution:"Sit straight down between your feet, elbows tracking inside the knees. Go as deep as you can keep a flat back — usually thighs past parallel. Drive up through the whole foot.",
       mistakes:["Letting the dumbbell drift away from the chest, which pulls you forward","Heels lifting","Cutting the depth short when you actually have more available"],
       feel:"Quads and glutes, with your upper back working to hold the weight in place."} },
-  { id:"db_split_squat", name:"DB Split Squat", stations:["29"], pattern:P.SQUAT, compound:true,
+  { id:"db_split_squat", name:"DB Split Squat", stations:["29"], pattern:P.LUNGE, compound:true,
     primary:"Quads", secondary:["Glutes"], kind:"dumbbell", inc:2, start:10, reps:[8,12], tags:["lower","knee"],
     why:"One leg at a time, so each side gets loaded honestly and you can't let the stronger leg cover for the weaker one. Half the weight builds the same leg.",
     cues:{
@@ -440,7 +440,7 @@ const EX = [
       execution:"Sit down between your feet while keeping the bag tight to you. Reach the deepest position you can hold without the heels lifting, then drive the floor away to stand.",
       mistakes:["Letting the bag sag away from the body","Folding forward instead of sitting down","Knees collapsing inward","Rushing the bottom and losing the brace"],
       feel:"Quads and glutes with the abs and upper back working hard to stop the bag pulling you forward."} },
-  { id:"sandbag_reverse_lunge", name:"Sandbag Reverse Lunge", stations:["SB"], pattern:P.SQUAT, compound:true,
+  { id:"sandbag_reverse_lunge", name:"Sandbag Reverse Lunge", stations:["SB"], pattern:P.LUNGE, compound:true,
     primary:"Quads", secondary:["Glutes","Core"], kind:"sandbag", inc:5, start:10, reps:[8,12], tags:["lower","knee"],
     why:"Single-leg strength with a forgiving load. Stepping backward is usually easier to control than stepping forward, while the bag makes the trunk stay honest.",
     cues:{
@@ -811,6 +811,216 @@ const EX = [
       feel:"Stretch at the bottom, hard cramp at the top. Swap hands between sets."} },
 ];
 
+/* Equipment capabilities are data, not assumptions hidden in prompts. The
+   Multi-Jungle is an eight-stack cable system with several usable stations;
+   one enabled floor-plan item therefore unlocks every method its cable
+   positions and attachments can actually support. */
+const EQUIPMENT_CAPABILITIES = {
+  "17":{
+    system:"Life Fitness Multi-Jungle 8 Stack",
+    type:"multi-purpose cable system",
+    cablePositions:["high","middle","low","adjustable"],
+    stationTypes:["high pulley","adjustable pulley","low row","lat pulldown"],
+    attachments:["single handle","rope","straight bar","EZ-style bar","lat bar","row handle","ankle strap"],
+    dualCable:true,
+  },
+  "24":{
+    system:"Dual Adjustable Pulley",
+    type:"multi-purpose cable system",
+    cablePositions:["high","middle","low","adjustable"],
+    stationTypes:["adjustable pulley"],
+    attachments:["single handle","rope","straight bar","EZ-style bar","lat bar","row handle","ankle strap"],
+    dualCable:true,
+  },
+};
+
+const MOVEMENT_ID_BY_LEGACY_METHOD = {
+  seated_row:"seated_row", cable_row:"seated_row", iso_row:"seated_row", low_row:"seated_row", db_row:"seated_row",
+  chest_press_mach:"chest_press", db_bench:"chest_press", decline_press:"chest_press",
+  incline_press_mach:"incline_press", db_incline:"incline_press",
+  shoulder_press_mach:"overhead_press", iso_shoulder:"overhead_press", db_shoulder_press:"overhead_press",
+  lat_pulldown:"lat_pulldown", assisted_pullup:"lat_pulldown",
+  tricep_pushdown:"triceps_extension", db_tricep_ext:"triceps_extension",
+  bicep_curl_mach:"biceps_curl", db_curl:"biceps_curl", cable_curl:"biceps_curl", preacher_curl:"biceps_curl",
+  lateral_raise_mach:"lateral_raise", db_lateral_raise:"lateral_raise", cable_lateral_raise:"lateral_raise",
+  rear_delt:"rear_delt_fly", face_pull:"face_pull", single_cable_fly:"chest_fly",
+  pallof_press:"anti_rotation_press", hip_thrust:"hip_thrust", db_hip_thrust:"hip_thrust",
+  db_rdl:"romanian_deadlift", leg_curl:"knee_flexion", goblet_squat:"squat", squat_smith:"squat",
+  db_split_squat:"split_squat",
+};
+
+function cableMethod({id,exerciseId,name,pattern,primary,secondary=[],compound=false,start=10,reps=[10,15],tags=[],why,
+  stationUsed,cablePosition,attachment,bodyPosition,laterality,difficulty="Intermediate",additionalEquipment=[],
+  cableAngle="horizontal",grip="neutral",movementDirection="",requiresDualCable=false,cues}){
+  const attachmentOptions=["single handle","rope","straight bar","EZ-style bar","lat bar","row handle","ankle strap"]
+    .filter(option=>String(attachment).toLowerCase().includes(option.toLowerCase()) ||
+      (option==="single handle" && /handle/.test(String(attachment).toLowerCase())));
+  return {id,exerciseId,name,stations:["17","24"],stationMode:"any",pattern,primary,secondary,compound,
+    kind:"cable",inc:2.5,start,reps,tags,why,cues,
+    equipmentRequirements:{cableStations:["17","24"],requiresDualCable,attachmentOptions,
+      additionalStationGroups:additionalEquipment.includes("Bench")?[["25","26","27","28"]]:[]},
+    cableSetup:{stationUsed,cablePosition,attachment,bodyPosition,laterality,difficulty,additionalEquipment,
+      cableAngle,grip,movementDirection,benchRequired:additionalEquipment.includes("Bench")}};
+}
+
+/* Legitimate cable methods for the Jungle Gym. Variants exist only where a
+   change in angle, stance, arm use, grip or direction changes the stimulus. */
+const JUNGLE_GYM_METHODS = [
+  cableMethod({id:"cable_front_squat",exerciseId:"squat",name:"Cable Front Squat",pattern:P.SQUAT,primary:"Quads",secondary:["Glutes","Core"],compound:true,start:20,reps:[8,15],tags:["lower","knee"],
+    stationUsed:"low adjustable pulley",cablePosition:"low",attachment:"rope or straight bar",bodyPosition:"standing",laterality:"bilateral",difficulty:"Beginner",cableAngle:"low-to-high",movementDirection:"squat",
+    why:"A cable squat keeps the load in front and encourages an upright torso, making the Jungle Gym a practical quad option when the leg machines are busy.",
+    cues:{setup:"Set the pulley low. Hold a rope at the upper chest or a straight bar just below it, step back until the cable is taut, and stand shoulder-width with ribs stacked over hips.",execution:"Sit down between the feet with knees tracking over toes. Keep the attachment close, then drive through the whole foot to stand without leaning backward.",mistakes:["Standing so close the stack loses tension","Letting the cable pull the chest forward","Knees collapsing inward","Leaning back at lockout"],feel:"Quads and glutes working while the core keeps the torso tall."}}),
+  cableMethod({id:"cable_split_squat",exerciseId:"split_squat",name:"Single-Arm Cable Split Squat",pattern:P.LUNGE,primary:"Quads",secondary:["Glutes","Core"],compound:true,start:10,reps:[8,12],tags:["lower","knee"],
+    stationUsed:"low adjustable pulley",cablePosition:"low",attachment:"single handle",bodyPosition:"standing split stance",laterality:"unilateral",difficulty:"Intermediate",cableAngle:"low diagonal",movementDirection:"lunge",
+    why:"The low cable loads one leg while the offset handle makes the trunk resist rotation—useful single-leg work from one stack.",
+    cues:{setup:"Set the pulley low and hold the handle opposite the working front leg. Step into a long split stance with the cable taut and most pressure through the front foot.",execution:"Lower the back knee toward the floor without twisting, then push through the front foot to stand. Complete both sides.",mistakes:["Pushing off the back foot","Letting the torso rotate toward the stack","Front heel lifting","Taking a stance too short to descend comfortably"],feel:"Front-leg quad and glute, with the opposite obliques holding the torso square."}}),
+  cableMethod({id:"cable_reverse_lunge",exerciseId:"reverse_lunge",name:"Cable Reverse Lunge",pattern:P.LUNGE,primary:"Glutes",secondary:["Quads","Core"],compound:true,start:10,reps:[8,12],tags:["lower","knee"],
+    stationUsed:"low adjustable pulley",cablePosition:"low",attachment:"single handle",bodyPosition:"standing",laterality:"unilateral",difficulty:"Intermediate",cableAngle:"low horizontal",movementDirection:"lunge",
+    why:"The cable supplies a consistent counter-load through a controlled backward step, giving the Jungle Gym a joint-friendly single-leg option.",
+    cues:{setup:"Face the stack, hold one handle at the chest with both hands or in the hand opposite the working leg, and step back until the cable stays taut.",execution:"Reach one leg back, lower both knees under control, then drive through the front foot to return. Keep the pelvis square.",mistakes:["Letting the cable yank the torso forward","Taking a tiny step and lifting the front heel","Pushing off the rear toes","Alternating too quickly to balance"],feel:"Front-leg glute and quad with the core controlling the cable."}}),
+  cableMethod({id:"cable_pull_through",exerciseId:"hip_hinge",name:"Cable Pull-Through",pattern:P.HINGE,primary:"Glutes",secondary:["Hamstrings","Core"],compound:true,start:20,reps:[10,15],tags:["lower","back"],
+    stationUsed:"low adjustable pulley",cablePosition:"low",attachment:"rope",bodyPosition:"standing facing away",laterality:"bilateral",difficulty:"Beginner",cableAngle:"low horizontal",movementDirection:"hinge",
+    why:"A low rope turns the Jungle Gym into a hinge station, loading hip extension without placing a bar on the spine.",
+    cues:{setup:"Clip a rope low, face away and straddle it. Walk forward until the stack is lifted, then hold the rope between the thighs with soft knees and a braced trunk.",execution:"Push the hips back while the hands travel behind you, then drive the hips forward and squeeze the glutes to stand tall.",mistakes:["Squatting instead of hinging","Rounding the lower back","Pulling the rope with the arms","Leaning backward past neutral"],feel:"A hamstring stretch on the way back and a hard glute squeeze at standing."}}),
+  cableMethod({id:"cable_rdl",exerciseId:"romanian_deadlift",name:"Cable Romanian Deadlift",pattern:P.HINGE,primary:"Hamstrings",secondary:["Glutes","Lower Back"],compound:true,start:20,reps:[8,15],tags:["lower","back"],
+    stationUsed:"low adjustable pulley",cablePosition:"low",attachment:"straight bar or rope",bodyPosition:"standing",laterality:"bilateral",difficulty:"Beginner",cableAngle:"low-to-horizontal",movementDirection:"hinge",
+    why:"A low cable provides a smooth Romanian deadlift when dumbbells or barbells are unavailable, with tension maintained near the top.",
+    cues:{setup:"Face the low pulley holding a straight bar at thigh height. Step back for tension, stand hip-width, soften the knees and brace.",execution:"Push the hips back as the attachment tracks close to the legs. Stop at a strong hamstring stretch, then drive the hips forward to stand.",mistakes:["Turning the rep into a squat","Reaching forward with rounded shoulders","Chasing depth by rounding the back","Leaning away from the cable at the top"],feel:"Hamstrings lengthening, then glutes finishing the hip extension."}}),
+  cableMethod({id:"cable_glute_kickback",exerciseId:"hip_extension",name:"Cable Glute Kickback",pattern:P.HINGE,primary:"Glutes",secondary:["Hamstrings","Core"],start:5,reps:[12,20],tags:["lower"],
+    stationUsed:"low adjustable pulley",cablePosition:"low",attachment:"ankle strap",bodyPosition:"standing supported",laterality:"unilateral",difficulty:"Beginner",cableAngle:"low horizontal",movementDirection:"hip extension",
+    why:"The ankle strap isolates hip extension one side at a time, making the Jungle Gym a direct glute station.",
+    cues:{setup:"Clip an ankle strap to the low cable. Face the stack, hold the frame lightly, soften the standing knee and brace so the pelvis stays level.",execution:"Drive the strapped leg back from the hip without bending the spine. Pause at the glute squeeze and return slowly without resting the stack.",mistakes:["Arching the lower back to fake range","Swinging the leg","Turning the toes far outward","Loading so heavily the pelvis rotates"],feel:"The working-side glute shortening; the lower back should stay quiet."}}),
+  cableMethod({id:"cable_hip_abduction",exerciseId:"hip_abduction",name:"Standing Cable Hip Abduction",pattern:P.HINGE,primary:"Side Glutes",secondary:["Core"],start:5,reps:[12,20],tags:["lower"],
+    stationUsed:"low adjustable pulley",cablePosition:"low",attachment:"ankle strap",bodyPosition:"standing side-on",laterality:"unilateral",difficulty:"Beginner",cableAngle:"low horizontal",movementDirection:"hip abduction",
+    why:"A low ankle cable trains the glute medius through controlled abduction, a sensible substitute for the hip-abductor machine.",
+    cues:{setup:"Attach the far ankle to the low pulley and stand side-on, using the frame lightly for balance. Keep toes forward and pelvis level.",execution:"Move the strapped leg out to the side without hiking the hip. Pause briefly, then return under control across the body only as far as the pelvis stays still.",mistakes:["Leaning the whole torso away","Turning the toes up","Swinging for range","Letting the working hip hike"],feel:"A focused burn on the outside of the working hip."}}),
+  cableMethod({id:"lying_cable_leg_curl",exerciseId:"knee_flexion",name:"Lying Cable Leg Curl",pattern:P.HINGE,primary:"Hamstrings",secondary:["Calves"],start:7.5,reps:[10,15],tags:["lower"],
+    stationUsed:"low adjustable pulley",cablePosition:"low",attachment:"ankle strap",bodyPosition:"lying prone on bench",laterality:"unilateral",difficulty:"Intermediate",additionalEquipment:["Bench"],cableAngle:"low horizontal",movementDirection:"knee flexion",
+    why:"With a bench and ankle strap, the Jungle Gym can replace a prone curl machine while training each hamstring honestly.",
+    cues:{setup:"Place a flat bench in line with the low pulley, leaving safe clearance from the stack. Strap the working ankle, lie face down and hold the bench with hips pressed into it.",execution:"Curl the heel toward the glute without lifting the hip. Pause at the top and lower slowly to a long leg.",mistakes:["Putting the bench too close to the moving stack","Lifting the hip to shorten the rep","Jerking the cable","Letting the weight snap the knee straight"],feel:"Hamstring shortening behind the thigh, not cramping in the lower back."}}),
+
+  cableMethod({id:"single_arm_cable_press",exerciseId:"chest_press",name:"Single-Arm Cable Chest Press",pattern:P.PUSH_H,primary:"Chest",secondary:["Triceps","Front Delts","Core"],compound:true,start:10,reps:[8,15],tags:["upper","chest","shoulder"],
+    stationUsed:"middle adjustable pulley",cablePosition:"middle",attachment:"single handle",bodyPosition:"standing split stance",laterality:"unilateral",difficulty:"Intermediate",cableAngle:"horizontal",movementDirection:"push",
+    why:"A one-arm cable press trains the chest and triceps while the trunk resists rotation, replacing a press machine from one Jungle Gym stack.",
+    cues:{setup:"Set the handle around mid-chest height. Face away in a stable split stance with the handle beside the chest, shoulder blade controlled and ribs down.",execution:"Press forward and slightly inward without turning the torso. Reach nearly straight, then return until the chest is comfortably stretched.",mistakes:["Rotating to throw the handle forward","Flaring the elbow straight sideways","Shrugging the shoulder","Letting the cable pull the ribs open"],feel:"Chest and triceps pressing while the abs keep the torso square."}}),
+  cableMethod({id:"dual_cable_chest_press",exerciseId:"chest_press",name:"Two-Arm Cable Chest Press",pattern:P.PUSH_H,primary:"Chest",secondary:["Triceps","Front Delts"],compound:true,start:15,reps:[8,15],tags:["upper","chest","shoulder"],
+    stationUsed:"paired middle adjustable pulleys",cablePosition:"middle",attachment:"two single handles",bodyPosition:"standing split stance",laterality:"bilateral",difficulty:"Intermediate",requiresDualCable:true,cableAngle:"horizontal",movementDirection:"push",
+    why:"Paired Jungle Gym pulleys create a free-moving bilateral chest press and a practical substitute for a selectorised press.",
+    cues:{setup:"Set both pulleys at mid-chest height and equal load. Step forward into a split stance with one handle beside each side of the chest and cables clear of the arms.",execution:"Press both hands forward and slightly together, keep the ribs stacked, then control the handles back into a comfortable chest stretch.",mistakes:["Using mismatched pulley heights or loads","Overarching to finish the press","Letting one arm race ahead","Standing without enough room from the stacks"],feel:"Even pressure across the chest with triceps finishing both arms."}}),
+  cableMethod({id:"cable_fly_horizontal",exerciseId:"chest_fly",name:"Two-Arm Horizontal Cable Fly",pattern:P.PUSH_H,primary:"Chest",secondary:["Front Delts"],start:7.5,reps:[10,15],tags:["upper","chest","shoulder"],
+    stationUsed:"paired middle adjustable pulleys",cablePosition:"middle",attachment:"two single handles",bodyPosition:"standing split stance",laterality:"bilateral",difficulty:"Intermediate",requiresDualCable:true,cableAngle:"horizontal",movementDirection:"adduction",
+    why:"The horizontal cable line loads the mid-chest through a wide hugging arc without the fixed path of a fly machine.",
+    cues:{setup:"Set both pulleys around chest height with equal light loads. Step forward, stagger the feet, soften the elbows and pin the ribcage over the pelvis.",execution:"Sweep the arms together in a wide arc, keeping the elbow angle nearly fixed. Squeeze at the midline and open slowly to a comfortable stretch.",mistakes:["Turning the fly into a press","Letting the shoulders roll forward","Going too heavy to control the stretch","Standing too far forward to return safely"],feel:"A stretch across the chest followed by a squeeze through its middle."}}),
+  cableMethod({id:"cable_fly_high_low",exerciseId:"decline_chest_fly",name:"High-to-Low Cable Fly",pattern:P.PUSH_H,primary:"Lower Chest",secondary:["Front Delts"],start:7.5,reps:[10,15],tags:["upper","chest","shoulder"],
+    stationUsed:"paired high adjustable pulleys",cablePosition:"high",attachment:"two single handles",bodyPosition:"standing split stance",laterality:"bilateral",difficulty:"Intermediate",requiresDualCable:true,cableAngle:"high-to-low",movementDirection:"diagonal adduction",
+    why:"The downward cable arc shifts the fly toward the lower chest, a meaningful angle change rather than a renamed horizontal fly.",
+    cues:{setup:"Set both pulleys above shoulder height with matching light loads. Step forward, lean only slightly and start with arms wide and softly bent.",execution:"Sweep the handles down and inward toward the lower ribs or belt line. Pause, then retrace the same arc under control.",mistakes:["Turning it into a triceps pushdown","Rounding the shoulders to reach lower","Using bodyweight to drag the handles down","Losing the fixed elbow angle"],feel:"Chest pulling the arms down and across, strongest below the sternum."}}),
+  cableMethod({id:"cable_fly_low_high",exerciseId:"incline_chest_fly",name:"Low-to-High Cable Fly",pattern:P.PUSH_H,primary:"Upper Chest",secondary:["Front Delts"],start:5,reps:[10,15],tags:["upper","chest","shoulder"],
+    stationUsed:"paired low adjustable pulleys",cablePosition:"low",attachment:"two single handles",bodyPosition:"standing split stance",laterality:"bilateral",difficulty:"Intermediate",requiresDualCable:true,cableAngle:"low-to-high",movementDirection:"diagonal adduction",
+    why:"The upward cable arc biases the upper chest and can stand in for incline fly work when the bench area is busy.",
+    cues:{setup:"Set both pulleys low with matching light loads. Step forward, keep the palms facing up or inward and start the hands just behind the hips with soft elbows.",execution:"Sweep the handles up and together toward upper-chest height. Pause without shrugging, then lower along the same path.",mistakes:["Raising above shoulder height","Shrugging to finish","Turning it into a front raise with straight locked elbows","Arching the back"],feel:"Upper chest under the collarbones lifting the arms inward."}}),
+  cableMethod({id:"bench_cable_press",exerciseId:"chest_press",name:"Bench Cable Chest Press",pattern:P.PUSH_H,primary:"Chest",secondary:["Triceps","Front Delts"],compound:true,start:15,reps:[8,15],tags:["upper","chest","shoulder"],
+    stationUsed:"paired low adjustable pulleys",cablePosition:"low",attachment:"two single handles",bodyPosition:"lying supine on flat bench",laterality:"bilateral",difficulty:"Advanced",additionalEquipment:["Bench"],requiresDualCable:true,cableAngle:"low-to-high",movementDirection:"push",
+    why:"A nearby bench turns paired low pulleys into a stable cable press with continuous tension through the top of the rep.",
+    cues:{setup:"Centre a flat bench between and slightly ahead of paired low pulleys, checking the bench cannot contact the stacks. Take equal handles safely, lie back with feet planted and shoulders set.",execution:"Press the handles above the chest and slightly together, then lower with elbows about 45 degrees from the torso until the chest is comfortably stretched.",mistakes:["Bench or cables obstructing a stack","Trying to handle a heavy setup without control","Flaring the elbows to 90 degrees","Letting one handle pull the shoulder back"],feel:"Chest pressing through steady tension, with both sides working independently."}}),
+  cableMethod({id:"incline_bench_cable_press",exerciseId:"incline_press",name:"Incline Bench Cable Press",pattern:P.PUSH_H,primary:"Upper Chest",secondary:["Triceps","Front Delts"],compound:true,start:12.5,reps:[8,15],tags:["upper","chest","shoulder"],
+    stationUsed:"paired low adjustable pulleys",cablePosition:"low",attachment:"two single handles",bodyPosition:"seated on 30–45° bench",laterality:"bilateral",difficulty:"Advanced",additionalEquipment:["Bench"],requiresDualCable:true,cableAngle:"low-to-high",movementDirection:"push",
+    why:"An angled bench and low pulleys reproduce an incline press while keeping independent cable tension on the upper chest.",
+    cues:{setup:"Set an adjustable bench to 30–45 degrees between low pulleys, clear of both stacks. Use equal handles and loads, sit back with shoulder blades supported and feet planted.",execution:"Press up and slightly inward from upper-chest level. Control the return until the elbows reach a comfortable depth beside the torso.",mistakes:["Bench too steep, turning it into a shoulder press","Cables rubbing the bench","Unequal loads","Shoulders rolling forward at the bottom"],feel:"Upper chest beneath the collarbones with triceps assisting."}}),
+
+  cableMethod({id:"standing_single_arm_row",exerciseId:"seated_row",name:"Standing Single-Arm Cable Row",pattern:P.PULL_H,primary:"Mid Back",secondary:["Lats","Biceps","Core"],compound:true,start:12.5,reps:[8,15],tags:["upper","back"],
+    stationUsed:"middle adjustable pulley",cablePosition:"middle",attachment:"single handle",bodyPosition:"standing split stance",laterality:"unilateral",difficulty:"Beginner",cableAngle:"horizontal",movementDirection:"pull",
+    why:"One adjustable Jungle Gym pulley becomes a unilateral row that trains the back while the trunk resists rotation.",
+    cues:{setup:"Set the pulley around lower-chest height. Face the stack in a stable split stance, take one handle and begin with the arm long and shoulder blade reaching forward.",execution:"Drive the elbow toward the back pocket without rotating the ribs. Pause with the shoulder blade back, then reach forward slowly.",mistakes:["Twisting the torso to finish","Shrugging","Curling before the back engages","Leaning far away from the stack"],feel:"Mid-back and lat on the working side, with the core holding still."}}),
+  cableMethod({id:"bench_supported_cable_row",exerciseId:"seated_row",name:"Bench-Supported Cable Row",pattern:P.PULL_H,primary:"Mid Back",secondary:["Lats","Biceps"],compound:true,start:20,reps:[8,15],tags:["upper","back"],
+    stationUsed:"middle adjustable pulley",cablePosition:"middle",attachment:"two single handles or straight bar",bodyPosition:"seated chest-supported on incline bench",laterality:"bilateral",difficulty:"Intermediate",additionalEquipment:["Bench"],cableAngle:"horizontal",movementDirection:"pull",
+    why:"A nearby incline bench removes torso momentum, making the Jungle Gym a strict supported-row alternative to dedicated row machines.",
+    cues:{setup:"Angle a bench toward the pulley so the chest is supported and the bench stays clear of the stack. Set the cable level with the lower chest and begin with arms long.",execution:"Row the elbows back beside the ribs, pause without lifting off the pad, then return to a controlled shoulder-blade reach.",mistakes:["Bench blocking the cable or stack","Lifting the chest to heave","Shrugging","Stopping before the arms reach long"],feel:"Mid-back squeezing while the bench keeps the lower back out of the movement."}}),
+  cableMethod({id:"half_kneeling_cable_pulldown",exerciseId:"lat_pulldown",name:"Half-Kneeling Single-Arm Pulldown",pattern:P.PULL_V,primary:"Lats",secondary:["Biceps","Core"],compound:true,start:12.5,reps:[8,15],tags:["upper","back"],
+    stationUsed:"high adjustable pulley",cablePosition:"high",attachment:"single handle",bodyPosition:"half-kneeling",laterality:"unilateral",difficulty:"Intermediate",cableAngle:"high-to-low",movementDirection:"pull",
+    why:"A high handle creates a one-arm vertical pull without a dedicated pulldown seat and adds useful trunk control.",
+    cues:{setup:"Set one handle high. Kneel with the working-side knee down or choose the stance that lets the cable clear the head; squeeze the glute and keep ribs down.",execution:"Start with a long arm, pull the shoulder blade down, then drive the elbow toward the hip. Return slowly to a full overhead reach.",mistakes:["Leaning sideways to shorten the pull","Curling the handle first","Shrugging at the top","Arching the lower back"],feel:"Lat shortening from armpit toward hip, with the trunk staying stacked."}}),
+  cableMethod({id:"straight_arm_pulldown",exerciseId:"shoulder_extension",name:"Straight-Arm Cable Pulldown",pattern:P.PULL_V,primary:"Lats",secondary:["Triceps","Core"],start:15,reps:[10,15],tags:["upper","back","shoulder"],
+    stationUsed:"high pulley",cablePosition:"high",attachment:"straight bar or rope",bodyPosition:"standing",laterality:"bilateral",difficulty:"Beginner",cableAngle:"high-to-low",movementDirection:"shoulder extension",
+    why:"The high pulley isolates the lats through shoulder extension without biceps dominating, giving the Jungle Gym a distinct vertical-pull accessory.",
+    cues:{setup:"Attach a straight bar or rope high. Step back, hinge slightly with ribs down, arms long and elbows softly unlocked.",execution:"Sweep the attachment down toward the thighs without changing the elbow angle. Pause with the lats tight, then return overhead slowly.",mistakes:["Turning it into a triceps pressdown","Bending and straightening the elbows","Using a torso swing","Shrugging at the stretched position"],feel:"Lats pulling the upper arms down toward the ribs."}}),
+
+  cableMethod({id:"single_arm_cable_overhead_press",exerciseId:"overhead_press",name:"Single-Arm Cable Overhead Press",pattern:P.PUSH_V,primary:"Shoulders",secondary:["Triceps","Core"],compound:true,start:7.5,reps:[8,15],tags:["upper","shoulder"],
+    stationUsed:"low adjustable pulley",cablePosition:"low",attachment:"single handle",bodyPosition:"half-kneeling or standing",laterality:"unilateral",difficulty:"Intermediate",cableAngle:"low-to-high",movementDirection:"vertical push",
+    why:"A low handle supplies an overhead press from one Jungle Gym stack while the offset load trains trunk stability.",
+    cues:{setup:"Set one handle low and face away. Bring it to shoulder height without twisting, choose a half-kneeling or split stance, squeeze the glutes and keep ribs down.",execution:"Press overhead until the arm is long without shrugging, then lower to the shoulder under control. Complete both sides.",mistakes:["Arching the lower back","Leaning away from the cable","Letting the elbow flare behind the body","Shrugging to finish"],feel:"Shoulder and triceps pressing while the core stops side-bending."}}),
+  cableMethod({id:"cable_front_raise",exerciseId:"front_raise",name:"Cable Front Raise",pattern:P.DELTS,primary:"Front Delts",secondary:["Upper Chest"],start:5,reps:[12,20],tags:["upper","shoulder"],
+    stationUsed:"low adjustable pulley",cablePosition:"low",attachment:"straight bar, rope or single handle",bodyPosition:"standing",laterality:"bilateral or unilateral",difficulty:"Beginner",cableAngle:"low-to-high",movementDirection:"shoulder flexion",
+    why:"A low cable keeps the front delt loaded from the start of the raise; single- and two-arm setups are both legitimate methods.",
+    cues:{setup:"Set the pulley low and stand facing away with the cable between the legs or use one handle at a time. Stand tall with ribs down and elbows softly bent.",execution:"Raise the attachment forward to shoulder height without leaning, pause briefly and lower slowly to the thighs.",mistakes:["Swinging the hips","Raising far above shoulder height","Shrugging","Arching to create momentum"],feel:"Front of the shoulders lifting against continuous tension."}}),
+  cableMethod({id:"dual_cable_reverse_fly",exerciseId:"rear_delt_fly",name:"Two-Arm Cable Reverse Fly",pattern:P.DELTS,primary:"Rear Delts",secondary:["Upper Back"],start:5,reps:[12,20],tags:["upper","shoulder","back"],
+    stationUsed:"paired middle adjustable pulleys",cablePosition:"middle",attachment:"two single handles",bodyPosition:"standing",laterality:"bilateral",difficulty:"Intermediate",requiresDualCable:true,cableAngle:"horizontal crossed cables",movementDirection:"horizontal abduction",
+    why:"Crossed mid-height cables challenge the rear delts through a full outward arc and substitute cleanly for the rear-delt machine.",
+    cues:{setup:"Set both pulleys around shoulder height with light equal loads. Take the opposite handles so the cables cross, step to centre and begin with arms forward and softly bent.",execution:"Open the arms wide until they align with the torso, pause without shrugging, then return slowly until the rear delts stretch.",mistakes:["Bending the elbows into a row","Shrugging","Leaning backward","Using too much weight for the wide arc"],feel:"Rear shoulders and upper back opening the arms, not the neck."}}),
+
+  cableMethod({id:"rope_overhead_triceps",exerciseId:"triceps_extension",name:"Rope Overhead Cable Triceps Extension",pattern:P.ARMS,primary:"Triceps",secondary:["Core"],start:10,reps:[10,15],tags:["upper","elbow","shoulder"],
+    stationUsed:"high or low adjustable pulley",cablePosition:"high or low",attachment:"rope",bodyPosition:"standing split stance facing away",laterality:"bilateral",difficulty:"Intermediate",cableAngle:"diagonal",movementDirection:"elbow extension",
+    why:"The overhead cable position trains the long head of the triceps in a stretch, complementing the Jungle Gym pushdown.",
+    cues:{setup:"Clip a rope high or low, face away and bring the ends behind the head. Use a split stance, brace and point the elbows forward without forcing them together.",execution:"Straighten the elbows while the upper arms stay still, spread the rope slightly at lockout, then return into a controlled stretch.",mistakes:["Arching the lower back","Flaring and moving the upper arms","Turning it into a shoulder press","Using a stance too close to the stack"],feel:"A stretch high on the back of the arms and a hard triceps squeeze at extension."}}),
+  cableMethod({id:"single_arm_cable_pushdown",exerciseId:"triceps_extension",name:"Single-Arm Cable Pushdown",pattern:P.ARMS,primary:"Triceps",secondary:[],start:5,reps:[10,15],tags:["upper","elbow"],
+    stationUsed:"high pulley",cablePosition:"high",attachment:"single handle or no-handle ball stop",bodyPosition:"standing",laterality:"unilateral",difficulty:"Beginner",cableAngle:"high-to-low",movementDirection:"elbow extension",
+    why:"One-arm pushdowns expose side-to-side differences and let the wrist find a comfortable path on the Jungle Gym.",
+    cues:{setup:"Set a single handle high. Stand close enough to keep the upper arm vertical, pin the elbow beside the ribs and keep the wrist neutral.",execution:"Straighten the elbow to full controlled lockout, pause, then return until the forearm passes 90 degrees without the shoulder moving.",mistakes:["Driving the elbow forward","Rotating the torso","Dropping the shoulder","Using bodyweight on the handle"],feel:"Triceps working independently, strongest near lockout."}}),
+  cableMethod({id:"rope_hammer_curl",exerciseId:"biceps_curl",name:"Rope Hammer Cable Curl",pattern:P.ARMS,primary:"Biceps",secondary:["Brachialis","Forearms"],start:10,reps:[10,15],tags:["upper","elbow"],
+    stationUsed:"low pulley",cablePosition:"low",attachment:"rope",bodyPosition:"standing",laterality:"bilateral",difficulty:"Beginner",cableAngle:"low-to-high",grip:"neutral",movementDirection:"elbow flexion",
+    why:"The neutral rope grip shifts useful work toward the brachialis and forearms, making it meaningfully different from the straight-bar cable curl.",
+    cues:{setup:"Attach a rope low, hold the ends with thumbs up and stand tall with arms long and elbows beside the ribs.",execution:"Curl the rope toward the shoulders without moving the upper arms. Separate the ends slightly at the top and lower to full controlled extension.",mistakes:["Rocking backward","Elbows drifting forward","Bending the wrists","Stopping short of a long arm"],feel:"Front and sides of the upper arms plus the forearms."}}),
+  cableMethod({id:"high_cable_curl",exerciseId:"biceps_curl",name:"High Cable Curl",pattern:P.ARMS,primary:"Biceps",secondary:["Forearms"],start:7.5,reps:[10,15],tags:["upper","elbow","shoulder"],
+    stationUsed:"paired high pulleys",cablePosition:"high",attachment:"two single handles",bodyPosition:"standing centred",laterality:"bilateral",difficulty:"Intermediate",requiresDualCable:true,cableAngle:"horizontal",grip:"supinated",movementDirection:"elbow flexion",
+    why:"Curling from shoulder-height cables trains the biceps with the upper arms raised, a distinct stimulus from the low-pulley curl.",
+    cues:{setup:"Set both pulleys around shoulder height with equal light loads. Stand centred, arms out to the sides, palms up and shoulders down.",execution:"Curl the handles toward the temples while the upper arms remain level. Squeeze, then extend the elbows slowly without losing shoulder position.",mistakes:["Dropping the elbows","Shrugging","Pulling the hands behind the head","Using loads that strain the shoulder position"],feel:"Biceps shortening hard with the arms held out to the sides."}}),
+
+  cableMethod({id:"half_kneeling_pallof",exerciseId:"anti_rotation_press",name:"Half-Kneeling Cable Pallof Press",pattern:P.CORE,primary:"Core",secondary:["Obliques","Glutes"],start:7.5,reps:[8,15],tags:["core"],
+    stationUsed:"middle adjustable pulley",cablePosition:"middle",attachment:"single handle",bodyPosition:"half-kneeling side-on",laterality:"bilateral hold; train both sides",difficulty:"Intermediate",cableAngle:"horizontal",movementDirection:"anti-rotation",
+    why:"Half-kneeling removes help from a wide stance, making the Jungle Gym anti-rotation press more demanding without simply adding load.",
+    cues:{setup:"Set the handle at lower-chest height. Kneel side-on with the inside knee down, squeeze that glute, hold the handle at the sternum with both hands and square the hips.",execution:"Press the hands straight forward and pause without turning or side-bending. Return to the chest and repeat facing both directions.",mistakes:["Letting the hips rotate","Leaning away from the stack","Losing the down-knee glute squeeze","Rushing the full-reach pause"],feel:"Obliques bracing to keep the shoulders and pelvis square."}}),
+  cableMethod({id:"cable_chop",exerciseId:"rotation",name:"High-to-Low Cable Chop",pattern:P.CORE,primary:"Obliques",secondary:["Core","Shoulders","Glutes"],start:7.5,reps:[8,15],tags:["core","back","shoulder"],
+    stationUsed:"high adjustable pulley",cablePosition:"high",attachment:"single handle or rope",bodyPosition:"standing or half-kneeling",laterality:"unilateral direction; train both sides",difficulty:"Intermediate",cableAngle:"high-to-low",movementDirection:"rotation",
+    why:"A controlled diagonal chop trains force transfer through the trunk; the high-to-low direction is a real variation from anti-rotation work.",
+    cues:{setup:"Set the cable high and stand side-on with both hands on one handle. Use a stable stance, soften the knees and start with the ribcage turned slightly toward the cable.",execution:"Rotate the ribs and shoulders together, guiding the hands diagonally toward the opposite hip. Control the return; pivot only if the stance and space allow it.",mistakes:["Only pulling with the arms","Twisting through a planted knee","Rounding the lower back","Using momentum instead of controlled rotation"],feel:"Obliques moving and braking the torso as one unit."}}),
+  cableMethod({id:"cable_lift",exerciseId:"rotation",name:"Low-to-High Cable Lift",pattern:P.CORE,primary:"Obliques",secondary:["Core","Shoulders","Glutes"],start:7.5,reps:[8,15],tags:["core","back","shoulder"],
+    stationUsed:"low adjustable pulley",cablePosition:"low",attachment:"single handle or rope",bodyPosition:"standing or half-kneeling",laterality:"unilateral direction; train both sides",difficulty:"Intermediate",cableAngle:"low-to-high",movementDirection:"rotation",
+    why:"The upward diagonal reverses the chop's force line, training rotation and force transfer toward the opposite shoulder.",
+    cues:{setup:"Set the cable low and stand side-on with both hands on the handle. Brace, soften the knees and begin with the hands near the cable-side hip.",execution:"Rotate the ribcage and guide the hands diagonally toward the opposite shoulder without leaning back. Return slowly and train both directions.",mistakes:["Yanking with the arms","Extending the lower back at the top","Twisting through locked knees","Letting the cable control the return"],feel:"Obliques driving an upward diagonal while the hips and shoulders move together."}}),
+  cableMethod({id:"kneeling_cable_crunch",exerciseId:"spinal_flexion",name:"Kneeling Cable Crunch",pattern:P.CORE,primary:"Core",secondary:["Obliques"],start:15,reps:[10,20],tags:["core"],
+    stationUsed:"high pulley",cablePosition:"high",attachment:"rope",bodyPosition:"tall kneeling",laterality:"bilateral",difficulty:"Beginner",cableAngle:"high-to-low",movementDirection:"spinal flexion",
+    why:"A high rope makes abdominal flexion progressively loadable, so the Jungle Gym can replace the ab-crunch machine.",
+    cues:{setup:"Attach a rope high, kneel far enough back that the cable stays clear of the head, and hold the rope beside the temples. Keep hips over knees.",execution:"Curl the ribs toward the pelvis without sitting the hips back. Pause in the crunch and uncurl slowly to a neutral spine.",mistakes:["Hinging at the hips instead of curling the trunk","Pulling the rope with the arms","Sitting onto the heels","Overextending the back at the top"],feel:"Abs shortening from ribs toward pelvis; hips stay nearly still."}}),
+];
+
+const LEGACY_CABLE_SETUPS = {
+  cable_row:{stationUsed:"low-row or low adjustable pulley",cablePosition:"low",attachment:"row handle",bodyPosition:"seated",laterality:"bilateral",difficulty:"Beginner",additionalEquipment:[],cableAngle:"horizontal",grip:"neutral",movementDirection:"pull"},
+  lat_pulldown:{stationUsed:"lat-pulldown or high pulley station",cablePosition:"high",attachment:"lat bar",bodyPosition:"seated",laterality:"bilateral",difficulty:"Beginner",additionalEquipment:[],cableAngle:"high-to-low",grip:"overhand",movementDirection:"vertical pull"},
+  single_cable_fly:{stationUsed:"middle adjustable pulley",cablePosition:"middle",attachment:"single handle",bodyPosition:"standing split stance",laterality:"unilateral",difficulty:"Intermediate",additionalEquipment:[],cableAngle:"horizontal",grip:"neutral",movementDirection:"adduction"},
+  face_pull:{stationUsed:"high or middle adjustable pulley",cablePosition:"high-middle",attachment:"rope",bodyPosition:"standing",laterality:"bilateral",difficulty:"Beginner",additionalEquipment:[],cableAngle:"horizontal",grip:"neutral",movementDirection:"pull and external rotation"},
+  cable_lateral_raise:{stationUsed:"low adjustable pulley",cablePosition:"low",attachment:"single handle",bodyPosition:"standing side-on",laterality:"unilateral",difficulty:"Beginner",additionalEquipment:[],cableAngle:"low-to-high",grip:"neutral",movementDirection:"abduction"},
+  tricep_pushdown:{stationUsed:"high pulley",cablePosition:"high",attachment:"rope, straight bar or EZ-style bar",bodyPosition:"standing",laterality:"bilateral",difficulty:"Beginner",additionalEquipment:[],cableAngle:"high-to-low",grip:"neutral or overhand",movementDirection:"elbow extension"},
+  cable_curl:{stationUsed:"low pulley",cablePosition:"low",attachment:"straight bar or EZ-style bar",bodyPosition:"standing",laterality:"bilateral",difficulty:"Beginner",additionalEquipment:[],cableAngle:"low-to-high",grip:"underhand",movementDirection:"elbow flexion"},
+  pallof_press:{stationUsed:"middle adjustable pulley",cablePosition:"middle",attachment:"single handle",bodyPosition:"standing side-on",laterality:"bilateral hold; train both sides",difficulty:"Beginner",additionalEquipment:[],cableAngle:"horizontal",grip:"two hands",movementDirection:"anti-rotation"},
+};
+
+/* Exercises and equipment methods are intentionally separate. A canonical
+   exercise can have a dedicated-machine, free-weight and cable method. The UI
+   and history still use stable method ids, while substitution logic can reason
+   over the shared exercise id and target muscles. */
+const EQUIPMENT_METHODS = [...LEGACY_EXERCISE_METHODS.map(method=>({
+  ...method, exerciseId:method.exerciseId||MOVEMENT_ID_BY_LEGACY_METHOD[method.id]||method.id,
+  ...(LEGACY_CABLE_SETUPS[method.id]?{cableSetup:{...LEGACY_CABLE_SETUPS[method.id],benchRequired:false}}:{}),
+})), ...JUNGLE_GYM_METHODS];
+const EXERCISE_DEFINITIONS = Object.values(EQUIPMENT_METHODS.reduce((all,method)=>{
+  const id=method.exerciseId;
+  if(!all[id]) all[id]={id,name:method.name.replace(/^(DB|Cable|Multi-Jungle|Hammer Strength Iso-Lateral|Single-Arm|Two-Arm|Bench-Supported|Standing)\s+/i,""),
+    pattern:method.pattern,primary:method.primary,secondary:[...(method.secondary||[])],tags:[...(method.tags||[])]};
+  return all;
+},{}));
+const EXERCISE_DEFINITION_BY_ID=Object.fromEntries(EXERCISE_DEFINITIONS.map(e=>[e.id,e]));
+const EX = EQUIPMENT_METHODS.map(method=>({...EXERCISE_DEFINITION_BY_ID[method.exerciseId],...method}));
+
 const EX_BY_ID = Object.fromEntries(EX.map(e=>[e.id,e]));
 const EX_NAME  = Object.fromEntries(EX.map(e=>[e.id,e.name]));
 
@@ -933,19 +1143,19 @@ const BLOCK_TEMPLATES = {
 /* Session templates by weekly frequency — a list of pattern slots per day. */
 const SPLITS = {
   2:[ {name:"Full Body A", slots:[P.SQUAT,P.PUSH_H,P.PULL_H,P.PUSH_V,P.CORE]},
-      {name:"Full Body B", slots:[P.HINGE,P.PULL_V,P.PUSH_H,P.DELTS,P.CORE]} ],
-  3:[ {name:"Push & Legs", slots:[P.SQUAT,P.PUSH_H,P.PUSH_V,P.HINGE,P.ARMS,P.CORE]},
+      {name:"Full Body B", slots:[P.HINGE,P.PULL_V,P.PUSH_H,P.LUNGE,P.CORE]} ],
+  3:[ {name:"Push & Legs", slots:[P.SQUAT,P.PUSH_H,P.PUSH_V,P.LUNGE,P.ARMS,P.CORE]},
       {name:"Pull & Core", slots:[P.PULL_V,P.PULL_H,P.HINGE,P.DELTS,P.ARMS,P.CORE]},
       {name:"Full Body",   slots:[P.SQUAT,P.PUSH_H,P.PULL_H,P.PUSH_V,P.HINGE,P.CORE]} ],
   4:[ {name:"Upper A", slots:[P.PUSH_H,P.PULL_H,P.PUSH_V,P.PULL_V,P.ARMS,P.DELTS]},
-      {name:"Lower A", slots:[P.SQUAT,P.HINGE,P.SQUAT,P.HINGE,P.CALF,P.CORE]},
+      {name:"Lower A", slots:[P.SQUAT,P.HINGE,P.LUNGE,P.HINGE,P.CALF,P.CORE]},
       {name:"Upper B", slots:[P.PULL_V,P.PUSH_H,P.PULL_H,P.DELTS,P.ARMS,P.CORE]},
-      {name:"Lower B", slots:[P.HINGE,P.SQUAT,P.HINGE,P.CALF,P.CORE,P.SQUAT]} ],
+      {name:"Lower B", slots:[P.HINGE,P.SQUAT,P.HINGE,P.CALF,P.CORE,P.LUNGE]} ],
   5:[ {name:"Push",    slots:[P.PUSH_H,P.PUSH_V,P.PUSH_H,P.DELTS,P.ARMS]},
       {name:"Pull",    slots:[P.PULL_V,P.PULL_H,P.PULL_H,P.DELTS,P.ARMS]},
-      {name:"Legs",    slots:[P.SQUAT,P.HINGE,P.SQUAT,P.HINGE,P.CALF,P.CORE]},
+      {name:"Legs",    slots:[P.SQUAT,P.HINGE,P.LUNGE,P.HINGE,P.CALF,P.CORE]},
       {name:"Upper",   slots:[P.PUSH_H,P.PULL_H,P.PUSH_V,P.PULL_V,P.ARMS]},
-      {name:"Lower",   slots:[P.HINGE,P.SQUAT,P.HINGE,P.CORE,P.CALF]} ],
+      {name:"Lower",   slots:[P.HINGE,P.SQUAT,P.LUNGE,P.CORE,P.CALF]} ],
 };
 
 const EFFORT = [
@@ -1685,6 +1895,21 @@ function enabledStationSet(state){
   return new Set(activeStations(state).map(s=>s.num));
 }
 
+function exerciseEquipmentAvailable(ex, stations){
+  const baseAvailable = ex.stationMode === "any"
+    ? ex.stations.some(n=>stations.has(n))
+    : ex.stations.every(n=>stations.has(n));
+  if(!baseAvailable) return false;
+  const req=ex.equipmentRequirements;
+  if(!req) return true;
+  const cableStation=(req.cableStations||[]).find(n=>stations.has(n));
+  if(!cableStation) return false;
+  const capability=EQUIPMENT_CAPABILITIES[cableStation];
+  if(req.requiresDualCable && !capability?.dualCable) return false;
+  if(req.attachmentOptions?.length && !req.attachmentOptions.some(a=>capability?.attachments?.includes(a))) return false;
+  return (req.additionalStationGroups||[]).every(group=>group.some(n=>stations.has(n)));
+}
+
 function limitBlocks(ex, limits){
   if(limits.knees     && ex.tags?.includes("knee"))     return true;
   if(limits.ankles    && ex.tags?.includes("ankle"))    return true;
@@ -1721,9 +1946,7 @@ function availableExercises(state){
   const stations = enabledStationSet(state);
   const limits = effectiveLimits(state);
   return EX.filter(ex =>
-    (ex.stationMode === "any"
-      ? ex.stations.some(n => stations.has(n))
-      : ex.stations.every(n => stations.has(n)))
+    exerciseEquipmentAvailable(ex,stations)
     && !limitBlocks(ex, limits)
   );
 }
@@ -1734,11 +1957,18 @@ function availableExercises(state){
 function exerciseSwapOptions(current, state, session){
   const used=new Set((session?.exercises||[]).map(e=>e.exId));
   const currentStations=new Set(current.stations||[]);
+  const currentMethod=EX_BY_ID[current.exId]||current;
+  const currentMuscles=new Set([currentMethod.primary,...(currentMethod.secondary||[])].map(x=>String(x).toLowerCase()));
   return availableExercises(state)
     .filter(ex=>ex.id!==current.exId && ex.pattern===current.pattern && !used.has(ex.id))
-    .map(ex=>({ex, overlap:stationsForExercise(ex,state).some(s=>currentStations.has(s))?1:0,
-      preference:ex.kind==="dumbbell" ? Math.abs((state.profile.freeWeightPct||0)-100) : Math.abs(state.profile.freeWeightPct||0)}))
-    .sort((a,b)=>a.overlap-b.overlap || a.preference-b.preference || Number(b.ex.compound)-Number(a.ex.compound))
+    .map(ex=>{
+      const overlap=stationsForExercise(ex,state).some(s=>currentStations.has(s))?1:0;
+      const targetOverlap=[ex.primary,...(ex.secondary||[])].filter(x=>currentMuscles.has(String(x).toLowerCase())).length;
+      const sameExercise=ex.exerciseId===currentMethod.exerciseId?1:0;
+      const preference=ex.kind==="dumbbell" ? Math.abs((state.profile.freeWeightPct||0)-100) : Math.abs(state.profile.freeWeightPct||0);
+      return {ex,overlap,score:sameExercise*50+targetOverlap*8+(ex.primary===currentMethod.primary?12:0)+Number(ex.compound===currentMethod.compound)*3-preference*.02};
+    })
+    .sort((a,b)=>a.overlap-b.overlap || b.score-a.score || a.ex.name.localeCompare(b.ex.name))
     .slice(0,2).map(x=>x.ex);
 }
 
@@ -1767,21 +1997,27 @@ function performanceSummary(logged, repRange=[1,99]){
    movements marked `any` can use either suitable tower; show and save the
    first one that is actually available instead of pretending both are needed. */
 function stationsForExercise(ex, state){
-  if(ex.stationMode !== "any") return ex.stations;
   const enabled = enabledStationSet(state);
-  const station = ex.stations.find(n=>enabled.has(n));
-  return station ? [station] : [];
+  const base = ex.stationMode === "any"
+    ? ex.stations.filter(n=>enabled.has(n)).slice(0,1)
+    : ex.stations.filter(n=>enabled.has(n));
+  const additions=(ex.equipmentRequirements?.additionalStationGroups||[])
+    .map(group=>group.find(n=>enabled.has(n))).filter(Boolean);
+  return [...new Set([...base,...additions])];
 }
 
 function stationRequirement(ex){
   const joiner = ex.stationMode === "any" ? " or #" : "+#";
-  return `#${ex.stations.join(joiner)}`;
+  const base=`#${ex.stations.join(joiner)}`;
+  const additions=(ex.equipmentRequirements?.additionalStationGroups||[])
+    .map(group=>` + one of #${group.join("/#")}`).join("");
+  return base+additions;
 }
 
 /* Pick the best exercise for a pattern slot, avoiding repeats and honouring
    the user's free-weight preference. */
 function pickForPattern(pattern, pool, used, recentIds, freePct){
-  let cands = pool.filter(e => e.pattern===pattern && !used.has(e.id));
+  let cands = pool.filter(e => e.pattern===pattern && !used.has(e.id) && !used.has(`exercise:${e.exerciseId}`));
   if(!cands.length) return null;
 
   const preferFree = Math.random()*100 < (freePct||0);
@@ -1965,6 +2201,7 @@ function buildSessionRules(state, checkin, {bonus=false,regenerateReason=""}={})
     const ex = pickForPattern(pattern, pool, used, recent, state.profile.freeWeightPct);
     if(!ex) continue;
     used.add(ex.id);
+    used.add(`exercise:${ex.exerciseId}`);
 
     const ww = workingWeight(ex, state, phase);
     let sets = ex.compound ? phase.sets : Math.max(2, phase.sets-1);
@@ -1974,12 +2211,15 @@ function buildSessionRules(state, checkin, {bonus=false,regenerateReason=""}={})
 
     exercises.push({
       exId: ex.id,
+      exerciseId:ex.exerciseId,
       name: ex.name,
       stations: stationsForExercise(ex, state),
       pattern: ex.pattern,
       primary: ex.primary,
+      secondary:ex.secondary,
       compound: ex.compound,
       kind:ex.kind,
+      cableSetup:ex.cableSetup,
       sets,
       targetReps: reps,
       repRange: phase.repRange,
@@ -2286,6 +2526,10 @@ Calibration rules:
 function equipmentDigest(state){
   const list = activeStations(state).map(s=>`#${s.num} ${s.name}`).join(" | ");
   let out = `EQUIPMENT AVAILABLE (only ever program these):\n${list}`;
+  if(enabledStationSet(state).has("17")){
+    const c=EQUIPMENT_CAPABILITIES["17"];
+    out += `\n\nLIFE FITNESS MULTI-JUNGLE CAPABILITY RULE: Treat #17 as a ${c.type}, not a fixed exercise machine. Its ${c.cablePositions.join(", ")} cable positions and ${c.attachments.join(", ")} support the compatible catalogue methods below. Actively use it as an alternative to free weights and dedicated machines. Do not restrict choices to its placard. Choose only catalogue methods whose setup is safe and whose required bench or attachment is available.`;
+  }
   if(travelOn(state)){
     const t = state.travel;
     out = `TRAINING AWAY FROM THEIR USUAL GYM TODAY: "${t.name}". Program only what's listed below — their home gym's machines are NOT available. Acknowledge this in what you write and treat it as a session worth doing rather than a compromise.\n\n` + out;
@@ -2298,7 +2542,7 @@ function equipmentDigest(state){
 function catalogueDigest(state){
   const pool = availableExercises(state);
   return `EXERCISE CATALOGUE (use these ids exactly):\n` + pool.map(e =>
-    `${e.id} — "${e.name}" @${stationRequirement(e)} · ${PATTERN_LABEL[e.pattern]} · ${e.primary} · ${e.compound?"compound":"isolation"} · increment ${e.inc}kg`
+    `${e.id} — "${e.name}" [exercise ${e.exerciseId}] @${stationRequirement(e)} · ${PATTERN_LABEL[e.pattern]} · ${e.primary}${e.secondary?.length?` + ${e.secondary.join(", ")}`:""} · ${e.compound?"compound":"isolation"} · increment ${e.inc}kg${e.cableSetup?` · ${e.cableSetup.stationUsed}; cable ${e.cableSetup.cablePosition}; ${e.cableSetup.attachment}; ${e.cableSetup.bodyPosition}; ${e.cableSetup.laterality}${e.cableSetup.benchRequired?"; bench required":""}`:""}`
   ).join("\n");
 }
 
@@ -2803,6 +3047,9 @@ Rules:
         if(new Set(raw.exercises.map(r=>r?.exId)).size !== raw.exercises.length){
           rejectAIResponse("The coach returned duplicate exercises");
         }
+        if(new Set(raw.exercises.map(r=>EX_BY_ID[r?.exId]?.exerciseId).filter(Boolean)).size !== raw.exercises.length){
+          rejectAIResponse("The coach returned duplicate equipment methods for the same exercise");
+        }
         const byId = Object.fromEntries(base.exercises.map(e=>[e.exId,e]));
         const exercises = raw.exercises.map(r=>{
           const ex = EX_BY_ID[r.exId];
@@ -2813,8 +3060,8 @@ Rules:
             return {weight:availableWeight(ex,capForVenue(ex, ww.weight * adj.loadMult, state),state),
               decisionLabel:ww.decision?.label||"", decisionColor:ww.decision?.color||C.faint};
           })();
-          return { exId:ex.id, name:ex.name, stations:stationsForExercise(ex, state), pattern:ex.pattern, primary:ex.primary,
-            compound:ex.compound,kind:ex.kind,
+          return { exId:ex.id, exerciseId:ex.exerciseId, name:ex.name, stations:stationsForExercise(ex, state), pattern:ex.pattern, primary:ex.primary,
+            secondary:ex.secondary,compound:ex.compound,kind:ex.kind,cableSetup:ex.cableSetup,
             sets:clamp(r.sets,1,6),
             targetReps:clamp(r.targetReps,1,30),
             repRange: base.exercises[0]?.repRange || prog.phase.repRange,
@@ -4771,6 +5018,7 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
   const all   = done >= ex.sets;
   const avg   = done ? Math.round((logs.filter(l=>l&&l.reps!=null).reduce((n,l)=>n+l.reps,0)/done)*10)/10 : null;
   const videoURL = `https://www.youtube.com/results?search_query=${encodeURIComponent(`${ex.name} exercise technique shorts`)}`;
+  const cableSetup=ex.cableSetup||EX_BY_ID[ex.exId]?.cableSetup;
 
   useEffect(()=>{
     if(all){ setExpanded(false); setOpen(null); }
@@ -4903,6 +5151,15 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
       background:C.raised,borderRadius:10,padding:"11px 12px"}}>{ex.why}</div>)}
 
     {showHow && open==="how" && (<div className="fade" style={{marginTop:10,background:C.raised,borderRadius:10,padding:"12px 13px"}}>
+      {cableSetup && <div style={{marginBottom:12,padding:"10px 11px",borderRadius:9,border:`1px solid ${tint(C.blue,0x42)}`,background:tint(C.blue,0x0a)}}>
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.blue,fontWeight:700,letterSpacing:".08em",marginBottom:7}}>CABLE SETUP</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:"6px 10px"}}>
+          {[["Station",cableSetup.stationUsed],["Cable",cableSetup.cablePosition],["Attachment",cableSetup.attachment],["Position",cableSetup.bodyPosition],["Arm use",cableSetup.laterality],["Difficulty",cableSetup.difficulty],["Extra kit",cableSetup.additionalEquipment?.length?cableSetup.additionalEquipment.join(", "):"None"]].map(([label,value])=><div key={label} style={{minWidth:0}}>
+            <div style={{fontSize:"calc(.52rem * var(--ts, 1))",color:C.ghost,textTransform:"uppercase",letterSpacing:".06em"}}>{label}</div>
+            <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.dim,lineHeight:1.4,overflowWrap:"anywhere"}}>{value}</div>
+          </div>)}
+        </div>
+      </div>}
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:11}}>
         <a href={videoURL} target="_blank" rel="noopener noreferrer"
           aria-label={`Search YouTube Shorts for ${ex.name}`} style={{
@@ -5167,9 +5424,10 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     setSession(s=>({...s,
       swaps:[...(s.swaps||[]),event],
       exercises:s.exercises.map((old,i)=>i!==exIdx?old:{
-        ...old, exId:replacement.id, name:replacement.name,
+        ...old, exId:replacement.id, exerciseId:replacement.exerciseId, name:replacement.name,
         stations:stationsForExercise(replacement,state), pattern:replacement.pattern,
-        primary:replacement.primary, compound:replacement.compound,kind:replacement.kind,
+        primary:replacement.primary, secondary:replacement.secondary, compound:replacement.compound,kind:replacement.kind,
+        cableSetup:replacement.cableSetup,
         weight:newWeight, plateLoad:newPlateLoad, inc:exerciseIncrement(replacement,state),
         tempo:tempoPrescription(replacement,prog.phase),
         why:replacement.why,

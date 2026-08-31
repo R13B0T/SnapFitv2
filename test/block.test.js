@@ -292,11 +292,16 @@ const VENDOR={"react.production.min.js":"react.js","react-dom.production.min.js"
       return {state:st,pool:availableExercises(st)};
     };
     const cable=withOnly(["17"]), bags=withOnly(["SB"]);
+    const cableWithBench=withOnly(["17","25"]);
     const old=migrate({v:2,equipmentCatalogueVersion:1,equipment:{enabled:["29"],custom:[]}});
     const optedOut=migrate({v:2,equipmentCatalogueVersion:2,equipment:{enabled:["29"],custom:[]}});
     return {
       cableIds:cable.pool.map(e=>e.id),
       cableStations:cable.pool.map(e=>({id:e.id,stations:stationsForExercise(e,cable.state)})),
+      jungleMethods:cable.pool.filter(e=>e.kind==="cable" && e.stations.includes("17")),
+      jungleWithBenchIds:cableWithBench.pool.map(e=>e.id),
+      definitions:EXERCISE_DEFINITIONS,
+      methods:EQUIPMENT_METHODS,
       bagIds:bags.pool.map(e=>e.id),
       bagPatterns:[...new Set(bags.pool.map(e=>e.pattern))],
       oldGetsBags:old.equipment.enabled.includes("SB"),
@@ -312,6 +317,28 @@ const VENDOR={"react.production.min.js":"react.js","react-dom.production.min.js"
   check("adjustable-pulley movements are available",
     ["single_cable_fly","face_pull","cable_lateral_raise","cable_curl","pallof_press"]
       .every(id=>functional.cableIds.includes(id)), JSON.stringify(functional.cableIds));
+  check("Multi-Jungle spans every major resistance-training movement family",
+    ["squat","hinge","lunge","push_h","push_v","pull_h","pull_v","delts","arms","core"]
+      .every(pattern=>functional.jungleMethods.some(e=>e.pattern===pattern)),
+    JSON.stringify([...new Set(functional.jungleMethods.map(e=>e.pattern))]));
+  check("every Multi-Jungle method carries complete setup metadata",
+    functional.jungleMethods.every(e=>e.cableSetup && e.cableSetup.stationUsed && e.cableSetup.cablePosition &&
+      e.cableSetup.attachment && e.cableSetup.bodyPosition && e.cableSetup.laterality && e.cableSetup.difficulty &&
+      Array.isArray(e.cableSetup.additionalEquipment) && e.cues?.setup && e.cues?.execution && e.cues?.mistakes?.length>=2),
+    JSON.stringify(functional.jungleMethods.filter(e=>!e.cableSetup).map(e=>e.id)));
+  check("Jungle Gym methods cover high, middle, low, unilateral and bilateral setups",
+    ["high","middle","low"].every(pos=>functional.jungleMethods.some(e=>e.cableSetup.cablePosition.includes(pos))) &&
+      ["unilateral","bilateral"].every(use=>functional.jungleMethods.some(e=>e.cableSetup.laterality.includes(use))),
+    JSON.stringify(functional.jungleMethods.map(e=>[e.id,e.cableSetup.cablePosition,e.cableSetup.laterality])));
+  check("bench cable methods require a real nearby bench",
+    !functional.cableIds.includes("bench_cable_press") &&
+      ["bench_cable_press","incline_bench_cable_press","lying_cable_leg_curl","bench_supported_cable_row"]
+        .every(id=>functional.jungleWithBenchIds.includes(id)),
+    JSON.stringify({without:functional.cableIds,with:functional.jungleWithBenchIds}));
+  check("exercise definitions are stored separately from equipment methods",
+    functional.methods.length>functional.definitions.length &&
+      functional.methods.filter(m=>m.exerciseId==="seated_row").length>=3,
+    JSON.stringify({definitions:functional.definitions.length,methods:functional.methods.length}));
   check("sandbags add five trackable exercises", functional.bagIds.length===5,
     JSON.stringify(functional.bagIds));
   check("sandbags cover legs, hinge, press and core",
