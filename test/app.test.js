@@ -350,6 +350,9 @@ async function activeExerciseCount(page){
   await page.getByRole("button", {name:/SET 1 tap to log/}).first().click();
   await page.getByText("REPS COMPLETED", {exact:true}).waitFor();
   check("rep picker opens", /REPS COMPLETED/.test(await page.locator("body").innerText()));
+  let pickerText=await page.locator("body").innerText();
+  check("set entry shows recent loads by default", /LAST 3 SESSIONS · WORKING LOAD/.test(pickerText));
+  check("set entry shows prescribed and actual loads side by side", /PRESCRIBED/.test(pickerText)&&/ACTUAL/.test(pickerText));
 
   // Free-text weight: type it rather than tapping the stepper eleven times.
   const wField = page.locator('input[inputmode="decimal"]').first();
@@ -361,11 +364,11 @@ async function activeExerciseCount(page){
   check("typed weight commits", (await wField.inputValue()) === "47.5",
     `got ${JSON.stringify(await wField.inputValue())}`);
 
-  await page.getByText("HOW DID IT FEEL?").click();
+  await page.getByText("RATE REPS IN RESERVE").click();
   await page.waitForTimeout(300);
-  check("effort step", /LEFT IN THE TANK/.test(await page.locator("body").innerText()));
-  check("effort step shows the typed weight", /47\.5kg/.test(await page.locator("body").innerText()));
-  await page.getByText("Solid", {exact:true}).click();
+  check("RIR step asks a numeric programming question", /HOW MANY MORE CLEAN REPS COULD YOU HAVE DONE/.test(await page.locator("body").innerText()));
+  check("RIR step shows the typed weight", /47\.5kg/.test(await page.locator("body").innerText()));
+  await page.getByText("2 RIR", {exact:true}).click();
   await page.waitForTimeout(200);
   await page.getByText("LOG IT").click();
   await page.waitForTimeout(600);
@@ -374,6 +377,12 @@ async function activeExerciseCount(page){
   check("rest timer appeared", /REST/.test(t2));
   check("post-set trainer appears after logging", /YOUR TRAINER/.test(t2) && /WHY/.test(t2) && /NEXT-SET CUE/.test(t2));
   check("post-set trainer gives an actionable target", /Next set:/.test(t2) && /USE [\d.]+KG · AIM \d+/.test(t2));
+  check("post-set trainer flags actual versus prescribed load", /ACTUAL [\d.]+KG (BELOW|ABOVE) PRESCRIBED/.test(t2));
+  const writeThrough=await page.evaluate(()=>{
+    const s=JSON.parse(localStorage.getItem("snapfit_v2_active")||"null");
+    return s?.exercises?.[0]?.log?.[0]||null;
+  });
+  check("the set is written through immediately with numeric RIR", writeThrough?.weight===47.5&&writeThrough?.rir===2,JSON.stringify(writeThrough));
 
   const useTarget = page.getByText(/USE [\d.]+KG · AIM \d+/).first();
   const useLabel = await useTarget.innerText();
@@ -392,8 +401,8 @@ async function activeExerciseCount(page){
   const w2 = page.locator('input[inputmode="decimal"]').first();
   check("set 2 offers the accepted trainer target", (await w2.inputValue()) === coachedWeight,
     `expected ${coachedWeight}, got ${JSON.stringify(await w2.inputValue())}`);
-  check("and still names the session prescription",
-    /Session prescription: [\d.]+kg/.test(await page.locator("body").innerText()));
+  check("and still shows prescription beside actual",
+    /PRESCRIBED/.test(await page.locator("body").innerText())&&/ACTUAL/.test(await page.locator("body").innerText()));
   await page.keyboard.press("Escape");
   await page.waitForTimeout(300);
   if(await page.getByText("REPS COMPLETED").isVisible().catch(()=>false)){
@@ -458,6 +467,10 @@ async function activeExerciseCount(page){
 
   console.log("\n── FINISH & DEBRIEF ─────────────────────────────");
   await page.getByText("FINISH SESSION").click();
+  await page.getByText("WHY WAS WORK LEFT?", {exact:true}).waitFor();
+  check("partial session distinguishes couldn't from didn't", /external constraint|I stopped/i.test(await page.locator("body").innerText()));
+  await page.getByText("No external constraint — I stopped", {exact:true}).click();
+  await page.getByText("SAVE PARTIAL SESSION", {exact:false}).click();
   await page.waitForTimeout(2500);
   const dbText = await page.locator("body").innerText();
   check("debrief renders", /SESSION DONE/.test(dbText), dbText.slice(0,200));
@@ -554,7 +567,7 @@ async function activeExerciseCount(page){
   await page.waitForTimeout(250);
   const whatsNew = await page.locator("body").innerText();
   check("What's New modal outlines the release", /WHAT'S NEW/.test(whatsNew)
-    && /one clear next set/i.test(whatsNew) && /Goal and workout history now live together/i.test(whatsNew), whatsNew.slice(-900));
+    && /numeric RIR/i.test(whatsNew) && /estimated 1RM trend lines/i.test(whatsNew), whatsNew.slice(-900));
   await page.getByText(/LET'S TRAIN|CONTINUE WORKOUT/).click();
   await page.waitForTimeout(200);
   await page.evaluate(()=>localStorage.setItem("snapfit_v2_release_seen","2.1.0"));

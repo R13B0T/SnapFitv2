@@ -26,9 +26,16 @@ The Why and How controls can each be hidden in Settings when you want a quieter 
 
 **It coaches every working set.** Logging a set opens a live trainer while the rest timer runs.
 It gives a clear raise, hold-and-build, or reduce call, plus the exact next load, rep target and one
-technique cue. Accepting the call preloads the next set. A hold is framed as useful progression through
-cleaner reps or an extra rep, rather than as a failure to add weight, and the final set uses the same
-progression calculation as the session debrief.
+technique cue. Set entry asks for numeric reps in reserve, shows the prescribed and actual load side by
+side, and keeps the last three session loads visible. Every entered set is written through immediately.
+The rep ladder stops at the phase ceiling: reaching the top triggers the smallest load increase and
+resets the next target near the bottom of the range. Accepting the call preloads the next set, and the
+final set uses the same progression calculation as the session debrief.
+
+**It protects the end of the session.** A live time-remaining card compares the work left with the
+planned finish and offers a final-two-exercise superset when time is tight. Repeated rear-of-session
+misses are named in the debrief and Progress, while a completion context records whether work was
+skipped by choice or constrained by time, prior training, pain or broken equipment.
 
 **The workout screen stays focused.** Focus mode shows one exercise and one large next-set action at a
 time, including round-aware A1/A2 superset hand-offs. *All exercises* is always one tap away when you want
@@ -44,6 +51,8 @@ active exercise, completed-session log and coach history. This is catalogue-driv
 area immediately. Future built-in and AI suggestions exclude exercises tagged for that area until the
 user marks it resolved on Today or in Settings. An unknown/other area is carried to the coach without
 guessing which movements are safe. The app clearly treats this as a workout adjustment, not a diagnosis.
+An ankle avoid flag also removes ankle-loading squat, lunge and calf patterns from initial prescriptions
+and every same-pattern substitution, so the user is not the final safety filter.
 
 **It briefs you before you start.** What today's session is for, what's required of you to
 make it count, and how you'll know you got it right are available in a compact, foldable brief near
@@ -66,11 +75,12 @@ the iPhone/WebKit failure where an audio context says it is running while its cl
 restarts it, and re-anchors all remaining cues to the rest timer's real end time.
 
 **Every exercise shows what the coach prescribed** alongside what you're actually lifting, so
-overriding a weight never loses track of the target.
+overriding a weight never loses track of the target. The live entry screen calls out the exact gap before
+the set is saved instead of waiting for a later review.
 
 **Extra session when life unexpectedly cooperates.** The Plan page can add the next workout
 from the current block without permanently changing the weekly target. It uses the same split,
-phase, sets, rep range, effort and progression as the rest of the plan, and advances the block
+phase, sets, rep range, RIR target and progression as the rest of the plan, and advances the block
 normally when finished. The log and weekly review label it as an extra so attendance stays honest.
 
 **One busy week does not rewrite the whole block.** Plan can set a two-to-five-session target for
@@ -152,6 +162,9 @@ block position, Goal and workout History. Recent lift cards report working-load 
 only after two completed exposures; they do not invent a readiness or strength score. After at least two
 dated body measurements and some movement toward a numeric target, Goal estimates days remaining and a
 forecast date from the logged rate, clearly labelled as a current-pace estimate.
+Working-load cards and exercise detail now plot estimated 1RM trends. For a fat-loss goal, the weekly
+review is held until one weigh-in exists in the current training week, keeping the review grounded in the
+goal it is meant to assess.
 
 ---
 

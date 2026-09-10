@@ -200,6 +200,8 @@ function mockGym(){
       short:  progressionDecision({lastAvgReps:7,  lastEffort:"hard"},  range, inc),
       wayOff: progressionDecision({lastAvgReps:4,  lastEffort:"hard"},  range, inc),
       broke:  progressionDecision({lastAvgReps:5,  lastEffort:"failed"},range, inc),
+      rirTop: progressionDecision({lastAvgReps:12,lastRir:3},range,inc,2),
+      rirMid: progressionDecision({lastAvgReps:10,lastRir:2},range,inc,2),
       first:  progressionDecision(null, range, inc),
       e1rm:   estimate1RM(100,10),
     };
@@ -211,6 +213,8 @@ function mockGym(){
   check("just short → hold", prog.short.action==="hold", JSON.stringify(prog.short));
   check("well short → down", prog.wayOff.action==="down" && prog.wayOff.delta===-2.5, JSON.stringify(prog.wayOff));
   check("form broke below range → down", prog.broke.action==="down", JSON.stringify(prog.broke));
+  check("top of range below target RPE → load, never rep 13", prog.rirTop.action==="up"&&prog.rirTop.delta===2.5,JSON.stringify(prog.rirTop));
+  check("in-range set at target RIR holds", prog.rirMid.action==="hold",JSON.stringify(prog.rirMid));
   check("no history → start", prog.first.action==="start", JSON.stringify(prog.first));
   check("Epley e1RM 100x10 = 133.3", Math.abs(prog.e1rm-133.3)<0.2, String(prog.e1rm));
 
@@ -219,14 +223,40 @@ function mockGym(){
     const st=defaultState();
     const ex={...EX_BY_ID.db_bench,exId:"db_bench",sets:3,targetReps:12,repRange:[8,12],weight:20,rpe:8,rest:90,inc:2};
     const decide=(row,standalone=false)=>postSetDecision({exercise:ex,logs:[row,null,null],setIndex:0,state:st,phaseName:"Build",standalone});
-    const final=postSetDecision({exercise:ex,logs:Array(3).fill({weight:20,reps:12,effort:"good"}),setIndex:2,state:st,phaseName:"Build"});
-    return {raise:decide({weight:20,reps:12,effort:"easy"}),hold:decide({weight:20,reps:10,effort:"good"}),
-      down:decide({weight:20,reps:5,effort:"failed"}),final};
+    const final=postSetDecision({exercise:ex,logs:Array(3).fill({weight:20,reps:12,rir:2,effort:"good"}),setIndex:2,state:st,phaseName:"Build"});
+    return {raise:decide({weight:20,reps:12,rir:3,effort:"good"}),hold:decide({weight:20,reps:10,rir:2,effort:"good"}),
+      down:decide({weight:20,reps:5,rir:0,effort:"failed"}),final};
   });
   check("easy top-range set gets a small increase", liveTrainer.raise.action==="up" && liveTrainer.raise.nextWeight>20, JSON.stringify(liveTrainer.raise));
   check("productive set holds and adds a rep target", liveTrainer.hold.action==="hold" && liveTrainer.hold.nextReps===11, JSON.stringify(liveTrainer.hold));
   check("form breakdown reduces the next load", liveTrainer.down.action==="down" && liveTrainer.down.nextWeight<20, JSON.stringify(liveTrainer.down));
   check("last-set verdict uses next-session progression", liveTrainer.final.complete===true && liveTrainer.final.action==="up", JSON.stringify(liveTrainer.final));
+  check("live top-range target resets to the bottom of the range",liveTrainer.raise.nextReps===8,JSON.stringify(liveTrainer.raise));
+
+  console.log("\n── SESSION-TAIL SIGNAL & CONSTRAINTS ─────────────");
+  const tail = await page.evaluate(()=>{
+    const st=defaultState();
+    const exercise=(id,name,log)=>({exId:id,name,primary:name,sets:3,targetReps:10,repRange:[8,12],log});
+    const full=Array(3).fill({weight:20,reps:10,rir:2,effort:"good"});
+    const partial=[{weight:10,reps:7,rir:1,effort:"hard"},null,null];
+    const make=(id,context=null)=>({id,date:`2026-09-0${id}`,dayName:"Upper",completionContext:context,
+      exercises:[exercise("press","Press",full),exercise("rear","Rear delts",partial),exercise("tri","Triceps",[])]});
+    const a=make(9),b=make(8),constrained=make(7,{externalConstraint:true,label:"Machine broken"});
+    const ankle={...st,limits:{...st.limits,ankles:true}};
+    const planState={...st,goal:{type:"build_muscle"}}; planState.block=buildBlockRules(planState);
+    const planned=buildSessionRules(planState,null);
+    return {signal:sessionTailDropoff({...st,sessions:[a,b]}),
+      constrained:sessionTailDropoff({...st,sessions:[a,constrained]}),
+      ankleBlocked:availableExercises(ankle).every(ex=>![P.SQUAT,P.LUNGE,P.CALF].includes(ex.pattern)),
+      repTargetsCapped:planned.exercises.every(ex=>ex.targetReps<=ex.repRange[1]),
+      weighInDue:fatLossWeighInDue({...st,goal:{type:"lose_fat"}}),
+      weighInSatisfied:fatLossWeighInDue({...st,goal:{type:"lose_fat"},bodyLog:[{date:todayISO(),weightKg:100}]})};
+  });
+  check("repeated tail misses are surfaced",tail.signal.detected&&tail.signal.affectedSessions===2,JSON.stringify(tail.signal));
+  check("external constraints do not become a behavioural tail pattern",!tail.constrained.detected,JSON.stringify(tail.constrained));
+  check("ankle avoidance filters squat, lunge and calf methods",tail.ankleBlocked,JSON.stringify(tail));
+  check("every built-in target stays inside its phase ceiling",tail.repTargetsCapped,JSON.stringify(tail));
+  check("fat-loss review is gated until this week's weigh-in",tail.weighInDue&&!tail.weighInSatisfied,JSON.stringify(tail));
 
   console.log("\n── STANDALONE AWAY DAY & WEEK RESTART ───────────");
   const pause = await page.evaluate(()=>{

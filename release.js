@@ -3,6 +3,22 @@
      What's New screen. Keep the newest release first. */
   root.SNAPFIT_RELEASES = [
     {
+      version:"2.3.0",
+      date:"2026-09-11",
+      title:"The log drives the load",
+      summary:"The one clear next set now stays inside the phase, uses numeric RIR, preserves every entered set immediately and exposes the context behind incomplete work.",
+      changes:[
+        "Rep targets stop at the phase ceiling. Reaching it triggers a load increase, including when RIR shows the prescribed load was too light.",
+        "Set entry asks how many clean reps remained, shows prescribed versus actual load, and keeps the last three session loads visible.",
+        "Every set writes through to the active workout immediately; ending early keeps completed work and asks whether an external constraint or a choice stopped the session.",
+        "A live time budget recommends pairing the final two compatible accessories when the clock threatens session-tail volume.",
+        "Repeated drop-off in the last one or two exercises is named in Today, debriefs, weekly reviews and Progress, while tagged external constraints are excluded.",
+        "Exercise-level avoid filters now apply to both initial prescriptions and substitutions, including ankle-loading squat, lunge and calf patterns.",
+        "Fat-loss weekly summaries require one weigh-in in the current training week, and estimated 1RM trend lines now make strength progress visible.",
+        "Goal and workout history now live together under Progress, including the new load and estimated-strength trend views."
+      ]
+    },
+    {
       version:"2.2.0",
       date:"2026-09-10",
       title:"One clear next step",

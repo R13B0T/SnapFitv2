@@ -1176,13 +1176,42 @@ const SPLITS = {
       {name:"Lower",   slots:[P.HINGE,P.SQUAT,P.LUNGE,P.CORE,P.CALF]} ],
 };
 
+/* New logs store numeric reps-in-reserve. The old effort keys remain only so
+   existing workout history and JSON backups still programme sensibly. */
 const EFFORT = [
-  {key:"easy",   emoji:"😎", label:"Too easy",     desc:"Could have done 4+ more",  color:C.blue,   rir:4},
-  {key:"good",   emoji:"💪", label:"Solid",        desc:"2–3 reps left in the tank",color:C.green,  rir:2},
-  {key:"hard",   emoji:"😤", label:"Hard",         desc:"1 rep left, maybe",        color:C.yellow, rir:1},
-  {key:"failed", emoji:"🔴", label:"Everything",   desc:"Nothing left — form broke",color:C.red,    rir:0},
+  {key:"easy",   emoji:"4+", label:"4+ RIR", desc:"At least four clean reps available",color:C.blue,   rir:4},
+  {key:"good",   emoji:"2",  label:"2 RIR",  desc:"Two clean reps available",          color:C.green,  rir:2},
+  {key:"hard",   emoji:"1",  label:"1 RIR",  desc:"One clean rep available",           color:C.yellow, rir:1},
+  {key:"failed", emoji:"0",  label:"0 RIR",  desc:"No clean reps available",           color:C.red,    rir:0},
 ];
 const EFFORT_BY_KEY = Object.fromEntries(EFFORT.map(e=>[e.key,e]));
+const RIR_OPTIONS = [
+  {rir:0,label:"0", desc:"No more clean reps",       color:C.red},
+  {rir:1,label:"1", desc:"One more clean rep",       color:C.yellow},
+  {rir:2,label:"2", desc:"Two more clean reps",      color:C.green},
+  {rir:3,label:"3", desc:"Three more clean reps",    color:C.green},
+  {rir:4,label:"4+",desc:"Four or more clean reps",  color:C.blue},
+];
+
+function effortKeyFromRir(rir){
+  const n=Number(rir);
+  if(n>=4) return "easy";
+  if(n>=2) return "good";
+  if(n>=1) return "hard";
+  return "failed";
+}
+
+function loggedRir(row){
+  if(row?.rir!=="" && row?.rir!=null && Number.isFinite(Number(row.rir))) return clamp(Number(row.rir),0,4);
+  return EFFORT_BY_KEY[row?.effort]?.rir ?? null;
+}
+
+function rirMeta(row){
+  const rir=loggedRir(row);
+  if(rir==null) return {rir:null,label:"?",color:C.faint};
+  const meta=RIR_OPTIONS.find(x=>x.rir===rir) || RIR_OPTIONS[RIR_OPTIONS.length-1];
+  return {...meta,label:rir>=4?"4+":String(rir)};
+}
 
 /* ── Matched cool-down library ────────────────────────────────────────────
    Static stretches belong after lifting, not before heavy working sets. Each
@@ -1309,27 +1338,27 @@ It's slower than it sounds and that's fine. Adding 2.5 kg to a lift every three 
       a:["Add weight and expect fewer reps","Stay at the same weight and push for 13+","Drop the weight and do more sets"], correct:0,
       why:"You reached the top of the range on almost every set. That's the signal to add the smallest increment and start the climb again nearer 8 reps."} },
 
-  { id:"rpe", title:"Effort, RPE and reps in reserve", mins:3, tag:"Fundamentals",
+  { id:"rpe", title:"RPE and reps in reserve", mins:3, tag:"Fundamentals",
     hook:"How hard is hard enough? Usually harder than people think, but not every set.",
-    body:`After each set this app asks how it felt. That answer is worth more than the number on the machine, because it tells the coach how close you actually were to your limit.
+    body:`After each set this app asks **how many more clean reps you could have done**. That number is worth more than a vague feeling word because it tells the coach how close you actually were to your limit.
 
 The standard way to describe this is **reps in reserve (RIR)** — how many more you could have done:
 
-- **Too easy** — 4 or more left. The set did almost nothing for growth.
-- **Solid** — 2 to 3 left. Productive, repeatable, the bread and butter.
-- **Hard** — 1 left, maybe. Highly effective, more fatiguing.
-- **Everything** — 0 left, form breaking down. Useful occasionally, costly often.
+- **4+ RIR** — four or more clean reps left. Usually a sign the load was too light.
+- **2–3 RIR** — productive, repeatable work: the bread and butter.
+- **1 RIR** — one clean rep left. Highly effective, more fatiguing.
+- **0 RIR** — no clean reps left. Useful occasionally, costly often.
 
 ### Where the productive zone is
-Most of your sets should land in **Solid** or **Hard**. Sets stopped 4+ reps short mostly build fatigue without much stimulus. Sets taken to total failure every time build a lot of fatigue for a small extra gain, and they wreck the quality of the sets that follow.
+Most of your sets should land around **1–3 RIR**. Sets stopped 4+ reps short mostly build fatigue without much stimulus. Sets taken to total failure every time build a lot of fatigue for a small extra gain, and they wreck the quality of the sets that follow.
 
 A reasonable rule: take the **last set** of an exercise close to failure, and leave 1–3 in the tank on the rest.
 
 ### Why honesty matters
-If you log **Hard** when the set was actually easy, the coach holds your weight steady when it should be climbing. The log is only as good as your answers.`,
+If you log **1 RIR** when you actually had four reps left, the coach holds your weight steady when it should be climbing. The log is only as good as your estimate.`,
     check:{q:"You finish a set and reckon you could have managed 3 more reps. What do you log?",
-      a:["Too easy","Solid","Hard"], correct:1,
-      why:"2–3 reps in reserve is the Solid zone — the most productive place for most of your sets."} },
+      a:["3 RIR","1 RIR","0 RIR"], correct:0,
+      why:"Three possible clean reps means 3 RIR — inside the productive range for most working sets."} },
 
   { id:"muscles", title:"The muscle map: what trains what", mins:4, tag:"Anatomy",
     hook:"Six patterns cover the whole body. Know them and you can build a session anywhere.",
@@ -1601,6 +1630,11 @@ function trainingWeek(state, onDate=todayISO()){
   const start = addLocalDays(onDate,-back), end = addLocalDays(start,6);
   return {start,end,startDay,startName:WEEKDAYS[startDay]};
 }
+function fatLossWeighInDue(state,onDate=todayISO()){
+  if(state?.goal?.type!=="lose_fat") return false;
+  const week=trainingWeek(state,onDate);
+  return !(state.bodyLog||[]).some(x=>x?.date>=week.start&&x?.date<=week.end&&Number(x.weightKg)>0);
+}
 const DEFAULT_LIMITS  = { knees:false, shoulders:false, back:false, ankles:false, elbows:false, note:"" };
 const DISCOMFORT_AREAS = [
   {key:"knees",label:"Knee",tag:"knee"},
@@ -1617,6 +1651,15 @@ const SWAP_REASONS = [
   {key:"preference",label:"Preference",short:"preference"},
 ];
 const SWAP_REASON_BY_KEY = Object.fromEntries(SWAP_REASONS.map(x=>[x.key,x]));
+const COMPLETION_CONTEXTS = [
+  {key:"busy",label:"Equipment stayed busy",externalConstraint:true},
+  {key:"broken",label:"Machine unavailable or broken",externalConstraint:true},
+  {key:"prior_training",label:"Training before this (for example boxing)",externalConstraint:true},
+  {key:"pain",label:"Pain or discomfort stopped me",externalConstraint:true},
+  {key:"ran_out",label:"I ran out of workout time",externalConstraint:false},
+  {key:"chose_stop",label:"No external constraint — I stopped",externalConstraint:false},
+];
+const COMPLETION_CONTEXT_BY_KEY=Object.fromEntries(COMPLETION_CONTEXTS.map(x=>[x.key,x]));
 const DEFAULT_COACH_STYLE = { sass:3, hardTruth:4 };
 const DEFAULT_UI_PREFS = { showExerciseWhy:true, showExerciseHow:true, showLearnHub:true, showAdvancedLearn:false };
 const SASS_LEVELS = [
@@ -1669,7 +1712,7 @@ function defaultState(){
     equipment:{ enabled:SEED_STATIONS.map(s=>s.num), custom:[], loads:{} },
     travel:null,          // an away gym for today — see TRAVEL / AWAY GYM below
     block:null,
-    weights:{},          // { [exId]: {weight,lastAvgReps,lastTargetReps,inc,lastEffort,updated} }
+    weights:{},          // { [exId]: {weight,lastAvgReps,lastTargetReps,lastRir,inc,updated} }
     exerciseHistory:{},  // { [exId]: [ {date,weight,avgReps,targetReps,setsLogged,totalSets,dayName} ] }
     sessions:[],         // completed sessions, newest first
     checkins:[],
@@ -1733,37 +1776,45 @@ function persist(s){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(s)); }c
 
 /* ── Progression ──────────────────────────────────────────────────────────
    Adapted from v1's getWeightDecision, extended to work against a rep RANGE
-   and the logged effort rating rather than a single target number.          */
+   and numeric RIR. Legacy feeling labels remain readable for old backups.  */
 
 function estimate1RM(weight, reps){
   if(!weight||!reps) return 0;
   return Math.round(weight * (1 + reps/30) * 10)/10;   // Epley
 }
 
-function progressionDecision(entry, repRange, inc){
+function progressionDecision(entry, repRange, inc, targetRir=2){
   const [lo,hi] = repRange;
   if(!entry || !entry.lastAvgReps){
     return {action:"start", delta:0, label:"First time — find a weight you can control", color:C.blue};
   }
   const reps   = entry.lastAvgReps;
   const effort = entry.lastEffort;
+  const hasNumericRir=entry.lastRir!=="" && entry.lastRir!=null && Number.isFinite(Number(entry.lastRir));
+  const rir=hasNumericRir ? clamp(Number(entry.lastRir),0,4) : (EFFORT_BY_KEY[effort]?.rir ?? null);
+  const desiredRir=clamp(Number(targetRir)||0,0,4);
 
-  // Effort overrides: an honest "everything" means we do not add load.
-  if(effort==="failed" && reps < lo){
+  // Preserve the stronger meaning of the legacy "failed" answer. New logs use
+  // 0 RIR, which means no clean reps remained but does not claim form broke.
+  if(!hasNumericRir && effort==="failed" && reps < lo){
     return {action:"down", delta:-inc, label:`Form broke below target — drop ${inc}kg and rebuild`, color:C.red};
   }
-  if(effort==="failed"){
+  if(!hasNumericRir && effort==="failed" && reps < hi){
     return {action:"hold", delta:0, label:"Taken to the limit — hold and consolidate", color:C.yellow};
   }
-  if(reps >= hi && (effort==="easy"||effort==="good")){
-    const bump = effort==="easy" ? inc*2 : inc;
-    return {action:"up", delta:bump, label:`Top of the range — up ${bump}kg`, color:C.green};
-  }
+
+  /* Double progression has a hard ceiling: once the top of the phase range is
+     reached, the next programming lever is load. Never prescribe rep 13 in an
+     8–12 phase. Numeric RIR makes an underloaded top set explicit too. */
   if(reps >= hi){
-    return {action:"up", delta:inc, label:`Hit ${hi} reps — up ${inc}kg`, color:C.green};
+    const underloaded=rir!=null && rir>desiredRir;
+    return {action:"up", delta:inc,
+      label:underloaded
+        ? `Hit ${hi} reps at ${rir>=4?"4+":rir} RIR — below target effort, so up ${inc}kg`
+        : `Hit the ${hi}-rep ceiling — up ${inc}kg`, color:C.green};
   }
-  if(effort==="easy"){
-    return {action:"up", delta:inc, label:`Too easy for the reps — up ${inc}kg`, color:C.green};
+  if(rir!=null && rir>desiredRir+1){
+    return {action:"up", delta:inc, label:`${rir>=4?"4+":rir} RIR is below target effort — up ${inc}kg`, color:C.green};
   }
   if(reps >= lo){
     return {action:"hold", delta:0, label:`In range — hold and chase ${hi} reps`, color:C.yellow};
@@ -1819,6 +1870,8 @@ function postSetDecision({exercise,logs,setIndex,state,phaseName="",standalone=f
   const complete=rows.length>=Number(ex.sets||1);
   const currentWeight=Number(data?.weight ?? ex.weight)||0;
   const effort=data?.effort||"good";
+  const rir=loggedRir(data);
+  const targetRir=clamp(10-Number(ex.rpe||8),0,4);
   const reps=Number(data?.reps)||0;
   const deload=/deload/i.test(phaseName)||Number(ex.rpe)<=6;
 
@@ -1830,9 +1883,10 @@ function postSetDecision({exercise,logs,setIndex,state,phaseName="",standalone=f
       return {complete:true,action:"hold",color:C.blue,headline:"Exercise complete — standalone work logged.",
         directive:"Your programmed load stays unchanged when you return to the block.",
         reason:`You completed ${perf.allSets} set${perf.allSets===1?"":"s"}, averaging ${perf.avgReps} reps at ${perf.weight}kg. This performance belongs to today's one-off session, not the program's progression record.`,
-        nextWeight:perf.weight,nextReps:lo,restSeconds:0,cue:trainerTechniqueCue(ex,setIndex,"hold"),canApply:false};
+        nextWeight:perf.weight,nextReps:lo,restSeconds:0,cue:trainerTechniqueCue(ex,setIndex,"hold"),canApply:false,
+        prescriptionGap:Math.round((perf.weight-Number(ex.weight||0))*10)/10};
     }
-    const dec=progressionDecision({lastAvgReps:perf.avgReps,lastEffort:perf.effort},range,inc);
+    const dec=progressionDecision({lastAvgReps:perf.avgReps,lastEffort:perf.effort,lastRir:perf.rir},range,inc,targetRir);
     const nextWeight=availableWeight(catalog,perf.weight+dec.delta,state);
     const directive=dec.action==="up"
       ? `Next time, start at ${nextWeight}kg and work from ${lo} reps.`
@@ -1841,37 +1895,42 @@ function postSetDecision({exercise,logs,setIndex,state,phaseName="",standalone=f
       : `Next time, keep ${nextWeight}kg and chase ${Math.min(hi,Math.max(lo,Math.round(perf.avgReps)+1))} clean reps.`;
     return {complete:true,action:dec.action,color:dec.color,headline:trainerHeadline(dec.action,true,style),
       directive,reason:`Across ${perf.allSets} set${perf.allSets===1?"":"s"}, you averaged ${perf.avgReps} reps at ${perf.weight}kg. ${dec.label}.`,
-      nextWeight,nextReps:lo,restSeconds:0,cue:trainerTechniqueCue(ex,setIndex,dec.action),canApply:false};
+      nextWeight,nextReps:lo,restSeconds:0,cue:trainerTechniqueCue(ex,setIndex,dec.action),canApply:false,
+      prescriptionGap:Math.round((perf.weight-Number(ex.weight||0))*10)/10};
   }
 
   let action="hold", nextWeight=currentWeight, nextReps=Math.min(hi,Math.max(lo,reps));
   let reason="This load is doing its job. Build the result before changing it.";
-  if(effort==="failed" || (effort==="hard" && reps<lo)){
+  if((rir!=null && rir<=1 && reps<lo) || (rir==null && (effort==="failed" || (effort==="hard" && reps<lo)))){
     action="down";
     nextWeight=availableWeight(catalog,Math.max(0,currentWeight-inc),state);
     nextReps=lo;
-    reason=effort==="failed"
-      ? "You reached the point where form broke. A small reduction protects the next set and keeps it productive."
-      : `You were below the ${lo}–${hi} rep range with almost nothing left. Reduce the load so the next set lands in range.`;
-  }else if(!deload && reps>=hi && (effort==="easy"||effort==="good")){
+    reason=`You were below the ${lo}–${hi} rep range with ${rir==null?"almost nothing":`${rir} rep${rir===1?"":"s"}`} left. Reduce the load so the next set lands in range.`;
+  }else if(!deload && reps>=hi){
     action="up";
     nextWeight=availableWeight(catalog,currentWeight+inc,state);
     nextReps=lo;
-    reason=effort==="easy"
-      ? `You reached the top of the range with at least four reps left. Add one increment so the next set reaches today's effort target.`
-      : `You reached the top of the range with clean reps still available. One increment is the right-sized challenge.`;
-  }else if(effort==="easy" && reps>=Number(ex.targetReps||hi) && !deload){
+    if(nextWeight<=currentWeight){
+      action="hold";
+      nextReps=hi;
+      reason=`You reached the ${hi}-rep ceiling, but no heavier load is available here. Do not add reps past the phase range; use a more loadable variation next time.`;
+    }else if(rir!=null && rir>targetRir){
+      reason=`You reached the ${hi}-rep ceiling at ${rir>=4?"4+":rir} RIR, below the target RPE ${ex.rpe||10-targetRir}. The load was too light, so add one increment instead of another rep.`;
+    }else{
+      reason=`You reached the ${hi}-rep ceiling. Add one increment and restart at ${lo} reps instead of turning this phase into higher-rep endurance work.`;
+    }
+  }else if(rir!=null && rir>targetRir+1 && reps>=Number(ex.targetReps||hi) && !deload){
     action="up";
     nextWeight=availableWeight(catalog,currentWeight+inc,state);
     nextReps=lo;
-    reason="You hit the prescribed reps well below the intended effort. Add one increment and keep the next set controlled.";
+    reason=`You hit the prescribed reps at ${rir>=4?"4+":rir} RIR, below the target RPE ${ex.rpe||10-targetRir}. Add one increment and keep the next set controlled.`;
   }else if(reps<lo){
     nextReps=lo;
     reason=`You are just below the ${lo}–${hi} range. Keep the load for one more set and aim for ${lo} clean reps; reduce it if form starts to change.`;
-  }else if(effort==="hard"){
+  }else if(rir!=null ? rir<=1 : effort==="hard"){
     nextReps=Math.min(hi,Math.max(lo,reps));
     reason="That set was already close to your limit. Holding the load and matching clean reps is the productive move.";
-  }else if(effort==="easy"){
+  }else if(rir!=null ? rir>targetRir+1 : effort==="easy"){
     nextReps=Math.min(hi,reps+1);
     reason=`The load is manageable, but there is useful room inside the rep range. Add a rep before adding weight.`;
   }else{
@@ -1881,28 +1940,29 @@ function postSetDecision({exercise,logs,setIndex,state,phaseName="",standalone=f
       : "You are at the right effort for this load. Match the reps with the same control.";
   }
 
-  if(deload && (effort==="easy"||action==="up")){
+  if(deload && (action==="up" || (rir!=null ? rir>=4 : effort==="easy"))){
     action="hold"; nextWeight=currentWeight; nextReps=Math.min(hi,Math.max(lo,reps));
     reason="This is deliberately easy work. Hold the load, keep every rep crisp and save the push for the next training phase.";
   }
 
   const restBase=Math.max(30,Number(ex.rest)||60);
-  const restSeconds=action==="down" ? restBase+30 : (action==="up"||effort==="hard") ? restBase+15 : restBase;
+  const restSeconds=action==="down" ? restBase+30 : (action==="up"||(rir!=null?rir<=1:effort==="hard")) ? restBase+15 : restBase;
   return {complete:false,action,color:action==="up"?C.green:action==="down"?C.orange:C.yellow,
     headline:trainerHeadline(action,false,style),
     directive:action==="up"
-      ? `Next set: ${nextWeight}kg for ${nextReps}+ clean reps.`
+      ? `Next set: ${nextWeight}kg for ${nextReps} clean reps.`
       : action==="down"
       ? `Next set: ${nextWeight}kg for at least ${nextReps} clean reps.`
       : `Next set: keep ${nextWeight}kg and aim for ${nextReps} clean reps.`,
-    reason,nextWeight,nextReps,restSeconds,cue:trainerTechniqueCue(ex,setIndex,action),canApply:true};
+    reason,nextWeight,nextReps,restSeconds,cue:trainerTechniqueCue(ex,setIndex,action),canApply:true,
+    prescriptionGap:Math.round((currentWeight-Number(ex.weight||0))*10)/10};
 }
 
 /* Working weight for an exercise this session. */
 function workingWeight(ex, state, phase){
   const entry = state.weights[ex.id];
   const inc   = exerciseIncrement(ex,state);
-  let dec   = progressionDecision(entry, phase.repRange, inc);
+  let dec   = progressionDecision(entry, phase.repRange, inc,clamp(10-Number(phase.rpe||8),0,4));
   let w = entry ? entry.weight : ex.start;
   /* Restarting a disrupted week preserves the completed work in the log. If
      that set-aside attempt is the latest history for this exercise, repeat the
@@ -2064,7 +2124,10 @@ function exerciseEquipmentAvailable(ex, stations){
 
 function limitBlocks(ex, limits){
   if(limits.knees     && ex.tags?.includes("knee"))     return true;
-  if(limits.ankles    && ex.tags?.includes("ankle"))    return true;
+  /* Squats and lunges require loaded ankle dorsiflexion even when the
+     catalogue entry is not an ankle isolation. Apply the avoidance at the
+     exercise-method level so both initial picks and every swap honour it. */
+  if(limits.ankles    && (ex.tags?.includes("ankle") || [P.SQUAT,P.LUNGE,P.CALF].includes(ex.pattern))) return true;
   if(limits.shoulders && ex.tags?.includes("shoulder")) return true;
   if(limits.back      && ex.tags?.includes("back"))     return true;
   if(limits.elbows    && ex.tags?.includes("elbow"))    return true;
@@ -2133,16 +2196,72 @@ function performanceSummary(logged, repRange=[1,99]){
     .map(x=>({...x,weight:Number(x.weight),reps:Number(x.reps)}));
   if(!rows.length) return null;
   const [lo]=repRange;
-  const productive=rows.filter(x=>x.effort!=="failed" && x.reps>=Math.max(1,lo-2));
+  const productive=rows.filter(x=>(x.rir!=null||x.effort!=="failed") && x.reps>=Math.max(1,lo-2));
   const candidates=productive.length?productive:rows;
   const weight=Math.max(...candidates.map(x=>x.weight));
   const working=candidates.filter(x=>x.weight===weight);
   const avgReps=Math.round((working.reduce((n,x)=>n+x.reps,0)/working.length)*10)/10;
-  const effort=working.some(x=>x.effort==="failed") ? "failed"
+  const numericRirs=working.map(loggedRir).filter(x=>x!=null);
+  const rir=numericRirs.length ? Math.min(...numericRirs) : null;
+  const effort=rir!=null ? effortKeyFromRir(rir)
+    : working.some(x=>x.effort==="failed") ? "failed"
     : working.some(x=>x.effort==="hard") ? "hard"
     : working.every(x=>x.effort==="easy") ? "easy" : "good";
-  return {weight,avgReps,effort,sets:working.length,allSets:rows.length,
+  return {weight,avgReps,rir,effort,sets:working.length,allSets:rows.length,
     volume:Math.round(rows.reduce((n,x)=>n+x.weight*x.reps,0))};
+}
+
+function sessionPrescriptionGap(session){
+  const rows=(session?.exercises||[]).map((e,index)=>{
+    const logged=(e.log||[]).filter(x=>x&&x.reps!=null);
+    const range=e.repRange||[Math.max(1,(e.targetReps||1)-2),e.targetReps||1];
+    const avg=logged.length ? logged.reduce((n,x)=>n+(Number(x.reps)||0),0)/logged.length : null;
+    const missingSets=Math.max(0,(Number(e.sets)||0)-logged.length);
+    return {index,exId:e.exId,name:e.name,primary:e.primary,logged:logged.length,total:Number(e.sets)||0,
+      missingSets,avg,lo:range[0],target:Number(e.targetReps)||range[1],
+      underTarget:logged.length>0&&avg<(Number(e.targetReps)||range[1]),
+      underRange:logged.length>0&&avg<range[0]};
+  });
+  return {rows,missingSets:rows.reduce((n,x)=>n+x.missingSets,0),
+    underTarget:rows.filter(x=>x.underTarget).length,underRange:rows.filter(x=>x.underRange).length,
+    incomplete:rows.some(x=>x.missingSets>0||x.underRange)};
+}
+
+/* A noisy session is not a trend. This names session-tail drop-off only when
+   the final one or two exercises miss their set/rep prescription in at least
+   two of the last four programmed sessions. Explicit external constraints are
+   retained in history but excluded from this behavioural signal. */
+function sessionTailDropoff(state,extraSession=null,maxSessions=4){
+  const seen=new Set(), sessions=[];
+  [extraSession,...(state?.sessions||[])].filter(Boolean).forEach(s=>{
+    const key=s.id||`${s.date}-${s.dayName}`;
+    if(seen.has(key) || s.standalone || s.excludedFromPlanProgress || s.excludedFromProgression) return;
+    seen.add(key); sessions.push(s);
+  });
+  const recent=sessions.slice(0,maxSessions);
+  const affected=[];
+  recent.forEach(session=>{
+    if(session.completionContext?.externalConstraint) return;
+    const gap=sessionPrescriptionGap(session);
+    const tailStart=Math.max(0,gap.rows.length-2);
+    const issues=gap.rows.filter(x=>x.index>=tailStart&&(x.missingSets>0||x.underTarget));
+    if(issues.length) affected.push({session,issues});
+  });
+  const detected=affected.length>=2;
+  const exercises={};
+  affected.flatMap(x=>x.issues).forEach(x=>{
+    const key=x.exId||x.name;
+    if(!exercises[key]) exercises[key]={name:x.name,primary:x.primary,hits:0,missingSets:0};
+    exercises[key].hits++; exercises[key].missingSets+=x.missingSets;
+  });
+  const ranked=Object.values(exercises).sort((a,b)=>b.hits-a.hits||b.missingSets-a.missingSets);
+  const names=ranked.slice(0,3).map(x=>x.name);
+  const missingSets=affected.flatMap(x=>x.issues).reduce((n,x)=>n+x.missingSets,0);
+  const targetMisses=affected.flatMap(x=>x.issues).filter(x=>x.underTarget).length;
+  return {detected,checked:recent.length,affectedSessions:affected.length,missingSets,targetMisses,exercises:ranked,names,
+    message:detected
+      ? `The last one or two exercises fell short in ${affected.length} of your last ${recent.length} programmed sessions${names.length?` — most often ${names.join(", ")}`:""}. ${missingSets?`${missingSets} prescribed set${missingSets===1?" was":"s were"} missed. `:""}${targetMisses?`${targetMisses} tail exercise result${targetMisses===1?" was":"s were"} below the prescribed reps. `:""}Protect that work by moving it earlier or pairing the final two accessories when time is tight.`
+      : ""};
 }
 
 /* Most exercises require every listed item (dumbbells + a bench). Cable
@@ -2374,7 +2493,7 @@ function buildSessionRules(state, checkin, {bonus=false,regenerateReason=""}={})
     let sets = ex.compound ? phase.sets : Math.max(2, phase.sets-1);
     sets = Math.max(1, sets + adj.setDelta);
     const [lo,hi] = phase.repRange;
-    const reps = ex.compound ? lo : Math.min(hi+3, Math.round((lo+hi)/2)+2);
+    const reps = ex.compound ? lo : Math.min(hi, Math.round((lo+hi)/2)+2);
 
     exercises.push({
       exId: ex.id,
@@ -2573,11 +2692,11 @@ function debriefRules(session, state){
     const dec = session.standalone
       ? {action:"hold",delta:0,label:"Standalone day — program unchanged",color:C.blue}
       : progressionDecision(
-          {lastAvgReps:perf.avgReps, lastEffort:perf.effort},
-          e.repRange || [e.targetReps-2, e.targetReps], inc);
+          {lastAvgReps:perf.avgReps, lastEffort:perf.effort,lastRir:perf.rir},
+          e.repRange || [e.targetReps-2, e.targetReps], inc,clamp(10-Number(e.rpe||8),0,4));
     return {name:e.name, avg:perf.avgReps, target:e.targetReps, dec, weight:perf.weight,
       nextWeight:availableWeight(catalogEx||e,perf.weight+dec.delta,state), sets:perf.allSets,
-      workingSets:perf.sets, total:e.sets, volume:perf.volume};
+      workingSets:perf.sets, total:e.sets, volume:perf.volume,rir:perf.rir};
   }).filter(Boolean);
 
   const ups   = rows.filter(r=>r.dec.action==="up");
@@ -2598,6 +2717,9 @@ function debriefRules(session, state){
   const holds = rows.filter(r=>r.dec.action==="hold");
   if(holds.length && !session.standalone) lines.push(`**Holding:** ${holds.map(r=>r.name).join(", ")}. Chase an extra rep next time and the weight follows.`);
   if(session.swaps?.length) lines.push(`**Exercise swaps:** ${session.swaps.map(sw=>`${sw.fromName} → ${sw.toName} (${SWAP_REASON_BY_KEY[sw.reason]?.short||sw.reason}${sw.discomfortArea?`, ${DISCOMFORT_BY_KEY[sw.discomfortArea]?.label||sw.discomfortArea}`:""})`).join("; ")}.`);
+  if(session.completionContext) lines.push(`**Session context:** ${session.completionContext.label}${session.completionContext.note?` — ${session.completionContext.note}`:""}.`);
+  const tailDropoff=session.standalone ? sessionTailDropoff(state) : sessionTailDropoff(state,session);
+  if(tailDropoff.detected) lines.push(`**Session-tail drop-off:** ${tailDropoff.message}`);
 
   const body = lines.join("\n\n") || "Log your sets and the debrief will have something to work with.";
   const nextFocus = session.standalone
@@ -2606,6 +2728,8 @@ function debriefRules(session, state){
     ? `Keep working around the active ${activeDiscomforts(state).map(x=>DISCOMFORT_BY_KEY[x.area].label.toLowerCase()).join(", ")} flag${activeDiscomforts(state).length===1?"":"s"}. Mark resolved only when the discomfort has settled.`
     : session.readiness?.key==="red"
     ? "You went in under-recovered. Prioritise sleep before the next one."
+    : tailDropoff.detected
+    ? "Protect the final exercises: move the repeatedly missed work earlier, or pair the last two accessories when the clock gets tight."
     : "Same session shape next time, with the adjusted weights above.";
 
   return {
@@ -2616,6 +2740,7 @@ function debriefRules(session, state){
     voiceSummary: plainCoachText(`${headline} ${body} Next session: ${nextFocus}`),
     stats:{ volume: Math.round(totalVolume), exercises: rows.length, sets: rows.reduce((n,r)=>n+r.sets,0) },
     rows,
+    tailDropoff,
     stretches:recommendedStretches(session),
   };
 }
@@ -2659,6 +2784,8 @@ function weeklyReviewRules(state){
     if(dn.length) lines.push(`**Slipping:** ${dn.map(e=>e.name).join(", ")}. Worth checking sleep and food before changing anything in the plan.`);
   }
   if(prog.phase.name==="Deload") lines.push("You're in the deload week. Feeling underworked is the intended outcome.");
+  const tailDropoff=sessionTailDropoff(state);
+  if(tailDropoff.detected) lines.push(`**Session-tail drop-off:** ${tailDropoff.message}`);
 
   const body = lines.join("\n\n");
   const headline = `Week ${prog.week} of ${prog.total} — ${prog.phase.name}`;
@@ -2673,6 +2800,7 @@ function weeklyReviewRules(state){
     standaloneSessions:standalone.length,
     target,
     weekWindow: window,
+    tailDropoff,
   };
 }
 
@@ -2816,7 +2944,7 @@ function profileDigest(state){
 function strengthDigest(state){
   const rows = Object.entries(state.weights)
     .filter(([id])=>EX_BY_ID[id])
-    .map(([id,w])=>`${EX_NAME[id]}: ${w.weight}kg × ${w.lastAvgReps??"?"} reps (felt: ${w.lastEffort||"n/a"}, est 1RM ${estimate1RM(w.weight,w.lastAvgReps||0)}kg)`);
+    .map(([id,w])=>`${EX_NAME[id]}: ${w.weight}kg × ${w.lastAvgReps??"?"} reps (${w.lastRir!=null?`${w.lastRir>=4?"4+":w.lastRir} RIR`:"RIR not recorded"}, est 1RM ${estimate1RM(w.weight,w.lastAvgReps||0)}kg)`);
   return rows.length ? `CURRENT WORKING WEIGHTS:\n${rows.join("\n")}` : "CURRENT WORKING WEIGHTS: none logged yet — this is their first session.";
 }
 
@@ -2857,11 +2985,14 @@ function historyDigest(state, n=8){
       const logged=(e.log||[]).filter(y=>y&&y.reps!=null);
       if(!logged.length) return null;
       const perf=performanceSummary(logged,e.repRange||[Math.max(1,e.targetReps-2),e.targetReps]);
-      return `${EX_NAME[e.exId]||e.exId} working load ${perf.weight}kg, ${perf.sets} set${perf.sets===1?"":"s"} at avg ${perf.avgReps} reps (${perf.effort}); all sets: ${logged.map(y=>`${y.weight}kg×${y.reps}`).join(", ")}`;
+      return `${EX_NAME[e.exId]||e.exId} working load ${perf.weight}kg, ${perf.sets} set${perf.sets===1?"":"s"} at avg ${perf.avgReps} reps (${perf.rir!=null?`${perf.rir>=4?"4+":perf.rir} RIR`:"RIR not recorded"}); all sets: ${logged.map(y=>`${y.weight}kg×${y.reps}${loggedRir(y)!=null?` @ ${loggedRir(y)>=4?"4+":loggedRir(y)} RIR`:""}`).join(", ")}`;
     }).filter(Boolean).join("; ");
     const swaps=(x.swaps||[]).map(sw=>`${sw.fromName} → ${sw.toName} (${SWAP_REASON_BY_KEY[sw.reason]?.short||sw.reason}${sw.discomfortArea?`, ${DISCOMFORT_BY_KEY[sw.discomfortArea]?.label||sw.discomfortArea}`:""})`).join("; ");
+    const missed=(x.exercises||[]).filter(e=>(e.log||[]).filter(y=>y&&y.reps!=null).length<Number(e.sets||0))
+      .map(e=>`${e.name} ${(e.log||[]).filter(y=>y&&y.reps!=null).length}/${e.sets} sets`).join(", ");
+    const context=x.completionContext?` | context: ${x.completionContext.label}${x.completionContext.note?` (${x.completionContext.note})`:""}${x.completionContext.externalConstraint?" [external constraint]":" [not external]"}`:"";
     const status=x.standalone?"STANDALONE · PROGRAM PAUSED · ":x.excludedFromPlanProgress?"EARLIER WEEK ATTEMPT · ":x.bonus?"BONUS · ":"";
-    return `${x.date} [${status}${x.dayName}${x.readiness?`, felt ${x.readiness.label.toLowerCase()}`:""}]: ${ex||"nothing logged"}${swaps?` | swaps: ${swaps}`:""}`;
+    return `${x.date} [${status}${x.dayName}${x.readiness?`, readiness ${x.readiness.label.toLowerCase()}`:""}]: ${ex||"nothing logged"}${missed?` | under prescription: ${missed}`:""}${swaps?` | swaps: ${swaps}`:""}${context}`;
   }).join("\n");
 }
 
@@ -3276,7 +3407,7 @@ Rules:
 - Exactly ${base.exercises.length} exercises, using ids from the catalogue only.
 - Cover the movement patterns above. Keep the balance between pushing and pulling.
 - Set weights from their logged history and the progression it implies. If they hit the top of the rep range last time, add an increment. If they came up short, hold or drop. First time on a lift, pick something conservative. The app validates this progression maths and may correct a proposed load so it never contradicts the logged working set.
-- Respect the phase's rep range and set count, and adjust for their check-in if it warrants it.
+- Respect the phase's rep range and set count, and adjust for their check-in if it warrants it. Never set targetReps above ${sessionPhase.repRange[1]}; the top of the range triggers more load, not more reps.
 - "why" is read at the rack between sets. Make it specific to them and worth reading.`,
         });
         if(!Array.isArray(raw?.exercises) || raw.exercises.length !== base.exercises.length){
@@ -3301,7 +3432,9 @@ Rules:
           return { exId:ex.id, exerciseId:ex.exerciseId, name:ex.name, stations:stationsForExercise(ex, state), pattern:ex.pattern, primary:ex.primary,
             secondary:ex.secondary,compound:ex.compound,kind:ex.kind,cableSetup:ex.cableSetup,
             sets:clamp(r.sets,1,6),
-            targetReps:clamp(r.targetReps,1,30),
+            /* AI copy can vary; phase maths cannot. The phase's upper bound is
+               a hard programming ceiling, including for accessory work. */
+            targetReps:clamp(r.targetReps,sessionPhase.repRange[0],sessionPhase.repRange[1]),
             repRange: base.exercises[0]?.repRange || sessionPhase.repRange,
             weight:calculated.weight, inc:exerciseIncrement(ex,state), rpe:sessionPhase.rpe,
             rest: clamp(r.rest, 30, 240),
@@ -3327,7 +3460,7 @@ Rules:
         const raw = await callAnthropic({
           state, key, model:getModel(), schema:S_EXPLAIN, effort:"low", maxTokens:2500,
           userText:`Coach them through "${ex.name}" (${stationRequirement(ex)}).
-${entry ? `They're currently working at ${entry.weight}kg for about ${entry.lastAvgReps} reps and last logged it as "${entry.lastEffort}".` : "They haven't logged this one before."}
+${entry ? `They're currently working at ${entry.weight}kg for about ${entry.lastAvgReps} reps${entry.lastRir!=null?` at ${entry.lastRir>=4?"4+":entry.lastRir} RIR`:"; the older log has no numeric RIR"}.` : "They haven't logged this one before."}
 
 Write it as if you're standing at the machine with them. Setup, then how to execute the rep, the mistakes you actually see people make on this exercise, and what it should feel like when it's right. Then why it's in their plan specifically.`,
         });
@@ -3346,7 +3479,7 @@ Write it as if you're standing at the machine with them. Setup, then how to exec
         const lines = session.exercises.map(e=>{
           const logged=(e.log||[]).filter(x=>x&&x.reps!=null);
           if(!logged.length) return `${e.name}: not logged`;
-          return `${e.name} — prescribed ${e.weight}kg, ${e.sets}×${e.targetReps} — actual ${logged.map(x=>`${x.weight}kg×${x.reps} (${x.effort||"?"})`).join(", ")}`;
+          return `${e.name} — prescribed ${e.weight}kg, ${e.sets}×${e.targetReps} — actual ${logged.map(x=>`${x.weight}kg×${x.reps} (${loggedRir(x)!=null?`${loggedRir(x)>=4?"4+":loggedRir(x)} RIR`:"RIR not recorded"})`).join(", ")}`;
         }).join("\n");
         const raw = await callAnthropic({
           state, key, model:getModel(), schema:S_DEBRIEF, effort:"medium", maxTokens:3000,
@@ -3357,15 +3490,17 @@ ${lines}
 ${session.swaps?.length ? `Exercise swaps recorded:\n${session.swaps.map(sw=>`${sw.fromName} -> ${sw.toName}: ${SWAP_REASON_BY_KEY[sw.reason]?.label||sw.reason}${sw.discomfortArea?` (${DISCOMFORT_BY_KEY[sw.discomfortArea]?.label||sw.discomfortArea})`:""}`).join("\n")}` : "No exercise swaps were recorded."}
 
 ${session.readiness ? `They went in reading as "${session.readiness.label}".` : ""}
+${session.completionContext ? `Session completion context: ${session.completionContext.label}${session.completionContext.note?` — ${session.completionContext.note}`:""}. Treat external constraints as context, not as a motivation failure.` : ""}
 
 The app's progression calculation, based on the heaviest productive working set, is:
 ${deterministic.rows.map(r=>`${r.name}: ${r.weight}kg working load -> ${r.nextWeight}kg next time (${r.dec.action})`).join("\n")}
 
-Debrief it. What actually happened, what it means for their goal, and what changes next time. Use their numbers. Do not contradict the progression calculation above.${session.standalone?" This was explicitly standalone: say the program remains paused and do not recommend changing its loads or advancing its week.":""} Don't be congratulatory about a session that wasn't good, and don't be grim about one that was fine.`,
+Debrief it. What actually happened, what it means for their goal, and what changes next time. Use their numbers. Do not contradict the progression calculation above.${session.standalone?" This was explicitly standalone: say the program remains paused and do not recommend changing its loads or advancing its week.":""} The app adds its deterministic session-tail warning separately, so do not duplicate that warning. Don't be congratulatory about a session that wasn't good, and don't be grim about one that was fine.`,
         });
         const r = deterministic;
-        return {...r, source:"ai", headline:raw.headline, body:raw.body, nextFocus:raw.nextFocus,
-          voiceSummary:raw.voiceSummary || plainCoachText(`${raw.headline} ${raw.body} Next session: ${raw.nextFocus}`),
+        const body=[raw.body,r.tailDropoff?.detected?`**Session-tail drop-off:** ${r.tailDropoff.message}`:null].filter(Boolean).join("\n\n");
+        return {...r, source:"ai", headline:raw.headline, body, nextFocus:r.tailDropoff?.detected?r.nextFocus:raw.nextFocus,
+          voiceSummary:raw.voiceSummary || plainCoachText(`${raw.headline} ${body} Next session: ${raw.nextFocus}`),
           note:raw.note||""};
       }, rules, "debrief");
     },
@@ -3379,10 +3514,11 @@ Debrief it. What actually happened, what it means for their goal, and what chang
           state, key, model:getModel(), schema:S_REVIEW, effort:"medium", maxTokens:3000,
           userText:`Write their weekly review. Today is ${todayISO()}. This is block week ${blockProgress(state).week} of ${blockProgress(state).total}. Their configured training week runs ${r.weekWindow.start} to ${r.weekWindow.end}, starting ${r.weekWindow.startName}. They completed ${r.sessions} of ${r.target} planned sessions in that training week${r.bonusSessions?`, plus ${r.bonusSessions} optional extra session${r.bonusSessions===1?"":"s"}`:""}${r.standaloneSessions?`, plus ${r.standaloneSessions} standalone away session${r.standaloneSessions===1?"":"s"} that did not advance the block`:""}.
 
-Cover: how the week went, progress against their goal specifically, what's working, and one thing to change. Reference real lifts and numbers from their history. Be honest if the week was poor.`,
+Cover: how the week went, progress against their goal specifically, what's working, and one thing to change. Reference real lifts and numbers from their history. The app appends any deterministic session-tail pattern separately, so do not duplicate it. Be honest if the week was poor.`,
         });
-        return {...r, source:"ai", headline:raw.headline, body:raw.body,
-          voiceSummary:raw.voiceSummary || plainCoachText(`${raw.headline}. ${raw.body}`),
+        const body=[raw.body,r.tailDropoff?.detected?`**Session-tail drop-off:** ${r.tailDropoff.message}`:null].filter(Boolean).join("\n\n");
+        return {...r, source:"ai", headline:raw.headline, body,
+          voiceSummary:raw.voiceSummary || plainCoachText(`${raw.headline}. ${body}`),
           note:raw.note||""};
       }, rules, "review");
     },
@@ -3399,7 +3535,7 @@ Cover: how the week went, progress against their goal specifically, what's worki
       const prog = blockProgress(state), week = trainingWeek(state);
       const logged = (logs||[]).filter(x=>x&&x.reps!=null);
       const setContext = logged.length
-        ? logged.map((x,i)=>`Set ${i+1}: ${x.weight}kg x ${x.reps}, effort ${x.effort||"not rated"}`).join("\n")
+        ? logged.map((x,i)=>`Set ${i+1}: ${x.weight}kg x ${x.reps}, ${loggedRir(x)!=null?`${loggedRir(x)>=4?"4+":loggedRir(x)} RIR`:"RIR not recorded"}`).join("\n")
         : "No sets logged yet.";
       return streamAnthropic({state, key:getKey(), model:getModel(), messages:messages.slice(-6), onDelta, signal, lean:true,
         systemExtra:`LIVE SET COACHING. Today is ${todayISO()}, block week ${prog?.week||"?"}, ${week.startName}-start training week ${week.start} to ${week.end}.
@@ -3412,7 +3548,7 @@ Answer the immediate set question directly and briefly. Use only this exercise c
       const state=getState();
       const rows=(session?.exercises||[]).map(e=>{
         const logged=(e.log||[]).filter(x=>x&&x.reps!=null);
-        return `${e.name}: prescribed ${e.weight}kg, logged ${logged.length?logged.map(x=>`${x.weight}kg x ${x.reps} (${x.effort||"not rated"})`).join(", "):"nothing"}`;
+        return `${e.name}: prescribed ${e.weight}kg, logged ${logged.length?logged.map(x=>`${x.weight}kg x ${x.reps} (${loggedRir(x)!=null?`${loggedRir(x)>=4?"4+":loggedRir(x)} RIR`:"RIR not recorded"})`).join(", "):"nothing"}`;
       }).join("\n");
       return streamAnthropic({state,key:getKey(),model:getModel(),messages:messages.slice(-6),onDelta,signal,lean:true,
         systemExtra:`POST-SESSION CLARIFICATION for the workout just completed.${session?.standalone?" This was a standalone away session while the program was paused; answer about the workout, but do not turn it into a wider programming or load change.":""}\n${rows}\n\nInitial debrief: ${debrief?.headline||""} ${plainCoachText(debrief?.body||"")}\n\nAnswer questions about what happened in this session. Treat the user's clarification as authoritative when it explains an abnormal set, equipment issue, deliberate test, or logging mistake. Do not diagnose symptoms. Do not recommend changing the wider plan merely from one unusual session. If their clarification should stop an AI observation carrying forward, say so plainly. Keep the answer concise.`});
@@ -4283,13 +4419,13 @@ function NumberField({value, onChange, step=1, min=0, max=999, suffix, size="lg"
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   REP PICKER — reps, then how it felt.
+   REP PICKER — reps, then numeric reps in reserve.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function RepPicker({exercise, setIndex, initial, lastWeight, recommended, onSave, onClose}){
+function RepPicker({exercise, setIndex, initial, lastWeight, recommended, recentHistory=[], onSave, onClose}){
   const [step,setStep]     = useState("reps");
   const [reps,setReps]     = useState(initial?.reps ?? recommended?.reps ?? exercise.targetReps);
-  const [effort,setEffort] = useState(initial?.effort ?? null);
+  const [rir,setRir]       = useState(initial ? loggedRir(initial) : null);
   const [saving,setSaving] = useState(false);
   // Editing this set → its own value. Otherwise the weight actually used on the
   // last set, not the planned one, so a mid-exercise drop carries forward.
@@ -4297,21 +4433,38 @@ function RepPicker({exercise, setIndex, initial, lastWeight, recommended, onSave
   const coached = initial?.weight == null && recommended?.weight != null;
   const carried = !coached && initial?.weight == null && lastWeight != null && lastWeight !== exercise.weight;
 
-  const target = recommended?.reps ?? exercise.targetReps;
-  const opts = [...new Set([target-3,target-2,target-1,target,target+1,target+2,target+3].filter(n=>n>=0))];
+  const range=exercise.repRange||[Math.max(1,exercise.targetReps-2),exercise.targetReps];
+  const ceiling=range[1];
+  const target = Math.min(ceiling,recommended?.reps ?? exercise.targetReps);
+  /* Quick targets are a programming ladder, so they stop at the phase ceiling.
+     The editable number still accepts an honest over-range set after the fact. */
+  const opts = [...new Set([target-3,target-2,target-1,target,target+1,target+2,target+3,ceiling]
+    .filter(n=>n>=0&&n<=ceiling))];
   const rc = reps>=target ? C.green : reps>=target*0.75 ? C.yellow : C.red;
+  const gap=Math.round((Number(weight)-Number(exercise.weight))*10)/10;
+  const history=(recentHistory||[]).slice(0,3);
 
   return (<div onClick={onClose} style={{position:"fixed",inset:0,background:C.scrimDeep,zIndex:220,
       display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div className="pop" onClick={e=>e.stopPropagation()} style={{background:C.surface,border:`1px solid ${C.line}`,
-      borderRadius:20,padding:"22px 20px 18px",width:"100%",maxWidth:320,textAlign:"center"}}>
+      borderRadius:20,padding:"22px 20px 18px",width:"100%",maxWidth:340,maxHeight:"92vh",overflowY:"auto",textAlign:"center"}}>
 
       <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,letterSpacing:".08em",marginBottom:2}}>{exercise.name.toUpperCase()}</div>
       <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.ghost,marginBottom:14}}>Set {setIndex+1} of {exercise.sets}</div>
 
       <div style={{display:"flex",justifyContent:"center",gap:6,marginBottom:16}}>
         <div style={{height:3,width:38,borderRadius:2,background:step==="reps"?C.red:C.ghost}}/>
-        <div style={{height:3,width:38,borderRadius:2,background:step==="effort"?C.red:C.ghost}}/>
+        <div style={{height:3,width:38,borderRadius:2,background:step==="rir"?C.red:C.ghost}}/>
+      </div>
+
+      <div style={{background:C.card,border:`1px solid ${C.lineSoft}`,borderRadius:10,padding:"9px 10px",marginBottom:14,textAlign:"left"}}>
+        <div style={{fontSize:"calc(.54rem * var(--ts, 1))",color:C.ghost,fontWeight:800,letterSpacing:".08em",marginBottom:6}}>LAST 3 SESSIONS · WORKING LOAD</div>
+        {history.length ? <div style={{display:"grid",gridTemplateColumns:`repeat(${history.length},minmax(0,1fr))`,gap:5}}>
+          {history.map((h,i)=><div key={`${h.date}-${i}`} style={{background:C.raised,borderRadius:8,padding:"7px 5px",textAlign:"center",minWidth:0}}>
+            <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.text,fontWeight:800}}>{h.weight}kg</div>
+            <div style={{fontSize:"calc(.5rem * var(--ts, 1))",color:C.ghost,marginTop:2}}>{h.date}</div>
+          </div>)}
+        </div> : <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint}}>No completed session for this exercise yet.</div>}
       </div>
 
       {step==="reps" && (<>
@@ -4329,47 +4482,54 @@ function RepPicker({exercise, setIndex, initial, lastWeight, recommended, onSave
             color:reps===n?"#fff":C.dim, fontSize:"calc(.74rem * var(--ts, 1))", fontWeight:700, cursor:"pointer"}}>{n}</button>))}
         </div>
 
-        <div style={{background:C.raised,borderRadius:10,padding:"9px 10px",marginBottom:6}}>
-          <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,marginBottom:5}}>Weight used</div>
-          <NumberField value={weight} onChange={setWeight} step={exercise.inc||2.5}
-            min={0} max={999} suffix="kg" size="sm"/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:7}}>
+          <div style={{background:C.raised,borderRadius:10,padding:"9px 8px"}}>
+            <div style={{fontSize:"calc(.55rem * var(--ts, 1))",color:C.ghost,marginBottom:7}}>PRESCRIBED</div>
+            <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.35rem",color:C.blue}}>{exercise.weight}<span style={{fontSize:".7rem"}}>kg</span></div>
+          </div>
+          <div style={{background:C.raised,border:`1px solid ${gap?C.yellow:C.lineSoft}`,borderRadius:10,padding:"9px 5px"}}>
+            <div style={{fontSize:"calc(.55rem * var(--ts, 1))",color:gap?C.yellow:C.ghost,marginBottom:5}}>ACTUAL</div>
+            <NumberField value={weight} onChange={setWeight} step={exercise.inc||2.5}
+              min={0} max={999} suffix="kg" size="sm"/>
+          </div>
         </div>
-        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:carried?C.yellow:C.ghost,marginBottom:14,lineHeight:1.5}}>
-          {coached ? `Your trainer's target for this set. Session prescription: ${exercise.weight}kg.`
-                   : carried ? `Carried over from your last set. Coach says ${exercise.weight}kg.`
-                   : `Coach says ${exercise.weight}kg.`}
+        <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:gap?C.yellow:carried?C.yellow:C.ghost,marginBottom:14,lineHeight:1.5}}>
+          {gap ? <strong>{Math.abs(gap)}kg {gap<0?"below":"above"} prescription.</strong>
+               : coached ? "Using your trainer's accepted target for this set."
+               : carried ? "Actual load carried over from your last set."
+               : "Actual matches the session prescription."}
         </div>
 
-        <Btn onClick={()=>setStep("effort")} full size="md">HOW DID IT FEEL? →</Btn>
+        <Btn onClick={()=>setStep("rir")} full size="md">RATE REPS IN RESERVE →</Btn>
       </>)}
 
-      {step==="effort" && (<>
-        <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.dim,fontWeight:700,letterSpacing:".1em",marginBottom:4}}>HOW MANY LEFT IN THE TANK?</div>
+      {step==="rir" && (<>
+        <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.dim,fontWeight:700,letterSpacing:".08em",marginBottom:4}}>HOW MANY MORE CLEAN REPS COULD YOU HAVE DONE?</div>
         <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,marginBottom:14}}>{reps} reps at {weight}kg</div>
 
         <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:14}}>
-          {EFFORT.map(e=>(<button key={e.key} onClick={()=>setEffort(e.key)} style={{
+          {RIR_OPTIONS.map(e=>(<button key={e.rir} onClick={()=>setRir(e.rir)} style={{
             width:"100%",padding:"10px 13px",borderRadius:12,cursor:"pointer",display:"flex",
             alignItems:"center",gap:11,textAlign:"left",
-            border:`1.5px solid ${effort===e.key?e.color:C.line}`, background:effort===e.key?`${tint(e.color,0x12)}`:C.raised}}>
-            <span style={{fontSize:"calc(1.3rem * var(--ts, 1))",flexShrink:0}}>{e.emoji}</span>
+            border:`1.5px solid ${rir===e.rir?e.color:C.line}`, background:rir===e.rir?`${tint(e.color,0x12)}`:C.raised}}>
+            <span style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.45rem",color:e.color,width:30,textAlign:"center",flexShrink:0}}>{e.label}</span>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:"calc(.76rem * var(--ts, 1))",fontWeight:700,color:effort===e.key?e.color:C.dim}}>{e.label}</div>
+              <div style={{fontSize:"calc(.72rem * var(--ts, 1))",fontWeight:700,color:rir===e.rir?e.color:C.dim}}>{e.label} RIR</div>
               <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.faint,marginTop:1}}>{e.desc}</div>
             </div>
           </button>))}
         </div>
 
-        {effort && <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.faint,background:C.raised,
+        {rir!=null && <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.faint,background:C.raised,
           border:`1px solid ${C.lineSoft}`,borderRadius:9,padding:"8px 10px",marginBottom:14,lineHeight:1.5}}>
           Log the set and your trainer will give you the next weight, rep target and technique cue.</div>}
 
         <div style={{display:"flex",gap:8}}>
           <Btn kind="ghost" size="md" onClick={()=>setStep("reps")} style={{width:46,padding:0}}>←</Btn>
-          <Btn disabled={!effort||saving} onClick={()=>{
+          <Btn disabled={rir==null||saving} onClick={()=>{
             if(saving) return;
             setSaving(true);
-            onSave({reps,effort,weight});
+            onSave({reps,rir,effort:effortKeyFromRir(rir),weight});
             onClose();
           }} full size="md">{saving?"LOGGING…":"LOG IT ✓"}</Btn>
         </div>
@@ -4395,6 +4555,9 @@ function PostSetCoachSheet({decision,exercise,rest,onApply,onAsk,onClose}){
   return (<Sheet title="YOUR TRAINER" sub={`${exercise.name} · set ${decision.setIndex+1} logged`} onClose={onClose}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
       <Chip color={decision.color}>{actionLabel}</Chip>
+      {!!decision.prescriptionGap && <Chip color={C.yellow}>
+        ACTUAL {Math.abs(decision.prescriptionGap)}KG {decision.prescriptionGap<0?"BELOW":"ABOVE"} PRESCRIBED
+      </Chip>}
       {decision.supersetNext && <Chip color={C.purple}>SUPERSET · GO NEXT</Chip>}
       {remaining!=null && <Chip color={remaining===0?C.green:C.blue}>{remaining===0?"REST DONE":`${remaining}s REST`}</Chip>}
     </div>
@@ -5564,15 +5727,15 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
       {Array.from({length:ex.sets}).map((_,i)=>{
         const l = logs[i];
         const filled = l && l.reps!=null;
-        const eff = filled ? EFFORT_BY_KEY[l.effort] : null;
-        const col = filled ? (eff?.color||C.green) : C.line;
+        const rir = filled ? rirMeta(l) : null;
+        const col = filled ? (rir?.color||C.green) : C.line;
         return (<button key={i} onClick={()=>onLogSet(i)} style={{
           flex:"1 1 60px", minWidth:58, height:52, borderRadius:11, cursor:"pointer",
           border:`1.5px solid ${col}`, background:filled?`${tint(col,0x14)}`:C.raised,
           display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:1}}>
           {filled ? (<>
             <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.15rem",color:col,lineHeight:1}}>{l.reps}</div>
-            <div style={{fontSize:"calc(.52rem * var(--ts, 1))",color:C.faint}}>{l.weight}kg {eff?.emoji}</div>
+            <div style={{fontSize:"calc(.52rem * var(--ts, 1))",color:C.faint}}>{l.weight}kg · {rir?.label} RIR</div>
           </>) : (<>
             <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,fontWeight:700}}>SET {i+1}</div>
             <div style={{fontSize:"calc(.54rem * var(--ts, 1))",color:C.ghost}}>tap to log</div>
@@ -5799,6 +5962,83 @@ function WakeLockNotice({status,onRetry}){
   </Card>);
 }
 
+function TimeRemainingCard({session,onPair}){
+  const [now,setNow]=useState(()=>Date.now());
+  useEffect(()=>{
+    const id=setInterval(()=>setNow(Date.now()),15000);
+    return ()=>clearInterval(id);
+  },[session?.startedAt]);
+  const started=Date.parse(session?.startedAt||"");
+  if(!Number.isFinite(started)) return null;
+  const budget=Math.max(1,Number(session.plannedMinutes||session.checkin?.availableMinutes)||45);
+  const elapsed=Math.max(0,(now-started)/60000);
+  const remainingMinutes=Math.max(0,Math.ceil(budget-elapsed));
+  const unfinished=(session.exercises||[]).map((ex,index)=>({ex,index,setIdx:firstUnloggedSetIndex(ex)})).filter(x=>x.setIdx>=0);
+  const remainingSets=unfinished.reduce((n,x)=>n+Math.max(0,(Number(x.ex.sets)||0)-x.setIdx),0);
+  const estimated=Math.max(1,Math.ceil(unfinished.reduce((seconds,x)=>{
+    const sets=Math.max(0,(Number(x.ex.sets)||0)-x.setIdx);
+    return seconds+sets*40+Math.max(0,sets-1)*(Number(x.ex.rest)||60);
+  },0)/60));
+  const pair=unfinished.length===2 ? unfinished : [];
+  const paired=pair.length===2&&pair[0].ex.superset?.group===pair[1].ex.superset?.group;
+  const canPair=pair.length===2&&!paired&&!pair.some(x=>x.ex.compound||x.ex.superset)
+    && pair[0].ex.pattern!==pair[1].ex.pattern&&pair[0].ex.primary!==pair[1].ex.primary;
+  const tight=unfinished.length>=2&&remainingMinutes<=Math.max(10,estimated+1);
+  return <Card accent={tight?C.orange:C.blue} style={{marginBottom:12,padding:13}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10}}>
+      <div>
+        <div style={{fontSize:"calc(.56rem * var(--ts, 1))",color:tight?C.orange:C.blue,fontWeight:800,letterSpacing:".08em"}}>TIME REMAINING</div>
+        <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,marginTop:3}}>{remainingSets} set{remainingSets===1?"":"s"} · about {estimated} min of work</div>
+      </div>
+      <div style={{textAlign:"right"}}>
+        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.8rem",lineHeight:1,color:tight?C.orange:C.text}}>{remainingMinutes}</div>
+        <div style={{fontSize:"calc(.5rem * var(--ts, 1))",color:C.ghost}}>MIN LEFT</div>
+      </div>
+    </div>
+    {tight&&<div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,lineHeight:1.55,marginTop:9}}>
+      {unfinished.length} lifts remain. {paired
+        ? "The final pair is already supersetted — alternate them and rest after both."
+        : canPair
+        ? `Pair ${pair[0].ex.name} with ${pair[1].ex.name} now; alternate sets and rest after both.`
+        : `Protect ${unfinished[0].ex.name} first, then use the remaining time for the final prescribed work.`}
+    </div>}
+    {tight&&canPair&&<Btn kind="solid" size="sm" full style={{marginTop:9}} onClick={()=>onPair(pair.map(x=>x.index))}>PAIR THE FINAL TWO →</Btn>}
+  </Card>;
+}
+
+function CompletionContextSheet({session,onFinish,onClose}){
+  const [key,setKey]=useState("");
+  const [note,setNote]=useState("");
+  const gap=sessionPrescriptionGap(session);
+  const context=COMPLETION_CONTEXT_BY_KEY[key];
+  const gapText=[
+    gap.missingSets?`${gap.missingSets} prescribed set${gap.missingSets===1?" is":"s are"} unlogged`:null,
+    gap.underRange?`${gap.underRange} exercise${gap.underRange===1?" finished":"s finished"} below the rep range`:null,
+  ].filter(Boolean).join(" and ");
+  return <Sheet title="WHY WAS WORK LEFT?" sub="Tell the log whether you couldn't complete it or chose not to." onClose={onClose}>
+    <Card accent={C.orange} style={{marginBottom:12,padding:12}}>
+      <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,lineHeight:1.55}}>
+        {gapText}. Logged sets will be kept either way.
+      </div>
+    </Card>
+    <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:12}}>
+      {COMPLETION_CONTEXTS.map(x=><button key={x.key} onClick={()=>setKey(x.key)} style={{
+        padding:"11px 12px",borderRadius:11,textAlign:"left",cursor:"pointer",fontSize:"calc(.72rem * var(--ts, 1))",
+        border:`1.5px solid ${key===x.key?(x.externalConstraint?C.blue:C.orange):C.line}`,
+        background:key===x.key?tint(x.externalConstraint?C.blue:C.orange,0x12):C.raised,
+        color:key===x.key?(x.externalConstraint?C.blue:C.orange):C.dim,fontWeight:key===x.key?700:500}}>{x.label}</button>)}
+    </div>
+    <Field label="Context note" hint="Optional. A short fact such as ‘45 minutes of boxing first’ helps the coach interpret the session.">
+      <Input value={note} onChange={e=>setNote(e.target.value.slice(0,180))} placeholder="What happened?"/>
+    </Field>
+    <Btn size="lg" full disabled={!context} onClick={()=>{
+      onFinish({...session,completionContext:{key:context.key,label:context.label,
+        externalConstraint:context.externalConstraint,note:note.trim(),at:new Date().toISOString()}});
+      onClose();
+    }}>SAVE PARTIAL SESSION →</Btn>
+  </Sheet>;
+}
+
 function firstUnloggedSetIndex(ex){
   const sets=Math.max(0,Number(ex?.sets)||0), log=Array.isArray(ex?.log)?ex.log:[];
   for(let i=0;i<sets;i++) if(!log[i]||log[i].reps==null) return i;
@@ -5846,6 +6086,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
   const [explain,setExplain] = useState({});     // exId -> explanation
   const [explaining,setExplaining] = useState({});
   const [confirmEnd,setConfirmEnd] = useState(false);
+  const [finishPrompt,setFinishPrompt] = useState(false);
   const [venue,setVenue]     = useState(false);  // away-gym sheet open
   const [setCoach,setSetCoach] = useState(null); // {exIdx,setIdx}
   const [postSet,setPostSet] = useState(null);   // live trainer verdict after a newly logged set
@@ -5943,6 +6184,19 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
           action:postSet.action,acceptedAt:new Date().toISOString()}}
       : e)}));
     setPostSet(null);
+  }
+
+  function pairFinalTwo(indices){
+    if(!Array.isArray(indices)||indices.length!==2) return;
+    const [first,second]=indices;
+    setSession(s=>({...s,exercises:s.exercises.map((e,i)=>
+      i===first?{...e,superset:{group:"T",position:1,timeSaver:true}}
+      :i===second?{...e,superset:{group:"T",position:2,timeSaver:true}}:e)}));
+  }
+
+  function finishOrExplain(){
+    if(sessionPrescriptionGap(session).incomplete) setFinishPrompt(true);
+    else onFinish(session);
   }
 
   /* The weight actually used on the most recent logged set of an exercise, so
@@ -6044,6 +6298,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     ? supersetPairs(session).find(p=>p.group===focusExercise.superset.group)
     : null;
   const focusPartner=focusPair?.items.find(x=>x.index!==safeFocusIdx)?.ex||null;
+  const tailPattern=sessionTailDropoff(state);
   return (<div className="fade" style={{paddingTop:6,paddingBottom:20}}>
 
     {/* header */}
@@ -6085,6 +6340,11 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
 
     <DiscomfortNotice flags={activeDiscomforts(state)} onResolve={onResolveDiscomfort} compact/>
     <WakeLockNotice status={wakeStatus} onRetry={onRetryWake}/>
+    <TimeRemainingCard session={session} onPair={pairFinalTwo}/>
+    {tailPattern.detected&&<Card accent={C.orange} style={{marginBottom:12,padding:13}}>
+      <div style={{fontSize:"calc(.57rem * var(--ts, 1))",color:C.orange,fontWeight:800,letterSpacing:".08em",marginBottom:5}}>SESSION-TAIL PATTERN</div>
+      <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,lineHeight:1.58}}>{tailPattern.message}</div>
+    </Card>}
 
     {aiOn && session.source!=="ai" && <Card accent={C.yellow} style={{marginBottom:12,padding:14}}>
       <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.yellow,fontWeight:800,letterSpacing:".08em",marginBottom:5}}>
@@ -6231,8 +6491,8 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     <StretchRoutine session={session}/>
 
     <div style={{display:"flex",gap:8,marginTop:16}}>
-      <Btn kind="ghost" size="lg" onClick={()=>setConfirmEnd(true)} style={{flex:1}}>ABANDON</Btn>
-      <Btn kind={loggedSets?"green":"ghost"} size="lg" onClick={()=>onFinish(session)}
+      <Btn kind="ghost" size="lg" onClick={()=>loggedSets?setFinishPrompt(true):setConfirmEnd(true)} style={{flex:1}}>{loggedSets?"END EARLY":"ABANDON"}</Btn>
+      <Btn kind={loggedSets?"green":"ghost"} size="lg" onClick={finishOrExplain}
         disabled={!loggedSets} style={{flex:2}}>FINISH SESSION ✓</Btn>
     </div>
     {!loggedSets && <div style={{textAlign:"center",fontSize:"calc(.64rem * var(--ts, 1))",color:C.ghost,marginTop:8}}>
@@ -6244,6 +6504,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
         initial={(ex.log||[])[picker.setIdx]}
         lastWeight={lastLoggedWeight(ex)}
         recommended={ex.nextSetTarget?.setIndex===picker.setIdx ? ex.nextSetTarget : null}
+        recentHistory={(state.exerciseHistory?.[ex.exId]||[]).slice().sort((a,b)=>String(a.date)<String(b.date)?1:-1).slice(0,3)}
         onSave={d=>saveSet(picker.exIdx,picker.setIdx,d)}
         onClose={()=>setPicker(null)}/>;
     })()}
@@ -6301,9 +6562,15 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
       const ready=!!swap.reason && (swap.reason!=="discomfort"||!!swap.area);
       const optionState=swap.reason==="discomfort"&&swap.area ? stateWithDiscomfort(state,swap.area) : state;
       const options=ready ? exerciseSwapOptions(current,optionState,session) : [];
+      const avoided=Object.entries(effectiveLimits(optionState)).filter(([k,v])=>v&&k!=="note")
+        .map(([k])=>DISCOMFORT_BY_KEY[k]?.label||k);
       return <Sheet title="SWAP EXERCISE" sub={`Replace ${current.name} without changing the plan`} onClose={()=>setSwap(null)}>
         <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.faint,lineHeight:1.65,marginBottom:12}}>
           Tell the coach why. Sets, reps, rest and today's phase stay the same; the replacement load comes from its own history.</div>
+        {!!avoided.length&&<div style={{fontSize:"calc(.63rem * var(--ts, 1))",color:C.blue,lineHeight:1.55,
+          background:tint(C.blue,0x0d),border:`1px solid ${tint(C.blue,0x35)}`,borderRadius:9,padding:"8px 10px",marginBottom:12}}>
+          Avoiding automatically: {avoided.join(", ")}. Unsafe exercise-level substitutions are removed before options appear.
+        </div>}
 
         <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".08em",marginBottom:7}}>WHY ARE YOU SWAPPING?</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:12}}>
@@ -6349,10 +6616,21 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
       </Sheet>;
     })()}
 
-    {confirmEnd && <Confirm message="Abandon this session?" danger confirmLabel="Abandon"
-      sub="Nothing logged will be saved and your weights won't move."
-      onCancel={()=>setConfirmEnd(false)}
-      onConfirm={()=>{ setConfirmEnd(false); skipRest(); setSession(null); }}/>}
+    {confirmEnd && (
+      <Confirm message="Abandon this session?" danger confirmLabel="Abandon"
+        sub="This empty workout draft will be removed. No completed sets exist to save."
+        onCancel={()=>setConfirmEnd(false)}
+        onConfirm={()=>{
+          setConfirmEnd(false);
+          skipRest();
+          setSession(null);
+        }}/>
+    )}
+
+    {finishPrompt && (
+      <CompletionContextSheet session={session}
+        onClose={()=>setFinishPrompt(false)} onFinish={onFinish}/>
+    )}
 
     {regen && <Sheet title="Regenerate today's session" sub={loggedSets
       ? `${loggedSets} logged set${loggedSets===1?"":"s"} will be discarded. The plan itself will not advance.`
@@ -6478,7 +6756,7 @@ function DebriefView({debrief, loading, onDone, aiOn, session, coach, onClarifie
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:"calc(.76rem * var(--ts, 1))",color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</div>
             <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,marginTop:1}}>
-              working {r.weight}kg · {r.workingSets||r.sets} top-load set{(r.workingSets||r.sets)===1?"":"s"} · avg {r.avg} reps</div>
+              working {r.weight}kg · {r.workingSets||r.sets} top-load set{(r.workingSets||r.sets)===1?"":"s"} · avg {r.avg} reps{r.rir!=null?` · ${r.rir>=4?"4+":r.rir} RIR`:""}</div>
           </div>
           <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:r.dec.color,textAlign:"right",flexShrink:0,maxWidth:130,lineHeight:1.4}}>
             {r.weight}kg → {r.nextWeight}kg
@@ -6739,6 +7017,7 @@ function GoalView({state, setState, review, reviewLoading, onReview, aiOn}){
   const [draft,setDraft] = useState(state.goal||{});
   const g = state.goal;
   const meta = g ? GOAL_BY_ID[g.type] : null;
+  const weighInDue=fatLossWeighInDue(state);
 
   const body = state.bodyLog.slice().sort((a,b)=>a.date<b.date?-1:1);
   const latest = body[body.length-1];
@@ -6854,9 +7133,15 @@ function GoalView({state, setState, review, reviewLoading, onReview, aiOn}){
     </Card>
 
     {/* weekly review */}
+    {weighInDue&&<Card accent={C.orange} style={{marginBottom:12,padding:13}}>
+      <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.orange,fontWeight:800,letterSpacing:".08em",marginBottom:5}}>WEEKLY WEIGH-IN REQUIRED</div>
+      <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,lineHeight:1.6}}>
+        Log one bodyweight entry above before generating this fat-loss weekly summary. Training data alone cannot show whether the {start??"starting weight"} → {target??"target"} goal is moving.
+      </div>
+    </Card>}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
       <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".1em"}}>WEEKLY REVIEW</div>
-      <Btn kind="ghost" size="sm" onClick={onReview} disabled={reviewLoading}>
+      <Btn kind="ghost" size="sm" onClick={onReview} disabled={reviewLoading||weighInDue}>
         {reviewLoading ? <><Spinner size={11}/> Writing</> : review ? "Refresh" : "Get it"}
       </Btn>
     </div>
@@ -7546,6 +7831,7 @@ function LogView({state, setState, onRestore, apiKey, initialExerciseId, onIniti
                     {s.planWeek!=null && Number(s.planWeek)!==Number(s.week) && <Chip color={C.orange}>MOVED</Chip>}
                     {s.bonus && <Chip color={C.green}>BONUS</Chip>}
                     {!!s.swaps?.length && <Chip color={C.orange}>{s.swaps.length} SWAP{s.swaps.length===1?"":"S"}</Chip>}
+                    {s.completionContext&&<Chip color={s.completionContext.externalConstraint?C.blue:C.orange}>{s.completionContext.label}</Chip>}
                     {s.readiness && <Chip color={s.readiness.color}>{s.readiness.label}</Chip>}
                   </div>
                 </div>
@@ -7659,6 +7945,7 @@ function LogView({state, setState, onRestore, apiKey, initialExerciseId, onIniti
     {detail && (()=>{
       const h = (state.exerciseHistory[detail]||[]).slice().sort((a,b)=>a.date<b.date?-1:1);
       const ex = EX_BY_ID[detail];
+      const e1rm=h.map(x=>({v:estimate1RM(Number(x.weight),Number(x.avgReps))})).filter(x=>x.v>0);
       return (<Sheet title={EX_NAME[detail]||detail} sub={`${h.length} sessions tracked`} onClose={()=>setDetail(null)}>
         {h.length>=2 && (<div style={{marginBottom:16}}>
           <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".08em",marginBottom:8}}>WEIGHT OVER TIME</div>
@@ -7666,6 +7953,17 @@ function LogView({state, setState, onRestore, apiKey, initialExerciseId, onIniti
           <div style={{display:"flex",justifyContent:"space-between",fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,marginTop:5}}>
             <span>{h[0].weight}kg</span><span>{h[h.length-1].weight}kg</span>
           </div>
+        </div>)}
+        {e1rm.length>=2 && (<div style={{marginBottom:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,marginBottom:8}}>
+            <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.blue,fontWeight:700,letterSpacing:".08em"}}>ESTIMATED 1RM TREND</div>
+            <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint}}>latest {e1rm[e1rm.length-1].v}kg</div>
+          </div>
+          <Sparkline points={e1rm} color={C.blue} height={64}/>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,marginTop:5}}>
+            <span>{e1rm[0].v}kg</span><span>{e1rm[e1rm.length-1].v}kg</span>
+          </div>
+          <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,lineHeight:1.5,marginTop:6}}>Estimated from working load and average reps; use the trend, not one point.</div>
         </div>)}
         <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,fontWeight:700,letterSpacing:".08em",marginBottom:8}}>EVERY SESSION</div>
         <div style={{display:"flex",flexDirection:"column",gap:1}}>
@@ -7740,8 +8038,8 @@ function LogView({state, setState, onRestore, apiKey, initialExerciseId, onIniti
           </div>
           <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
             {logged.length ? logged.map((l,j)=>(
-              <Chip key={j} color={EFFORT_BY_KEY[l.effort]?.color||C.faint}>
-                {l.reps} @ {l.weight}kg {EFFORT_BY_KEY[l.effort]?.emoji}</Chip>
+              <Chip key={j} color={rirMeta(l).color}>
+                {l.reps} @ {l.weight}kg · {rirMeta(l).label} RIR</Chip>
             )) : <span style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.ghost}}>not logged</span>}
           </div>
         </div>);
@@ -7766,9 +8064,11 @@ function ProgressOverview({state,onOpenHistory}){
     const history=(raw||[]).slice().sort((a,b)=>String(a.date)<String(b.date)?-1:1);
     if(history.length<2) return null;
     const first=history[0],last=history[history.length-1];
-    return {id,history,first,last,delta:Math.round((Number(last.weight)-Number(first.weight))*10)/10,
+    const e1rmPoints=history.map(x=>({v:estimate1RM(Number(x.weight),Number(x.avgReps))})).filter(x=>x.v>0);
+    return {id,history,first,last,e1rmPoints,delta:Math.round((Number(last.weight)-Number(first.weight))*10)/10,
       repDelta:Math.round(((Number(last.avgReps)||0)-(Number(first.avgReps)||0))*10)/10};
   }).filter(Boolean).sort((a,b)=>String(a.last.date)<String(b.last.date)?1:-1).slice(0,3);
+  const tailDropoff=sessionTailDropoff(state);
 
   return (<div className="fade" style={{paddingBottom:20}}>
     <Card accent={weekDone>=weekTarget?C.green:C.red} style={{marginBottom:12,padding:18}}>
@@ -7806,9 +8106,14 @@ function ProgressOverview({state,onOpenHistory}){
       </div>
     </Card>}
 
+    {tailDropoff.detected&&<Card accent={C.orange} style={{marginBottom:12,padding:14}}>
+      <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.orange,fontWeight:800,letterSpacing:".08em",marginBottom:5}}>SESSION-TAIL DROP-OFF</div>
+      <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,lineHeight:1.6}}>{tailDropoff.message}</div>
+    </Card>}
+
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10,margin:"18px 0 9px"}}>
       <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,fontWeight:800,letterSpacing:".09em"}}>RECENT LIFT TRENDS</div>
-      <div style={{fontSize:"calc(.57rem * var(--ts, 1))",color:C.ghost}}>working load, not a strength score</div>
+      <div style={{fontSize:"calc(.57rem * var(--ts, 1))",color:C.ghost}}>load + estimated 1RM</div>
     </div>
     {trends.length ? <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {trends.map(t=><button key={t.id} onClick={()=>onOpenHistory?.(t.id)} style={{width:"100%",border:`1px solid ${C.lineSoft}`,
@@ -7823,6 +8128,12 @@ function ProgressOverview({state,onOpenHistory}){
                 :t.repDelta>0?`Load held at ${t.last.weight}kg while average reps rose by ${t.repDelta}.`
                 :`Working load is unchanged at ${t.last.weight}kg across ${t.history.length} logs.`}
             </div>
+            {t.e1rmPoints.length>=2&&<div style={{marginTop:9}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:"calc(.53rem * var(--ts, 1))",color:C.ghost,marginBottom:3}}>
+                <span>EST. 1RM TREND</span><span>{t.e1rmPoints[t.e1rmPoints.length-1].v}kg</span>
+              </div>
+              <Sparkline points={t.e1rmPoints} color={C.blue} height={34}/>
+            </div>}
           </div>
           <span style={{color:t.delta>0?C.green:t.delta<0?C.orange:C.blue,fontWeight:800,flexShrink:0}}>
             {t.delta>0?`+${t.delta}kg`:t.delta<0?`${t.delta}kg`:"HOLD"}
@@ -8320,6 +8631,7 @@ function App(){
   });
 
   const stateRef = useRef(state); stateRef.current = state;
+  const sessionRef= useRef(session); sessionRef.current = session;
   const keyRef   = useRef(apiKey); keyRef.current   = apiKey;
   const modelRef = useRef(model);  modelRef.current = model;
 
@@ -8364,11 +8676,12 @@ function App(){
   },[]);
 
   const setSession = useCallback(updater=>{
-    setSessionRaw(prev=>{
-      const next = typeof updater==="function" ? updater(prev) : updater;
-      try{ next ? localStorage.setItem(ACTIVE_KEY, JSON.stringify(next)) : localStorage.removeItem(ACTIVE_KEY); }catch{}
-      return next;
-    });
+    const next = typeof updater==="function" ? updater(sessionRef.current) : updater;
+    /* Write through before asking React to paint. If the tab is killed on the
+       same tap that logs a set, the set is already durable on disk. */
+    try{ next ? localStorage.setItem(ACTIVE_KEY, JSON.stringify(next)) : localStorage.removeItem(ACTIVE_KEY); }catch{}
+    sessionRef.current=next;
+    setSessionRaw(next);
   },[]);
 
   const setRest = useCallback(r=>{
@@ -8464,7 +8777,9 @@ function App(){
       if(checkin) setState(s=>({...s, checkins:[{date:todayISO(), ...checkin}, ...s.checkins].slice(0,60)}));
       const sess = await coach.todaysSession(checkin, {bonus,regenerateReason});
       if(sess){
-        setSession({...sess, exercises: sess.exercises.map(e=>({...e,
+        setSession({...sess,startedAt:new Date().toISOString(),
+          plannedMinutes:Number(checkin?.availableMinutes)||Number(stateRef.current.profile?.sessionMinutes)||45,
+          exercises: sess.exercises.map(e=>({...e,
           plateLoad:plateHintForExercise(e,stateRef.current),log:Array(e.sets).fill(null)}))});
         built=true;
         if(bonus) setBonusPending(false);
@@ -8501,10 +8816,10 @@ function App(){
       if(!logged.length) return;
       const perf = performanceSummary(logged, e.repRange || [Math.max(1,e.targetReps-2),e.targetReps]);
       weights[e.exId] = { weight:perf.weight, lastAvgReps:perf.avgReps, lastTargetReps:e.targetReps,
-        lastEffort:perf.effort, inc:e.inc||2.5, updated:sess.date };
+        lastRir:perf.rir,lastEffort:perf.effort, inc:e.inc||2.5, updated:sess.date };
       hist[e.exId] = [...(hist[e.exId]||[]), { date:sess.date, station:e.stations?.[0]||null,
         setsLogged:logged.length, workingSets:perf.sets, totalSets:e.sets, avgReps:perf.avgReps, targetReps:e.targetReps,
-        weight:perf.weight, effort:perf.effort, sets:logged.map(x=>({weight:x.weight,reps:x.reps,effort:x.effort})),
+        weight:perf.weight, rir:perf.rir,effort:perf.effort, sets:logged.map(x=>({weight:x.weight,reps:x.reps,rir:loggedRir(x),effort:x.effort})),
         dayName:sess.dayName, sessionId:sess.id }];
     });
 
@@ -8532,6 +8847,9 @@ function App(){
   }
 
   async function runReview(){
+    /* Keep the gate in the action as well as the button: a stale UI, keyboard
+       activation or future caller still cannot generate an ungrounded review. */
+    if(fatLossWeighInDue(stateRef.current)) return;
     setReviewLoading(true);
     try{
       const r = await coach.weeklyReview();
@@ -8694,7 +9012,8 @@ function App(){
                       const hist=(exerciseHistory[id]||[]).filter(x=>x.sessionId!==debriefSession?.id);
                       exerciseHistory[id]=hist;
                       const last=hist[hist.length-1];
-                      if(last) weights[id]={...weights[id],weight:last.weight,lastAvgReps:last.avgReps,lastTargetReps:last.targetReps,lastEffort:last.effort||weights[id]?.lastEffort,updated:last.date};
+                      if(last) weights[id]={...weights[id],weight:last.weight,lastAvgReps:last.avgReps,lastTargetReps:last.targetReps,
+                        lastRir:last.rir??weights[id]?.lastRir,lastEffort:last.effort||weights[id]?.lastEffort,updated:last.date};
                       else delete weights[id];
                     });
                     return {...s,weights,exerciseHistory,sessions:s.sessions.map(x=>x.id===debriefSession?.id?{...x,excludedFromProgression:true}:x)};
