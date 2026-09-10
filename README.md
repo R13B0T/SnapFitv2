@@ -30,6 +30,10 @@ technique cue. Accepting the call preloads the next set. A hold is framed as use
 cleaner reps or an extra rep, rather than as a failure to add weight, and the final set uses the same
 progression calculation as the session debrief.
 
+**The workout screen stays focused.** Focus mode shows one exercise and one large next-set action at a
+time, including round-aware A1/A2 superset hand-offs. *All exercises* is always one tap away when you want
+the complete session. Both views write to the same active session and use the same programming logic.
+
 **Swap the exercise without losing the reason.** Before logging the first set, *Swap exercise*
 records whether equipment was busy, the movement caused discomfort, or the change was a preference,
 then offers up to two available alternatives from the same movement pattern. Sets, reps, rest and
@@ -42,8 +46,8 @@ user marks it resolved on Today or in Settings. An unknown/other area is carried
 guessing which movements are safe. The app clearly treats this as a workout adjustment, not a diagnosis.
 
 **It briefs you before you start.** What today's session is for, what's required of you to
-make it count, and how you'll know you got it right — at the top of the Today screen, before
-the first exercise.
+make it count, and how you'll know you got it right are available in a compact, foldable brief near
+the top of Today, without pushing the first logging action out of reach.
 
 **Warm up and cool down for the session actually in front of you.** Today includes a compact,
 matched warm-up: two minutes of easy movement, up to three dynamic pattern drills, and sensible
@@ -71,7 +75,7 @@ normally when finished. The log and weekly review label it as an extra so attend
 
 **One busy week does not rewrite the whole block.** Plan can set a two-to-five-session target for
 the current block week only. The normal weekly frequency and later weeks stay unchanged. If history
-lands in the wrong block week, Log can move that session's plan placement without changing its real
+lands in the wrong block week, Progress → History can move that session's plan placement without changing its real
 date, exercises, sets or loads. A separate current-week failsafe can move the plan cursor forward
 when missed or imported logs make the app think the user is still in an earlier week; it changes no
 session dates and fabricates no history. The selected week is applied only after pressing *Lock in
@@ -81,10 +85,11 @@ If travel, illness or life breaks up the current week, Plan can restart that wee
 remain visible as earlier attempts but stop counting toward the plan cursor, so the week can be repeated
 cleanly. The restart never deletes history or blindly applies a load increase from the extra volume.
 
-**Today is generated deliberately.** Opening Today shows a readiness check rather than silently
-building a workout. Sleep, energy, soreness, stress, time available and an optional note shape the
-session. A draft can be regenerated with a reason before training; rejecting it does not advance the
-block.
+**Today is generated deliberately.** Opening Today first shows a cockpit for the next workout already
+due in the current block: day, phase, planned time, approximate exercise and set counts, likely muscle
+focus and this week's completion. The compact readiness sheet then captures sleep, energy, soreness,
+stress, time available and an optional note. Skipping uses normal readiness, as before. A draft can be
+regenerated with a reason before training; rejecting it does not advance the block.
 
 **AI and fallback are never blurred together.** The header reflects the most recent real API result,
 not merely whether a key is saved. If an AI request fails, the built-in result remains permanently
@@ -99,9 +104,10 @@ and consumes no message tokens, so reopening the app does not require a manual r
 back again) applies the new split from the next generated session while preserving the current
 block, week, phase, history and weights. It does not silently send the plan back to week one.
 
-**Exercise cards stay out of your way.** They start compact with the lift and target visible;
-tap one to reveal *Coach Says*, set logging, and the Why/How coaching. Finishing its last set
-folds the card closed again and gives it a light-green background, so what's done is obvious.
+**Exercise cards stay out of your way.** Focus mode opens only the current lift; the full-workout view
+starts each card compact with the lift and target visible. Tap one to reveal *Coach Says*, set logging,
+the target explanation and Why/How coaching. Finishing its last set folds the overview card closed again
+and gives it a light-green background, so what's done is obvious.
 
 **The exercise catalogue reflects the whole functional area.** The dumbbell coverage already
 spans every major movement pattern. The Life Fitness Multi-Jungle is modelled as a multi-purpose
@@ -132,7 +138,8 @@ map, rep ranges, why deloads exist, warming up, stretching, recovery, what to do
 Every topic has a comprehension check and the hub tracks what you've covered. An optional
 Advanced layer adds autoregulation, recoverable volume, exercise selection and reading trends;
 it is off by default and can be enabled in Settings. *Hide all learning* removes the entire Learn
-tab when you do not want it in the app; Settings restores it later without deleting reading progress.
+hub when you do not want it in the app; Settings restores it later without deleting reading progress.
+Learn opens from the book button in the header so the main navigation can stay focused on training.
 
 **Ask it anything.** With an API key, the Coach tab is a conversation with something that
 can see your goal, your block and every set you've logged. Only the last eight chat messages
@@ -140,9 +147,11 @@ are sent on each turn, and *New chat* starts clean when the topic changes. Durin
 each exercise also has a focused set chat that sends only that exercise, its logged sets and
 the last six mini-chat messages.
 
-**Goal pace is visible, without pretending it is certain.** After at least two dated body
-measurements and some progress toward a numeric target, the Goal page estimates days remaining
-and a forecast date from the logged rate. It is clearly labelled as a current-pace estimate.
+**Progress is honest and consolidated.** The Progress page brings together current-week adherence,
+block position, Goal and workout History. Recent lift cards report working-load or average-rep changes
+only after two completed exposures; they do not invent a readiness or strength score. After at least two
+dated body measurements and some movement toward a numeric target, Goal estimates days remaining and a
+forecast date from the logged rate, clearly labelled as a current-pace estimate.
 
 ---
 
@@ -253,11 +262,11 @@ while another music app is active. A cue may briefly mix with or duck the music 
 ## Coming from v1
 
 v2 lives at a different URL, so browser storage doesn't carry across. Export a CSV from v1
-(**Weights → Export**) and import it under **Log → Data**. The CSV format is unchanged, so
+(**Weights → Export**) and import it under **Progress → History → Data**. The CSV format is unchanged, so
 your exercise history and working weights come straight over and the coach picks up from
 your real numbers instead of starting you at zero.
 
-**Moving between devices, or restoring after a reset:** use **Log → Data → Export JSON**, then
+**Moving between devices, or restoring after a reset:** use **Progress → History → Data → Export JSON**, then
 **Restore JSON** on the other device. A restore replaces everything, so it shows you what's in
 the file — goal, block, session count, date range and whether it has an API key — and asks you
 to confirm first. A file that isn't a valid backup is rejected with the actual reason, and
@@ -273,7 +282,7 @@ exactly like v1. Settings has an editor — untick what your gym doesn't have, a
 Only ticked equipment ever gets programmed, so it still produces sensible sessions if all
 you have is a bench and some dumbbells.
 
-The full 50-station Watagan Park floor plan is seeded by number. **Log → Loads** holds the
+The full 50-station Watagan Park floor plan is seeded by number. **Progress → History → Loads** holds the
 plate-loaded Hammer Strength starting resistance, whether it applies per arm or to the whole
 machine, and the available plate sizes. Manufacturer values are editable because a placard on the
 physical machine is the final authority. Snap's seeded plate set is 2.5, 5, 10 and 20kg; prescriptions
@@ -399,7 +408,7 @@ npm test
 Three browser-driven test suites cover the app journey, coaching paths and full-block simulation.
 
 - **`test/app.test.js`** — the no-key path end to end: onboarding, check-in, session
-  generation, logging a set, form coaching, finishing, the debrief, every tab, persistence
+  generation, focused and full-workout logging, form coaching, finishing, the debrief, navigation, persistence
   across reload, no horizontal scroll at 320px, zero console errors. Plus the away gym on the
   path that needs no key: presets, what gets programmed, the dumbbell ceiling, reusing a
   remembered venue and forgetting one. Plus both themes, with **WCAG contrast computed from the

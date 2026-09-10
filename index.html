@@ -3940,7 +3940,10 @@ const wakeLock = (()=>{
     document.addEventListener("visibilitychange",()=>{
       if(visible()) acquire(); else release();
     });
-    document.addEventListener("pointerdown",()=>{
+    /* Retry after the tapped control has handled its click. Retrying on
+       pointerdown can remove the warning card before pointerup, shift the
+       layout under the finger and swallow the user's intended action. */
+    document.addEventListener("click",()=>{
       if(wanted&&!sentinel) acquire();
     },{passive:true});
   }
@@ -4087,19 +4090,21 @@ function Sheet({children, onClose, title, sub}){
     window.addEventListener("keydown", onKey);
     return ()=>window.removeEventListener("keydown", onKey);
   },[onClose]);
+  const titleId = title ? `sheet-${String(title).toLowerCase().replace(/[^a-z0-9]+/g,"-")}` : undefined;
   return (<div onClick={onClose} style={{position:"fixed",inset:0,background:C.scrim,zIndex:200,
       display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-    <div className="pop" onClick={e=>e.stopPropagation()} style={{
+    <div className="pop" role="dialog" aria-modal="true" aria-labelledby={titleId}
+      onClick={e=>e.stopPropagation()} style={{
       background:C.surface, border:`1px solid ${C.line}`, borderRadius:"20px 20px 0 0",
       padding:"20px 18px calc(36px + env(safe-area-inset-bottom))", width:"100%", maxWidth:620,
       maxHeight:"88vh", overflowY:"auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,marginBottom:14}}>
         <div style={{minWidth:0}}>
-          {title && <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.4rem",color:C.text,letterSpacing:".05em",lineHeight:1.1}}>{title}</div>}
+          {title && <div id={titleId} style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.4rem",color:C.text,letterSpacing:".05em",lineHeight:1.1}}>{title}</div>}
           {sub && <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.faint,marginTop:4}}>{sub}</div>}
         </div>
-        <button onClick={onClose} style={{background:C.raised,border:"none",color:C.dim,borderRadius:20,
-          width:32,height:32,cursor:"pointer",fontSize:"calc(1rem * var(--ts, 1))",flexShrink:0}}>✕</button>
+        <button onClick={onClose} aria-label="Close" style={{background:C.raised,border:"none",color:C.dim,borderRadius:22,
+          width:44,height:44,cursor:"pointer",fontSize:"calc(1rem * var(--ts, 1))",flexShrink:0}}>✕</button>
       </div>
       {children}
     </div>
@@ -4285,6 +4290,7 @@ function RepPicker({exercise, setIndex, initial, lastWeight, recommended, onSave
   const [step,setStep]     = useState("reps");
   const [reps,setReps]     = useState(initial?.reps ?? recommended?.reps ?? exercise.targetReps);
   const [effort,setEffort] = useState(initial?.effort ?? null);
+  const [saving,setSaving] = useState(false);
   // Editing this set → its own value. Otherwise the weight actually used on the
   // last set, not the planned one, so a mid-exercise drop carries forward.
   const [weight,setWeight] = useState(initial?.weight ?? recommended?.weight ?? lastWeight ?? exercise.weight);
@@ -4360,7 +4366,12 @@ function RepPicker({exercise, setIndex, initial, lastWeight, recommended, onSave
 
         <div style={{display:"flex",gap:8}}>
           <Btn kind="ghost" size="md" onClick={()=>setStep("reps")} style={{width:46,padding:0}}>←</Btn>
-          <Btn disabled={!effort} onClick={()=>{onSave({reps,effort,weight}); onClose();}} full size="md">LOG IT ✓</Btn>
+          <Btn disabled={!effort||saving} onClick={()=>{
+            if(saving) return;
+            setSaving(true);
+            onSave({reps,effort,weight});
+            onClose();
+          }} full size="md">{saving?"LOGGING…":"LOG IT ✓"}</Btn>
         </div>
       </>)}
     </div>
@@ -5255,94 +5266,205 @@ const SCALE = {
   stress:  {label:"Stress",   icon:"🌀", low:"Calm",   high:"Fried",  invert:true,  hint:"Life in general"},
 };
 
-function CheckIn({onSubmit, onSkip, bonus=false, onCancel, defaultMinutes=45, regenerationReason=""}){
+const PATTERN_MUSCLE = {
+  squat:"Quads", hinge:"Hamstrings", lunge:"Legs", push_h:"Chest", push_v:"Shoulders",
+  pull_h:"Back", pull_v:"Back", arms:"Arms", delts:"Shoulders", core:"Core", calf:"Calves",
+};
+
+/* A plan-level preview, not a generated workout. It intentionally avoids the
+   exercise picker because exact choices can differ once the check-in or AI
+   coach is involved. The counts are clearly estimates from the current phase. */
+function nextWorkoutSummary(state,prog){
+  if(!prog) return null;
+  const oneOff=travelOn(state)&&state.travel?.planMode==="oneoff";
+  const split=SPLITS[prog.dpw]||SPLITS[3];
+  const day=oneOff
+    ? {name:`${state.travel.name} · Full body`,slots:[P.SQUAT,P.PUSH_H,P.PULL_H,P.HINGE,P.PUSH_V,P.PULL_V,P.CORE,P.LUNGE]}
+    : split[prog.dayIdx%split.length];
+  const shape=durationShape(state.profile?.sessionMinutes||45);
+  const slots=(day?.slots||[]).slice(0,shape.maxEx);
+  const phase=oneOff?oneOffPhase(state):prog.phase;
+  const phaseSets=Math.max(1,Number(phase?.sets)||2);
+  const accessory=new Set([P.ARMS,P.DELTS,P.CORE,P.CALF]);
+  const estimatedSets=slots.reduce((n,p)=>n+(accessory.has(p)?Math.max(2,phaseSets-1):phaseSets),0);
+  return {
+    dayName:day?.name||"Next workout",duration:Number(state.profile?.sessionMinutes)||45,
+    shape:shape.label,exerciseCount:slots.length,estimatedSets,
+    muscles:[...new Set(slots.map(p=>PATTERN_MUSCLE[p]).filter(Boolean))].slice(0,5),
+  };
+}
+
+function exerciseMatchesMuscle(ex,muscle){
+  const hay=[ex?.primary,...(ex?.secondary||[])].filter(Boolean).join(" ").toLowerCase();
+  const aliases={
+    Quads:["quad"],Hamstrings:["hamstring"],Legs:["quad","hamstring","glute","calf"],
+    Chest:["chest"],Shoulders:["shoulder","delt"],Back:["back","lat"],Arms:["bicep","tricep","arm"],
+    Core:["core","ab"],Calves:["calf","calves"],
+  };
+  return (aliases[muscle]||[String(muscle).toLowerCase()]).some(term=>hay.includes(term));
+}
+
+function estimatedMuscleFreshness(state,muscle){
+  const latest=(state.sessions||[]).filter(s=>(s.exercises||[]).some(ex=>exerciseMatchesMuscle(ex,muscle)))
+    .slice().sort((a,b)=>String(a.date)<String(b.date)?1:-1)[0];
+  if(!latest) return {label:"Ready",color:C.green,note:"No recent logged work"};
+  const age=Math.max(0,daysBetween(latest.date,todayISO()));
+  if(age===0) return {label:"Recovering",color:C.orange,note:"Worked today"};
+  if(age===1) return {label:"Recovering",color:C.yellow,note:"Worked yesterday"};
+  if(age<=3) return {label:"Recent",color:C.blue,note:`Worked ${age} days ago`};
+  return {label:"Ready",color:C.green,note:`Last worked ${age} days ago`};
+}
+
+function CheckIn({state,prog,preview,onSubmit, onSkip, bonus=false, onCancel, defaultMinutes=45, regenerationReason=""}){
   const [v,setV] = useState({sleep:3, energy:3, soreness:2, stress:2,
     availableMinutes:Number(defaultMinutes)||45, note:""});
+  const [open,setOpen] = useState(!!bonus||!!regenerationReason);
   const adj = readinessAdjustment(v);
-  return (<div className="rise" style={{paddingTop:8,paddingBottom:24}}>
-    <SectionTitle sub={bonus
-      ? "The next workout in your current block, added outside your weekly target."
-      : "Thirty seconds. It changes what today looks like."}>
-      {bonus ? "EXTRA SESSION" : "HOW ARE YOU TODAY?"}
+  useEffect(()=>{ if(bonus||regenerationReason) setOpen(true); },[bonus,regenerationReason]);
+  const completed=Math.min(prog?.dayIdx||0,prog?.dpw||0);
+
+  return (<div className="rise" style={{paddingTop:2,paddingBottom:24}}>
+    <SectionTitle sub="Your current block, surfaced before the check-in changes anything.">
+      {bonus?"EXTRA SESSION":"YOUR NEXT WORKOUT"}
     </SectionTitle>
 
-    {bonus && (<Card accent={C.green} style={{marginBottom:14}}>
-      <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.text,fontWeight:700,marginBottom:5}}>
-        Extra day. Same plan.
+    <Card accent={bonus?C.green:C.red} style={{marginBottom:12,padding:18,overflow:"hidden",position:"relative"}}>
+      <div style={{position:"absolute",width:180,height:180,borderRadius:"50%",right:-90,top:-100,
+        background:`radial-gradient(circle,${tint(bonus?C.green:C.red,0x28)},transparent 68%)`,pointerEvents:"none"}}/>
+      <div style={{position:"relative"}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+          <Chip color={bonus?C.green:C.red}>WEEK {prog?.week} / {prog?.total}</Chip>
+          <Chip color={C.purple}>{prog?.phase?.name}</Chip>
+          <Chip color={C.blue}>{preview?.shape||"SESSION"}</Chip>
+        </div>
+        <h1 style={{fontSize:"clamp(2rem,10vw,3rem)",color:C.text,lineHeight:.95,marginBottom:9}}>
+          {(preview?.dayName||"Next workout").toUpperCase()}
+        </h1>
+        <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.faint,lineHeight:1.55}}>
+          {bonus
+            ? "The next workout in your existing rotation. Your weekly target stays the same."
+            : "Built from the next day in your existing plan. The check-in may trim load or volume, not replace the block."}
+        </div>
       </div>
-      <div style={{fontSize:"calc(.7rem * var(--ts, 1))",color:C.faint,lineHeight:1.65}}>
-        The coach will build the next workout in your current split using the same phase, sets,
-        rep range and progression. It advances the block, but your usual weekly target does not change.
-      </div>
-    </Card>)}
+    </Card>
 
-    {regenerationReason && <Card accent={C.orange} style={{marginBottom:14}}>
-      <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.orange,fontWeight:700,letterSpacing:".08em",marginBottom:5}}>
-        REBUILDING TODAY
+    <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:7,marginBottom:12}}>
+      {[
+        [preview?.duration?`${preview.duration}m`:"—","PLANNED TIME"],
+        [preview?.exerciseCount?`UP TO ${preview.exerciseCount}`:"—","EXERCISES"],
+        [preview?.estimatedSets?`≈ ${preview.estimatedSets}`:"—","WORKING SETS"],
+      ].map(([value,label])=><div key={label} style={{background:C.raised,border:`1px solid ${C.lineSoft}`,
+        borderRadius:12,padding:"11px 8px",textAlign:"center",minWidth:0}}>
+        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"calc(1.25rem * var(--ts, 1))",color:C.text,lineHeight:1}}>{value}</div>
+        <div style={{fontSize:"calc(.5rem * var(--ts, 1))",color:C.ghost,letterSpacing:".07em",marginTop:5}}>{label}</div>
+      </div>)}
+    </div>
+
+    {!!preview?.muscles?.length && <Card style={{marginBottom:12,padding:14}}>
+      <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,marginBottom:9}}>
+        <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,fontWeight:800,letterSpacing:".08em"}}>LIKELY MUSCLE FOCUS</div>
+        <div style={{fontSize:"calc(.55rem * var(--ts, 1))",color:C.ghost}}>estimated from logs</div>
       </div>
-      <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.faint,lineHeight:1.6}}>
-        The previous draft was rejected because: <strong style={{color:C.text}}>{regenerationReason}</strong>.
-        Update the check-in below and the coach will build a different session without advancing the plan.
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {preview.muscles.map(m=>{ const fresh=estimatedMuscleFreshness(state,m); return <span key={m} title={fresh.note} style={{
+          display:"inline-flex",alignItems:"center",gap:6,minHeight:32,padding:"5px 9px",borderRadius:999,
+          color:fresh.color,background:tint(fresh.color,0x0f),border:`1px solid ${tint(fresh.color,0x38)}`,
+          fontSize:"calc(.61rem * var(--ts, 1))",fontWeight:700}}>
+          <span style={{width:6,height:6,borderRadius:"50%",background:fresh.color}}/>{m} · {fresh.label}
+        </span>;})}
+      </div>
+      <div style={{fontSize:"calc(.59rem * var(--ts, 1))",color:C.ghost,lineHeight:1.5,marginTop:9}}>
+        These are simple recency labels, not a recovery measurement. Your check-in is the manual adjustment.
       </div>
     </Card>}
 
-    <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:18}}>
-      {Object.entries(SCALE).map(([k,cfg])=>(
-        <Card key={k} style={{padding:14}}>
-          <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:10}}>
-            <span style={{fontSize:"calc(1rem * var(--ts, 1))"}}>{cfg.icon}</span>
-            <span style={{fontSize:"calc(.82rem * var(--ts, 1))",color:C.text,fontWeight:600}}>{cfg.label}</span>
-            <span style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,marginLeft:"auto"}}>{cfg.hint}</span>
+    <Card style={{marginBottom:14,padding:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",gap:10,marginBottom:7}}>
+        <span style={{fontSize:"calc(.67rem * var(--ts, 1))",color:C.dim,fontWeight:700}}>This plan week</span>
+        <span style={{fontSize:"calc(.67rem * var(--ts, 1))",color:C.text,fontWeight:700}}>{completed}/{prog?.dpw||0} planned sessions</span>
+      </div>
+      <div style={{height:5,background:C.lineSoft,borderRadius:3,overflow:"hidden"}}>
+        <div style={{height:"100%",width:`${prog?.dpw?clamp(completed/prog.dpw,0,1)*100:0}%`,background:C.green,borderRadius:3}}/>
+      </div>
+    </Card>
+
+    {regenerationReason && <Card accent={C.orange} style={{marginBottom:12,padding:13}}>
+      <div style={{fontSize:"calc(.6rem * var(--ts, 1))",color:C.orange,fontWeight:800,letterSpacing:".08em",marginBottom:4}}>REBUILDING TODAY</div>
+      <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.faint,lineHeight:1.55}}>
+        “{regenerationReason}” · the workout draft will change; your plan position will not.
+      </div>
+    </Card>}
+
+    <div style={{position:"sticky",bottom:"calc(74px + env(safe-area-inset-bottom))",zIndex:35,
+      padding:"10px 0 6px",background:`linear-gradient(180deg,transparent 0%,${C.bg} 28%)`}}>
+      <Btn size="lg" full onClick={()=>setOpen(true)}>{bonus?"START EXTRA CHECK-IN →":"START CHECK-IN →"}</Btn>
+    </div>
+    <Btn kind="ghost" size="md" full onClick={onSkip} style={{marginTop:8}}>USE NORMAL READINESS</Btn>
+    <div style={{fontSize:"calc(.59rem * var(--ts, 1))",color:C.ghost,lineHeight:1.5,textAlign:"center",marginTop:8}}>
+      Exact exercises and set count are confirmed after the check-in.
+    </div>
+    {bonus && <button onClick={onCancel} style={{width:"100%",background:"transparent",border:"none",minHeight:44,
+      color:C.faint,fontSize:"calc(.7rem * var(--ts, 1))",cursor:"pointer",padding:8}}>Cancel extra session</button>}
+
+    {open && <Sheet title={bonus?"EXTRA SESSION CHECK-IN":"HOW ARE YOU TODAY?"}
+      sub="About 30 seconds. This can adjust today's session only." onClose={()=>setOpen(false)}>
+      {bonus && <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.green,lineHeight:1.55,marginBottom:12}}>
+        Same phase and progression. This advances the workout rotation but does not change your usual weekly target.
+      </div>}
+      {regenerationReason && <div style={{fontSize:"calc(.68rem * var(--ts, 1))",color:C.orange,lineHeight:1.55,marginBottom:12}}>
+        Rebuilding because: <strong>{regenerationReason}</strong>
+      </div>}
+
+      <div style={{display:"flex",flexDirection:"column",marginBottom:14}}>
+        {Object.entries(SCALE).map(([k,cfg])=><div key={k} style={{padding:"10px 0 12px",borderBottom:`1px solid ${C.lineSoft}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+            <span aria-hidden="true">{cfg.icon}</span>
+            <span style={{fontSize:"calc(.76rem * var(--ts, 1))",color:C.text,fontWeight:700}}>{cfg.label}</span>
+            <span style={{fontSize:"calc(.59rem * var(--ts, 1))",color:C.ghost,marginLeft:"auto"}}>{cfg.hint}</span>
           </div>
-          <div style={{display:"flex",gap:5}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(0,1fr))",gap:5}}>
             {[1,2,3,4,5].map(n=>{
-              const on = v[k]===n;
-              const good = cfg.invert ? n<=2 : n>=4;
-              const bad  = cfg.invert ? n>=4 : n<=2;
-              const col  = on ? (good?C.green:bad?C.orange:C.yellow) : C.line;
-              return (<button key={n} onClick={()=>setV(x=>({...x,[k]:n}))} style={{
-                flex:1, height:38, borderRadius:9, cursor:"pointer",
-                border:`1.5px solid ${col}`, background:on?`${tint(col,0x1a)}`:C.raised,
-                color:on?col:C.ghost, fontSize:"calc(.8rem * var(--ts, 1))", fontWeight:700}}>{n}</button>);
+              const selected=v[k]===n;
+              const good=cfg.invert?n<=2:n>=4, bad=cfg.invert?n>=4:n<=2;
+              const col=selected?(good?C.green:bad?C.orange:C.yellow):C.line;
+              return <button key={n} aria-pressed={selected} aria-label={`${cfg.label} ${n} of 5`}
+                onClick={()=>setV(x=>({...x,[k]:n}))} style={{height:44,borderRadius:9,cursor:"pointer",fontWeight:800,
+                  border:`1.5px solid ${col}`,background:selected?tint(col,0x18):C.raised,color:selected?col:C.ghost}}>{n}</button>;
             })}
           </div>
-          <div style={{display:"flex",justifyContent:"space-between",marginTop:5}}>
-            <span style={{fontSize:"calc(.56rem * var(--ts, 1))",color:C.ghost}}>{cfg.low}</span>
-            <span style={{fontSize:"calc(.56rem * var(--ts, 1))",color:C.ghost}}>{cfg.high}</span>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+            <span style={{fontSize:"calc(.53rem * var(--ts, 1))",color:C.ghost}}>{cfg.low}</span>
+            <span style={{fontSize:"calc(.53rem * var(--ts, 1))",color:C.ghost}}>{cfg.high}</span>
           </div>
-        </Card>))}
-    </div>
-
-    <Card style={{marginBottom:12}}>
-      <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.text,fontWeight:600,marginBottom:9}}>⏱ Time available today</div>
-      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-        {[20,30,45,60,90].map(n=><button key={n} onClick={()=>setV(x=>({...x,availableMinutes:n}))} style={{
-          flex:"1 1 48px",height:38,borderRadius:9,cursor:"pointer",fontWeight:700,
-          border:`1.5px solid ${v.availableMinutes===n?C.blue:C.line}`,
-          background:v.availableMinutes===n?tint(C.blue,0x15):C.raised,
-          color:v.availableMinutes===n?C.blue:C.ghost}}>{n}m</button>)}
+        </div>)}
       </div>
-    </Card>
-    <Card style={{marginBottom:16}}>
-      <Field label="Anything the coach should know?" hint="Optional — equipment, a time constraint, or something unusual about the last workout.">
+
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.dim,fontWeight:700,marginBottom:8}}>Time available today</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(0,1fr))",gap:5}}>
+          {[20,30,45,60,90].map(n=><button key={n} aria-pressed={v.availableMinutes===n}
+            onClick={()=>setV(x=>({...x,availableMinutes:n}))} style={{height:44,borderRadius:9,cursor:"pointer",fontWeight:700,
+              border:`1.5px solid ${v.availableMinutes===n?C.blue:C.line}`,
+              background:v.availableMinutes===n?tint(C.blue,0x15):C.raised,
+              color:v.availableMinutes===n?C.blue:C.ghost}}>{n}m</button>)}
+        </div>
+      </div>
+
+      <Field label="Anything the coach should know?" hint="Optional — equipment, time pressure, or something unusual about the last workout.">
         <TextArea value={v.note} onChange={e=>setV(x=>({...x,note:e.target.value.slice(0,300)}))}
-          placeholder="Example: My shoulder feels fine now, but keep pressing conservative."/>
+          placeholder="Example: Keep pressing conservative today." style={{minHeight:68}}/>
       </Field>
-    </Card>
 
-    <Card accent={adj.color} style={{marginBottom:16}}>
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-        <div style={{width:8,height:8,borderRadius:"50%",background:adj.color}}/>
-        <div style={{fontSize:"calc(.8rem * var(--ts, 1))",color:adj.color,fontWeight:700}}>{adj.label}</div>
+      <div style={{border:`1px solid ${tint(adj.color,0x45)}`,background:tint(adj.color,0x0e),borderRadius:12,
+        padding:"11px 12px",marginBottom:14}}>
+        <div style={{fontSize:"calc(.75rem * var(--ts, 1))",color:adj.color,fontWeight:800,marginBottom:4}}>{adj.label}</div>
+        <div style={{fontSize:"calc(.67rem * var(--ts, 1))",color:C.faint,lineHeight:1.55}}>{adj.note}</div>
       </div>
-      <div style={{fontSize:"calc(.73rem * var(--ts, 1))",color:C.faint,lineHeight:1.65}}>{adj.note}</div>
-    </Card>
 
-    <Btn size="lg" full onClick={()=>onSubmit(v)}>{bonus?"BUILD EXTRA SESSION →":"BUILD TODAY'S SESSION →"}</Btn>
-    <button onClick={onSkip} style={{width:"100%",marginTop:10,background:"transparent",border:"none",
-      color:C.ghost,fontSize:"calc(.72rem * var(--ts, 1))",cursor:"pointer",padding:8}}>Skip — just give me the session</button>
-    {bonus && <button onClick={onCancel} style={{width:"100%",background:"transparent",border:"none",
-      color:C.faint,fontSize:"calc(.7rem * var(--ts, 1))",cursor:"pointer",padding:8}}>Cancel extra session</button>}
+      <Btn size="lg" full onClick={()=>{setOpen(false);onSubmit(v);}}>{bonus?"BUILD EXTRA SESSION →":"BUILD TODAY'S SESSION →"}</Btn>
+      <button onClick={()=>{setOpen(false);onSkip();}} style={{width:"100%",marginTop:7,background:"transparent",border:"none",minHeight:44,
+        color:C.ghost,fontSize:"calc(.7rem * var(--ts, 1))",cursor:"pointer",padding:8}}>Skip answers — use normal readiness</button>
+    </Sheet>}
   </div>);
 }
 
@@ -5351,18 +5473,21 @@ function CheckIn({onSubmit, onSkip, bonus=false, onCancel, defaultMinutes=45, re
    ═══════════════════════════════════════════════════════════════════════════ */
 
 function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaining, aiOn,
-                       showWhy=true, showHow=true, onAskCoach, onSwap, onViewHistory}){
+                       showWhy=true, showHow=true, onAskCoach, onSwap, onViewHistory,
+                       focusMode=false, onPrescription}){
   const [open,setOpen] = useState(null);   // "why" | "how" | null
-  const [expanded,setExpanded] = useState(false);
+  const [expanded,setExpanded] = useState(!!focusMode);
   const done  = logs.filter(l=>l&&l.reps!=null).length;
   const all   = done >= ex.sets;
   const avg   = done ? Math.round((logs.filter(l=>l&&l.reps!=null).reduce((n,l)=>n+l.reps,0)/done)*10)/10 : null;
   const videoURL = `https://www.youtube.com/results?search_query=${encodeURIComponent(`${ex.name} exercise technique shorts`)}`;
   const cableSetup=ex.cableSetup||EX_BY_ID[ex.exId]?.cableSetup;
+  const detailsOpen=focusMode||expanded;
 
   useEffect(()=>{
-    if(all){ setExpanded(false); setOpen(null); }
-  },[all]);
+    if(all&&!focusMode){ setExpanded(false); setOpen(null); }
+  },[all,focusMode]);
+  useEffect(()=>{ if(focusMode) setExpanded(true); },[focusMode,ex.exId]);
   useEffect(()=>{
     if((open==="why"&&!showWhy)||(open==="how"&&!showHow)) setOpen(null);
   },[showWhy,showHow]);
@@ -5377,10 +5502,11 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
     background:all?tint(C.green,0x18):C.card}}
     accent={all?C.green:undefined}>
 
-    <button onClick={()=>setExpanded(v=>!v)} aria-expanded={expanded}
-      aria-label={`${expanded?"Close":"Open"} ${ex.name} exercise details`} style={{
+    <button onClick={focusMode?undefined:()=>setExpanded(v=>!v)} aria-expanded={detailsOpen}
+      tabIndex={focusMode?-1:0}
+      aria-label={focusMode?`${ex.name} exercise details`:`${detailsOpen?"Close":"Open"} ${ex.name} exercise details`} style={{
       width:"100%",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,
-      marginBottom:expanded?10:0,padding:0,background:"transparent",border:"none",cursor:"pointer",textAlign:"left"}}>
+      marginBottom:detailsOpen?10:0,padding:0,background:"transparent",border:"none",cursor:focusMode?"default":"pointer",textAlign:"left"}}>
       <div style={{minWidth:0,flex:1}}>
         <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3,flexWrap:"wrap"}}>
           <span style={{fontSize:"calc(.56rem * var(--ts, 1))",color:C.ghost,fontWeight:700}}>{String(idx+1).padStart(2,"0")}</span>
@@ -5402,11 +5528,11 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
         <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.faint,marginTop:2}}>
           {offPlan ? "you're lifting" : `${ex.sets} × ${ex.targetReps}`}</div>
         <div style={{fontSize:"calc(.56rem * var(--ts, 1))",color:all?C.green:C.ghost,marginTop:5,fontWeight:700,
-          letterSpacing:".04em"}}>{expanded?"HIDE ▴":all?"COMPLETE · VIEW ▾":"OPEN ▾"}</div>
+          letterSpacing:".04em"}}>{focusMode?(all?"COMPLETE ✓":`${done}/${ex.sets} SETS`):detailsOpen?"HIDE ▴":all?"COMPLETE · VIEW ▾":"OPEN ▾"}</div>
       </div>
     </button>
 
-    {expanded && (<>
+    {detailsOpen && (<>
 
     {/* The prescription. Never changes as you log, so the target is always on
         screen even after you've overridden the weight. */}
@@ -5420,6 +5546,9 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
         <strong style={{color:C.purple}}>TEMPO</strong> · {ex.tempo}</div>}
       {ex.decisionLabel && (
         <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:ex.decisionColor,marginTop:3}}>{ex.decisionLabel}</div>)}
+      {onPrescription && <button onClick={onPrescription} style={{minHeight:44,marginTop:7,padding:"7px 10px",borderRadius:9,
+        border:`1px solid ${tint(C.blue,0x45)}`,background:tint(C.blue,0x0d),color:C.blue,cursor:"pointer",
+        fontSize:"calc(.66rem * var(--ts, 1))",fontWeight:700}}>Why {ex.weight}kg and {ex.targetReps} reps?</button>}
       {ex.plateLoad && <div style={{fontSize:"calc(.64rem * var(--ts, 1))",color:C.blue,marginTop:4,lineHeight:1.55}}>
         LOAD EACH SIDE: <strong>{ex.plateLoad.perSide}kg</strong>
         {ex.plateLoad.plates?.length?` · ${ex.plateLoad.plates.map(p=>`${p.count}×${p.kg}`).join(" + ")}kg plates`:" · machine resistance only"}
@@ -5459,29 +5588,29 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
     {/* Optional help controls can be hidden in Settings to keep cards lean. */}
     {(showWhy||showHow||aiOn||onSwap||onViewHistory) && <div style={{display:"flex",gap:6,borderTop:`1px solid ${C.lineSoft}`,paddingTop:10,flexWrap:"wrap"}}>
       {showWhy && <button onClick={()=>setOpen(o=>o==="why"?null:"why")} style={{
-        flex:1,padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
+        flex:1,minHeight:44,padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
         border:`1px solid ${open==="why"?tint(C.yellow,0x55):C.line}`,
         background:open==="why"?`${tint(C.yellow,0x0d)}`:"transparent", color:open==="why"?C.yellow:C.dim}}>
         Why this? {open==="why"?"▴":"▾"}
       </button>}
       {showHow && <button onClick={()=>{ setOpen(o=>o==="how"?null:"how"); if(!explanation) onExplain(); }} style={{
-        flex:1,padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
+        flex:1,minHeight:44,padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
         border:`1px solid ${open==="how"?tint(C.blue,0x55):C.line}`,
         background:open==="how"?`${tint(C.blue,0x0d)}`:"transparent", color:open==="how"?C.blue:C.dim}}>
         How to do it {open==="how"?"▴":"▾"}
       </button>}
       {onSwap && done===0 && <button onClick={onSwap} style={{
-        flex:"1 1 100%",padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
+        flex:"1 1 100%",minHeight:44,padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
         border:`1px solid ${tint(C.orange,0x45)}`,background:`${tint(C.orange,0x0d)}`,color:C.orange}}>
         Swap exercise / flag discomfort ↔
       </button>}
       {aiOn && <button onClick={onAskCoach} style={{
-        flex:"1 1 100%",padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
+        flex:"1 1 100%",minHeight:44,padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
         border:`1px solid ${tint(C.green,0x45)}`,background:`${tint(C.green,0x0d)}`,color:C.green}}>
         Ask coach about this set →
       </button>}
       {onViewHistory && <button onClick={onViewHistory} style={{
-        flex:"1 1 100%",padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
+        flex:"1 1 100%",minHeight:44,padding:"8px 10px",borderRadius:9,cursor:"pointer",fontSize:"calc(.68rem * var(--ts, 1))",fontWeight:600,
         border:`1px solid ${tint(C.blue,0x45)}`,background:`${tint(C.blue,0x0d)}`,color:C.blue}}>
         View previous {ex.name} logs →
       </button>}
@@ -5503,7 +5632,7 @@ function ExerciseCard({ex, idx, logs, onLogSet, onExplain, explanation, explaini
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:11}}>
         <a href={videoURL} target="_blank" rel="noopener noreferrer"
           aria-label={`Search YouTube Shorts for ${ex.name}`} style={{
-          flex:"1 1 170px",display:"flex",alignItems:"center",justifyContent:"center",minHeight:38,
+          flex:"1 1 170px",display:"flex",alignItems:"center",justifyContent:"center",minHeight:44,
           padding:"8px 10px",borderRadius:9,border:`1px solid ${tint(C.red,0x66)}`,
           background:tint(C.red,0x12),color:C.red,textDecoration:"none",fontWeight:700,
           fontSize:"calc(.65rem * var(--ts, 1))",letterSpacing:".04em",textAlign:"center"}}>
@@ -5670,6 +5799,41 @@ function WakeLockNotice({status,onRetry}){
   </Card>);
 }
 
+function firstUnloggedSetIndex(ex){
+  const sets=Math.max(0,Number(ex?.sets)||0), log=Array.isArray(ex?.log)?ex.log:[];
+  for(let i=0;i<sets;i++) if(!log[i]||log[i].reps==null) return i;
+  return -1;
+}
+
+/* Supersets advance by round (A1 → A2 → rest), while ordinary exercises
+   advance by exercise. Looking for null slots rather than counting completed
+   sets also handles corrected or deliberately out-of-order logs safely. */
+function nextWorkoutStep(session){
+  const exercises=session?.exercises||[], pairs=supersetPairs(session);
+  const pairByIndex=new Map();
+  pairs.forEach(pair=>pair.items.forEach(item=>pairByIndex.set(item.index,pair)));
+  const handled=new Set();
+  for(let i=0;i<exercises.length;i++){
+    const pair=pairByIndex.get(i);
+    if(pair&&!handled.has(pair.group)){
+      handled.add(pair.group);
+      const rounds=Math.max(...pair.items.map(item=>Math.max(0,Number(item.ex.sets)||0)));
+      for(let setIdx=0;setIdx<rounds;setIdx++){
+        for(const item of pair.items){
+          if(setIdx>=Math.max(0,Number(item.ex.sets)||0)) continue;
+          const row=Array.isArray(item.ex.log)?item.ex.log[setIdx]:null;
+          if(!row||row.reps==null) return {exIdx:item.index,setIdx};
+        }
+      }
+      continue;
+    }
+    if(pair) continue;
+    const setIdx=firstUnloggedSetIndex(exercises[i]);
+    if(setIdx>=0) return {exIdx:i,setIdx};
+  }
+  return null;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    TODAY
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -5689,9 +5853,22 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
   const [supersetCue,setSupersetCue] = useState(null);
   const [regen,setRegen] = useState(false);
   const [regenNote,setRegenNote] = useState("");
+  const [workoutMode,setWorkoutMode] = useState("focus");
+  const [focusIdx,setFocusIdx] = useState(0);
+  const [prescription,setPrescription] = useState(null);
   const prog = blockProgress(state);
+  const preview = nextWorkoutSummary(state,prog);
+  const loggedSets = session ? session.exercises.reduce((n,e)=>n+(e.log||[]).filter(l=>l&&l.reps!=null).length,0) : 0;
+  const totalSets  = session ? session.exercises.reduce((n,e)=>n+(Number(e.sets)||0),0) : 0;
 
-  useEffect(()=>{ setSupersetCue(null); setPostSet(null); },[session?.id]);
+  useEffect(()=>{
+    setSupersetCue(null); setPostSet(null); setWorkoutMode("focus");
+    setFocusIdx(nextWorkoutStep(session)?.exIdx||0);
+  },[session?.id]);
+  useEffect(()=>{
+    const next=nextWorkoutStep(session);
+    if(next) setFocusIdx(next.exIdx);
+  },[session?.id,loggedSets]);
 
   const gymSheet = venue ? (<GymSheet state={state} coach={coach} apiKey={apiKey}
     onApply={t=>{ setTravel(t); setVenue(false); }}
@@ -5802,9 +5979,6 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     setSwap(null);
   }
 
-  const loggedSets = session ? session.exercises.reduce((n,e)=>n+(e.log||[]).filter(l=>l&&l.reps!=null).length,0) : 0;
-  const totalSets  = session ? session.exercises.reduce((n,e)=>n+e.sets,0) : 0;
-
   /* ── no block yet ─────────────────────────────────────────────────────── */
   if(!state.block) return (<Empty icon="🧭" title="No plan yet"
     body="Set a goal and the coach will build you a training block to work through."/>);
@@ -5850,7 +6024,7 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
   if(!session) return (<>
     <VenueRow state={state} onOpen={()=>setVenue(true)}/>
     <DiscomfortNotice flags={activeDiscomforts(state)} onResolve={onResolveDiscomfort} compact/>
-    <CheckIn bonus={bonusPending} onCancel={onCancelBonus} defaultMinutes={state.profile.sessionMinutes}
+    <CheckIn state={state} prog={prog} preview={preview} bonus={bonusPending} onCancel={onCancelBonus} defaultMinutes={state.profile.sessionMinutes}
       regenerationReason={regenerationReason}
       onSubmit={ci=>onGenerate(ci)} onSkip={()=>onGenerate(null)}/>
     {gymSheet}
@@ -5858,7 +6032,18 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
 
   /* ── the session ──────────────────────────────────────────────────────── */
   const readiness = session.readiness;
-  const briefOpen = !session.briefCollapsed;
+  /* New and legacy sessions open directly on the workout. The full briefing
+     remains one tap away and a user's explicit open/closed choice persists. */
+  const briefOpen = session.briefCollapsed===false;
+  const safeFocusIdx=clamp(Number(focusIdx)||0,0,Math.max(0,session.exercises.length-1));
+  const focusExercise=session.exercises[safeFocusIdx]||null;
+  const focusSetIdx=firstUnloggedSetIndex(focusExercise);
+  const suggestedStep=nextWorkoutStep(session);
+  const nextExercise=suggestedStep?session.exercises[suggestedStep.exIdx]:null;
+  const focusPair=focusExercise?.superset
+    ? supersetPairs(session).find(p=>p.group===focusExercise.superset.group)
+    : null;
+  const focusPartner=focusPair?.items.find(x=>x.index!==safeFocusIdx)?.ex||null;
   return (<div className="fade" style={{paddingTop:6,paddingBottom:20}}>
 
     {/* header */}
@@ -5878,6 +6063,25 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
         Regenerate this session
       </button>
     </div>
+
+    {suggestedStep ? <Card accent={C.red} style={{marginBottom:12,padding:13}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+        <div style={{width:34,height:34,borderRadius:10,background:tint(C.red,0x18),color:C.red,
+          display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,flexShrink:0}}>{suggestedStep.exIdx+1}</div>
+        <div style={{minWidth:0,flex:1}}>
+          <div style={{fontSize:"calc(.57rem * var(--ts, 1))",color:C.ghost,fontWeight:800,letterSpacing:".08em"}}>NEXT WORKING SET</div>
+          <div style={{fontSize:"calc(.76rem * var(--ts, 1))",color:C.text,fontWeight:700,marginTop:2,
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nextExercise?.name} · set {suggestedStep.setIdx+1} of {nextExercise?.sets}</div>
+        </div>
+      </div>
+      <Btn size="lg" full onClick={()=>{
+        setWorkoutMode("focus"); setFocusIdx(suggestedStep.exIdx); cues.preload();
+        setPicker({exIdx:suggestedStep.exIdx,setIdx:suggestedStep.setIdx});
+      }}>LOG NEXT SET →</Btn>
+    </Card> : <Card accent={C.green} style={{marginBottom:12,padding:13}}>
+      <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.green,fontWeight:800}}>All prescribed sets are logged ✓</div>
+      <div style={{fontSize:"calc(.66rem * var(--ts, 1))",color:C.faint,marginTop:4}}>Review anything you need, then finish the session when you're ready.</div>
+    </Card>}
 
     <DiscomfortNotice flags={activeDiscomforts(state)} onResolve={onResolveDiscomfort} compact/>
     <WakeLockNotice status={wakeStatus} onRetry={onRetryWake}/>
@@ -5907,7 +6111,8 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
           {session.source==="ai" && briefOpen && <Chip color={C.green}>coached</Chip>}
           <button onClick={()=>setSession(s=>({...s,briefCollapsed:briefOpen}))}
             aria-expanded={briefOpen} aria-label={`${briefOpen?"Fold":"Open"} today's brief`} style={{border:"none",background:"transparent",
-            color:C.blue,fontSize:"calc(.56rem * var(--ts, 1))",fontWeight:800,letterSpacing:".06em",cursor:"pointer",padding:"5px 2px"}}>
+            color:C.blue,fontSize:"calc(.56rem * var(--ts, 1))",fontWeight:800,letterSpacing:".06em",cursor:"pointer",
+            width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",margin:"-8px -8px -8px 0",padding:0}}>
             {briefOpen?"FOLD":"OPEN"}</button>
         </div>
       </div>
@@ -5952,17 +6157,76 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
       </div>
     </div>
 
-    {session.exercises.map((ex,i)=>(
+    <div role="tablist" aria-label="Workout display" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,
+      padding:5,background:C.raised,border:`1px solid ${C.lineSoft}`,borderRadius:13,marginBottom:12}}>
+      {[["focus","Focus mode"],["overview","All exercises"]].map(([mode,label])=>{
+        const active=workoutMode===mode;
+        return <button key={mode} role="tab" aria-selected={active} onClick={()=>setWorkoutMode(mode)} style={{
+          minHeight:44,borderRadius:9,border:`1px solid ${active?tint(C.red,0x55):"transparent"}`,
+          background:active?tint(C.red,0x12):"transparent",color:active?C.text:C.faint,cursor:"pointer",
+          fontSize:"calc(.69rem * var(--ts, 1))",fontWeight:active?800:600}}>{label}</button>;
+      })}
+    </div>
+
+    {workoutMode==="focus" && focusExercise ? (<div className="fade">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:10,marginBottom:8}}>
+        <div>
+          <div style={{fontSize:"calc(.56rem * var(--ts, 1))",color:C.red,fontWeight:800,letterSpacing:".09em"}}>CURRENT EXERCISE</div>
+          <div style={{fontSize:"calc(.67rem * var(--ts, 1))",color:C.faint,marginTop:3}}>
+            {safeFocusIdx+1} of {session.exercises.length} · {focusSetIdx>=0?`set ${focusSetIdx+1} of ${focusExercise.sets}`:"all prescribed sets logged"}
+          </div>
+        </div>
+        {focusExercise.superset && <Chip color={C.purple}>SUPERSET {focusExercise.superset.group}{focusExercise.superset.position}</Chip>}
+      </div>
+
+      {focusExercise.superset && <div style={{fontSize:"calc(.66rem * var(--ts, 1))",lineHeight:1.5,marginBottom:8,
+        color:C.purple,background:tint(C.purple,0x0e),border:`1px solid ${tint(C.purple,0x36)}`,borderRadius:10,padding:"9px 11px"}}>
+        {focusExercise.superset.position===1
+          ? `After this set: ${focusPartner?.name||"the paired movement"} · no rest yet.`
+          : `Finish this paired set, then take the programmed rest before the next round.`}
+      </div>}
+
+      <ExerciseCard key={`${focusExercise.exId}-${safeFocusIdx}-focus`} ex={focusExercise} idx={safeFocusIdx}
+        logs={focusExercise.log||Array(focusExercise.sets).fill(null)} focusMode
+        onLogSet={si=>{ cues.preload(); setPicker({exIdx:safeFocusIdx,setIdx:si}); }}
+        onExplain={()=>doExplain(focusExercise.exId)}
+        explanation={explain[focusExercise.exId]} explaining={explaining[focusExercise.exId]} aiOn={aiOn}
+        showWhy={state.uiPrefs?.showExerciseWhy??true}
+        showHow={state.uiPrefs?.showExerciseHow??true}
+        onPrescription={()=>setPrescription({exIdx:safeFocusIdx})}
+        onSwap={()=>setSwap({exIdx:safeFocusIdx,reason:null,area:null})}
+        onViewHistory={()=>onViewHistory?.(focusExercise.exId)}
+        onAskCoach={()=>setSetCoach({exIdx:safeFocusIdx,setIdx:focusSetIdx>=0?focusSetIdx:Math.max(0,focusExercise.sets-1)})}/>
+
+      <Btn size="lg" full kind={focusSetIdx>=0?"primary":suggestedStep?"solid":"green"}
+        disabled={focusSetIdx<0&&!suggestedStep} onClick={()=>{
+          if(focusSetIdx>=0){ cues.preload(); setPicker({exIdx:safeFocusIdx,setIdx:focusSetIdx}); }
+          else if(suggestedStep) setFocusIdx(suggestedStep.exIdx);
+        }} style={{minHeight:58,marginBottom:8}}>
+        {focusSetIdx>=0?`LOG SET ${focusSetIdx+1} OF ${focusExercise.sets} →`:suggestedStep?"GO TO NEXT UNFINISHED EXERCISE →":"ALL SETS LOGGED ✓"}
+      </Btn>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1.25fr 1fr",gap:6,marginBottom:10}}>
+        <button disabled={safeFocusIdx===0} onClick={()=>setFocusIdx(i=>Math.max(0,i-1))} style={{minHeight:44,borderRadius:10,
+          border:`1px solid ${C.line}`,background:C.raised,color:C.faint,cursor:safeFocusIdx===0?"default":"pointer",opacity:(safeFocusIdx===0 ? .4 : 1)}}>← PREV</button>
+        <button onClick={()=>setWorkoutMode("overview")} style={{minHeight:44,borderRadius:10,border:`1px solid ${C.line}`,
+          background:C.raised,color:C.dim,cursor:"pointer",fontWeight:700}}>ALL EXERCISES</button>
+        <button disabled={safeFocusIdx>=session.exercises.length-1} onClick={()=>setFocusIdx(i=>Math.min(session.exercises.length-1,i+1))} style={{minHeight:44,borderRadius:10,
+          border:`1px solid ${C.line}`,background:C.raised,color:C.faint,cursor:safeFocusIdx>=session.exercises.length-1?"default":"pointer",
+          opacity:(safeFocusIdx>=session.exercises.length-1 ? .4 : 1)}}>NEXT →</button>
+      </div>
+    </div>) : workoutMode==="overview" ? session.exercises.map((ex,i)=>(
       <ExerciseCard key={ex.exId+i} ex={ex} idx={i} logs={ex.log||Array(ex.sets).fill(null)}
         onLogSet={si=>{ cues.preload(); setPicker({exIdx:i,setIdx:si}); }}
         onExplain={()=>doExplain(ex.exId)}
         explanation={explain[ex.exId]} explaining={explaining[ex.exId]} aiOn={aiOn}
         showWhy={state.uiPrefs?.showExerciseWhy??true}
         showHow={state.uiPrefs?.showExerciseHow??true}
+        onPrescription={()=>setPrescription({exIdx:i})}
         onSwap={()=>setSwap({exIdx:i,reason:null,area:null})}
         onViewHistory={()=>onViewHistory?.(ex.exId)}
         onAskCoach={()=>setSetCoach({exIdx:i,setIdx:Math.min((ex.log||[]).filter(x=>x&&x.reps!=null).length,ex.sets-1)})}/>
-    ))}
+    )) : null}
 
     <StretchRoutine session={session}/>
 
@@ -5974,9 +6238,6 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
     {!loggedSets && <div style={{textAlign:"center",fontSize:"calc(.64rem * var(--ts, 1))",color:C.ghost,marginTop:8}}>
       Log at least one set to finish.</div>}
 
-    {/* The rest bar is fixed above the nav — keep it off the buttons. */}
-    {rest && <div style={{height:74}}/>}
-
     {picker && (()=>{
       const ex = session.exercises[picker.exIdx];
       return <RepPicker exercise={ex} setIndex={picker.setIdx}
@@ -5985,6 +6246,44 @@ function TodayView({state, session, setSession, generating, onGenerate, onFinish
         recommended={ex.nextSetTarget?.setIndex===picker.setIdx ? ex.nextSetTarget : null}
         onSave={d=>saveSet(picker.exIdx,picker.setIdx,d)}
         onClose={()=>setPicker(null)}/>;
+    })()}
+
+    {prescription && (()=>{
+      const ex=session.exercises[prescription.exIdx];
+      if(!ex) return null;
+      const history=(state.exerciseHistory?.[ex.exId]||[]).slice().sort((a,b)=>String(a.date)<String(b.date)?-1:1);
+      const last=history[history.length-1];
+      const range=ex.repRange||[Math.max(1,ex.targetReps-2),ex.targetReps];
+      const readinessMult=Number(session.readiness?.loadMult)||1;
+      return <Sheet title="WHY THIS TARGET?" sub={`${ex.name} · ${ex.weight}kg for ${ex.targetReps} reps`}
+        onClose={()=>setPrescription(null)}>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <Card accent={C.blue} style={{padding:13}}>
+            <div style={{fontSize:"calc(.57rem * var(--ts, 1))",color:C.blue,fontWeight:800,letterSpacing:".08em",marginBottom:5}}>PROGRESSION DECISION</div>
+            <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.dim,lineHeight:1.6}}>
+              {ex.decisionLabel||"This is the current working load saved for this exercise."}
+            </div>
+          </Card>
+          <Card style={{padding:13}}>
+            <div style={{fontSize:"calc(.57rem * var(--ts, 1))",color:C.ghost,fontWeight:800,letterSpacing:".08em",marginBottom:5}}>LAST MATCHING WORKOUT</div>
+            <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.dim,lineHeight:1.6}}>
+              {last
+                ? `${last.date}: ${last.weight}kg for ${last.setsLogged||last.workingSets||"?"} logged sets, averaging ${last.avgReps!=null?last.avgReps.toFixed(1):"?"} reps.`
+                : "No completed workout is logged for this exact exercise yet, so the target comes from your starting profile and the equipment's real increments."}
+            </div>
+          </Card>
+          <Card style={{padding:13}}>
+            <div style={{fontSize:"calc(.57rem * var(--ts, 1))",color:C.purple,fontWeight:800,letterSpacing:".08em",marginBottom:5}}>TODAY'S CONSTRAINTS</div>
+            <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.dim,lineHeight:1.6}}>
+              {session.phaseName||"Current phase"} calls for {range[0]}–{range[1]} reps around RPE {ex.rpe||"—"}.
+              {session.readiness ? ` Your check-in is “${session.readiness.label}”${readinessMult!==1?`, so today's load multiplier is ${Math.round(readinessMult*100)}%`:", with no load reduction"}.` : " No readiness reduction was applied."}
+            </div>
+          </Card>
+        </div>
+        <div style={{fontSize:"calc(.63rem * var(--ts, 1))",color:C.ghost,lineHeight:1.55,marginTop:12}}>
+          This explains the prescription already in your workout. Opening it does not recalculate the load or change your plan.
+        </div>
+      </Sheet>;
     })()}
 
     {postSet && <PostSetCoachSheet decision={postSet} exercise={session.exercises[postSet.exIdx]} rest={rest}
@@ -7451,6 +7750,113 @@ function LogView({state, setState, onRestore, apiKey, initialExerciseId, onIniti
   </div>);
 }
 
+function ProgressOverview({state,onOpenHistory}){
+  const prog=blockProgress(state);
+  const week=trainingWeek(state);
+  const currentBlockId=state.block?.id;
+  const weekSessions=(state.sessions||[]).filter(s=>s?.date>=week.start&&s?.date<=week.end
+    && !s.bonus&&!s.standalone&&!s.excludedFromPlanProgress
+    && (!currentBlockId||s.blockId===currentBlockId));
+  const weekTarget=prog?.dpw||state.profile?.daysPerWeek||3;
+  const weekDone=Math.min(weekSessions.length,weekTarget);
+  const totalPlanned=state.block
+    ? Array.from({length:state.block.totalWeeks||0},(_,i)=>targetForPlanWeek(state,i+1)).reduce((n,x)=>n+x,0)
+    : 0;
+  const trends=Object.entries(state.exerciseHistory||{}).map(([id,raw])=>{
+    const history=(raw||[]).slice().sort((a,b)=>String(a.date)<String(b.date)?-1:1);
+    if(history.length<2) return null;
+    const first=history[0],last=history[history.length-1];
+    return {id,history,first,last,delta:Math.round((Number(last.weight)-Number(first.weight))*10)/10,
+      repDelta:Math.round(((Number(last.avgReps)||0)-(Number(first.avgReps)||0))*10)/10};
+  }).filter(Boolean).sort((a,b)=>String(a.last.date)<String(b.last.date)?1:-1).slice(0,3);
+
+  return (<div className="fade" style={{paddingBottom:20}}>
+    <Card accent={weekDone>=weekTarget?C.green:C.red} style={{marginBottom:12,padding:18}}>
+      <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.ghost,fontWeight:800,letterSpacing:".09em",marginBottom:7}}>CURRENT TRAINING WEEK</div>
+      <div style={{display:"flex",alignItems:"flex-end",gap:10,flexWrap:"wrap",marginBottom:7}}>
+        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"3rem",lineHeight:.85,color:C.text}}>{weekDone}/{weekTarget}</div>
+        <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.dim,lineHeight:1.45,paddingBottom:2}}>
+          planned sessions completed<br/><span style={{color:C.ghost}}>{week.start} – {week.end}</span>
+        </div>
+      </div>
+      <div style={{height:6,background:C.lineSoft,borderRadius:3,overflow:"hidden",marginTop:11}}>
+        <div style={{height:"100%",width:`${clamp(weekDone/weekTarget,0,1)*100}%`,background:weekDone>=weekTarget?C.green:C.red,borderRadius:3}}/>
+      </div>
+      <div style={{fontSize:"calc(.65rem * var(--ts, 1))",color:C.faint,lineHeight:1.55,marginTop:9}}>
+        {weekDone>=weekTarget
+          ? "Weekly target met. Bonus and standalone workouts stay in history but are not used to inflate this number."
+          : `${weekTarget-weekDone} planned session${weekTarget-weekDone===1?"":"s"} remaining. Missed days do not reset the block.`}
+      </div>
+    </Card>
+
+    {prog && <Card style={{marginBottom:12,padding:15}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,marginBottom:9}}>
+        <div>
+          <div style={{fontSize:"calc(.58rem * var(--ts, 1))",color:C.purple,fontWeight:800,letterSpacing:".08em"}}>BLOCK MOMENTUM</div>
+          <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.text,fontWeight:700,marginTop:4}}>Week {prog.week} of {prog.total} · {prog.phase.name}</div>
+        </div>
+        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.8rem",color:C.purple,lineHeight:1}}>{prog.pct}%</div>
+      </div>
+      <div style={{height:5,background:C.lineSoft,borderRadius:3,overflow:"hidden"}}>
+        <div style={{height:"100%",width:`${prog.pct}%`,background:C.purple,borderRadius:3}}/>
+      </div>
+      <div style={{fontSize:"calc(.63rem * var(--ts, 1))",color:C.ghost,lineHeight:1.55,marginTop:8}}>
+        {prog.done} completed block session{prog.done===1?"":"s"} across {totalPlanned} planned session slots.
+        {prog.bonusDone?` ${prog.bonusDone} marked as extra.`:""}
+      </div>
+    </Card>}
+
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10,margin:"18px 0 9px"}}>
+      <div style={{fontSize:"calc(.62rem * var(--ts, 1))",color:C.ghost,fontWeight:800,letterSpacing:".09em"}}>RECENT LIFT TRENDS</div>
+      <div style={{fontSize:"calc(.57rem * var(--ts, 1))",color:C.ghost}}>working load, not a strength score</div>
+    </div>
+    {trends.length ? <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {trends.map(t=><button key={t.id} onClick={()=>onOpenHistory?.(t.id)} style={{width:"100%",border:`1px solid ${C.lineSoft}`,
+        background:C.card,borderRadius:14,padding:"13px 14px",textAlign:"left",cursor:"pointer",minHeight:72}}>
+        <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"flex-start"}}>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{fontSize:"calc(.78rem * var(--ts, 1))",color:C.text,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{EX_NAME[t.id]||t.id}</div>
+            <div style={{fontSize:"calc(.61rem * var(--ts, 1))",color:C.ghost,marginTop:3}}>{t.first.date} → {t.last.date}</div>
+            <div style={{fontSize:"calc(.65rem * var(--ts, 1))",color:C.faint,lineHeight:1.5,marginTop:5}}>
+              {t.delta>0?`Working load up ${t.delta}kg from ${t.first.weight}kg to ${t.last.weight}kg.`
+                :t.delta<0?`Latest working load is ${Math.abs(t.delta)}kg below the first log; watch the next few exposures.`
+                :t.repDelta>0?`Load held at ${t.last.weight}kg while average reps rose by ${t.repDelta}.`
+                :`Working load is unchanged at ${t.last.weight}kg across ${t.history.length} logs.`}
+            </div>
+          </div>
+          <span style={{color:t.delta>0?C.green:t.delta<0?C.orange:C.blue,fontWeight:800,flexShrink:0}}>
+            {t.delta>0?`+${t.delta}kg`:t.delta<0?`${t.delta}kg`:"HOLD"}
+          </span>
+        </div>
+      </button>)}
+    </div> : <Card style={{padding:15}}>
+      <div style={{fontSize:"calc(.72rem * var(--ts, 1))",color:C.faint,lineHeight:1.65}}>
+        Log the same exercise in at least two completed workouts to see a trend here. One workout is a baseline, not a verdict.
+      </div>
+    </Card>}
+  </div>);
+}
+
+function ProgressView({state,setState,section,onSectionChange,review,reviewLoading,onReview,aiOn,
+                       onRestore,apiKey,initialExerciseId,onInitialExerciseOpened,onOpenHistory}){
+  const tabs=[["overview","Overview"],["goal","Goal"],["history","History"]];
+  return (<div className="fade" style={{paddingTop:8}}>
+    <SectionTitle sub="Adherence, block position, goal and workout history — without invented scores.">PROGRESS</SectionTitle>
+    <div role="tablist" aria-label="Progress sections" style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",
+      gap:5,padding:5,background:C.raised,border:`1px solid ${C.lineSoft}`,borderRadius:13,marginBottom:14}}>
+      {tabs.map(([id,label])=>{ const active=section===id; return <button key={id} role="tab" aria-selected={active}
+        onClick={()=>onSectionChange(id)} style={{minHeight:44,borderRadius:9,cursor:"pointer",fontSize:"calc(.69rem * var(--ts, 1))",
+          fontWeight:active?800:600,border:`1px solid ${active?tint(C.red,0x55):"transparent"}`,
+          background:active?tint(C.red,0x12):"transparent",color:active?C.text:C.faint}}>{label}</button>;})}
+    </div>
+    {section==="overview" ? <ProgressOverview state={state} onOpenHistory={onOpenHistory}/>
+    : section==="goal" ? <GoalView state={state} setState={setState} review={review}
+        reviewLoading={reviewLoading} onReview={onReview} aiOn={aiOn}/>
+    : <LogView state={state} setState={setState} onRestore={onRestore} apiKey={apiKey}
+        initialExerciseId={initialExerciseId} onInitialExerciseOpened={onInitialExerciseOpened}/>}
+  </div>);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    SETTINGS
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -7870,12 +8276,10 @@ function SettingsView({state, setState, apiKey, setApiKey, model, setModel, coac
 const ACTIVE_KEY = "snapfit_v2_active";
 
 const NAV = [
-  {id:"plan",  label:"Plan",  icon:"🗓"},
   {id:"today", label:"Today", icon:"⚡"},
-  {id:"goal",  label:"Goal",  icon:"🎯"},
+  {id:"plan",  label:"Plan",  icon:"🗓"},
+  {id:"progress",label:"Progress",icon:"↗"},
   {id:"coach", label:"Coach", icon:"💬"},
-  {id:"learn", label:"Learn", icon:"📖"},
-  {id:"log",   label:"Log",   icon:"📋"},
 ];
 
 function App(){
@@ -7883,6 +8287,7 @@ function App(){
   const [apiKey,setApiKey]  = useState(loadKey);
   const [model,setModel]    = useState(loadModel);
   const [view,setView]      = useState("today");
+  const [progressSection,setProgressSection] = useState("overview");
   const [logExerciseId,setLogExerciseId] = useState(null);
   const [session,setSessionRaw] = useState(()=>{
     try{ const r = localStorage.getItem(ACTIVE_KEY); return r ? JSON.parse(r) : null; }catch{ return null; }
@@ -7895,6 +8300,7 @@ function App(){
   const [review,setReview]         = useState(null);
   const [reviewLoading,setReviewLoading]   = useState(false);
   const [offline,setOffline]       = useState(null);
+  const offlineTimerRef            = useRef(null);
   const [bonusPending,setBonusPending] = useState(false);
   const [regenerationReason,setRegenerationReason] = useState("");
   const [updateWorker,setUpdateWorker] = useState(()=>window.__snapfitUpdateWorker||null);
@@ -7992,13 +8398,21 @@ function App(){
   // Hold the screen awake only while a session is actually in progress.
   useEffect(()=>{ wakeLock.setWanted(!!session); },[!!session]);
 
+  useEffect(()=>()=>{
+    if(offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
+  },[]);
+
   const flagOffline = useCallback((kind, err)=>{
     const detail=String(err?.message||"").replace(/\s+/g," ").trim().slice(0,120);
     setOffline({kind, msg: err?.kind==="auth" ? "API key rejected — this result is built-in, not AI-generated."
                         : err?.kind==="rate" ? "Rate limited — this result is built-in, not AI-generated."
                         : err?.kind==="timeout" ? "The coach timed out — this result is built-in, not AI-generated."
                         : `Couldn't reach the coach${detail?` (${detail})`:""} — this result is built-in, not AI-generated.`});
-    setTimeout(()=>setOffline(null), 6000);
+    if(offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
+    offlineTimerRef.current=setTimeout(()=>{
+      setOffline(null);
+      offlineTimerRef.current=null;
+    }, 6000);
   },[]);
 
   const coach = useMemo(()=>makeCoach(
@@ -8063,6 +8477,7 @@ function App(){
   }
 
   function regenerateSession(reason){
+    skipRest();
     setSession(null);
     setRegenerationReason(String(reason||"I want a different session").slice(0,300));
     setView("today");
@@ -8077,6 +8492,7 @@ function App(){
   }
 
   async function finishSession(sess){
+    skipRest();
     const weights = {...stateRef.current.weights};
     const hist    = {...stateRef.current.exerciseHistory};
 
@@ -8153,10 +8569,12 @@ function App(){
      venue row only appears before a session starts — so nothing is lost, and
      silently keeping a session built for the wrong gym would be worse. */
   function setTravel(t){
+    skipRest();
     setState(s=>({...s, travel:normaliseTravel(t)}));
     setSession(null);
   }
   function clearTravel(){
+    skipRest();
     setState(s=>({...s, travel: s.travel ? {...s.travel, active:false} : null}));
     setSession(null);
   }
@@ -8164,6 +8582,7 @@ function App(){
      multi-night stay is one tap a day. This throws the record away, so it stops
      offering itself back. */
   function forgetTravel(){
+    skipRest();
     setState(s=>({...s, travel:null}));
     setSession(null);
   }
@@ -8216,8 +8635,8 @@ function App(){
       <div style={{background:C.bg,borderBottom:`1px solid ${C.lineSoft}`,position:"sticky",top:0,zIndex:60}}>
         {/* minHeight, not height — at the larger text sizes the goal line wraps
             and the header needs to grow with it rather than spill out. */}
-        <div style={{maxWidth:620,margin:"0 auto",padding:"6px 16px",minHeight:54,
-          display:"flex",alignItems:"center",gap:10}}>
+        <div style={{maxWidth:620,margin:"0 auto",padding:"5px 10px",minHeight:54,
+          display:"flex",alignItems:"center",gap:6}}>
           <Logo h={22}/>
           <div style={{width:1,height:16,background:C.line,flexShrink:0}}/>
           <div style={{minWidth:0,flex:1}}>
@@ -8229,8 +8648,11 @@ function App(){
           </div>
           <Chip color={connection.color} onClick={()=>setView("settings")}
             style={{cursor:"pointer"}}>{connection.label}</Chip>
-          <button onClick={()=>setView("settings")} style={{background:"transparent",border:"none",
-            color:view==="settings"?C.red:C.faint,fontSize:"calc(1.05rem * var(--ts, 1))",cursor:"pointer",padding:"4px 2px",flexShrink:0}}>⚙</button>
+          {(state.uiPrefs?.showLearnHub??true) && <button onClick={()=>setView("learn")} aria-label="Open Learn" title="Learn"
+            style={{background:"transparent",border:"none",color:view==="learn"?C.red:C.faint,fontSize:"calc(1rem * var(--ts, 1))",
+              cursor:"pointer",width:40,height:44,borderRadius:10,flexShrink:0}}>📖</button>}
+          <button onClick={()=>setView("settings")} aria-label="Open Settings" title="Settings" style={{background:"transparent",border:"none",
+            color:view==="settings"?C.red:C.faint,fontSize:"calc(1.05rem * var(--ts, 1))",cursor:"pointer",width:40,height:44,borderRadius:10,flexShrink:0}}>⚙</button>
         </div>
         {offline && (<div className="fade" style={{background:`${tint(C.yellow,0x12)}`,borderTop:`1px solid ${tint(C.yellow,0x30)}`,
           padding:"6px 16px"}}>
@@ -8253,7 +8675,8 @@ function App(){
       {/* body */}
       <div style={{flex:1,minHeight:0,display:"flex",flexDirection:"column"}}>
         <div style={{maxWidth:620,margin:"0 auto",padding:"0 16px",width:"100%",flex:1,
-          display:"flex",flexDirection:"column",paddingBottom:"calc(74px + env(safe-area-inset-bottom))"}}>
+          display:"flex",flexDirection:"column",
+          paddingBottom:`calc(${rest?148:74}px + env(safe-area-inset-bottom))`}}>
 
           {debrief || debriefLoading
             ? <DebriefView debrief={debrief} loading={debriefLoading} aiOn={aiOn} session={debriefSession} coach={coach}
@@ -8292,7 +8715,7 @@ function App(){
                                     onRecordDiscomfort={recordDiscomfort} onResolveDiscomfort={resolveDiscomfort}
                                     wakeStatus={wakeStatus} onRetryWake={()=>wakeLock.retry()}
                                     regenerationReason={regenerationReason} onRegenerate={regenerateSession}
-                                    onViewHistory={exId=>{setLogExerciseId(exId);setView("log");}}
+                                    onViewHistory={exId=>{setLogExerciseId(exId);setProgressSection("history");setView("progress");}}
                                     onRetryAI={retryAiSession}/>
             : view==="plan"     ? <PlanView state={state} onReplan={()=>buildBlock()} replanning={replanning} aiOn={aiOn}
                                     onSetWeekTarget={v=>setState(s=>{
@@ -8306,14 +8729,20 @@ function App(){
                                       if(!session) setBonusPending(true);
                                       setView("today");
                                     }}/>
-            : view==="goal"     ? <GoalView state={state} setState={setState} review={review}
-                                    reviewLoading={reviewLoading} onReview={runReview} aiOn={aiOn}/>
+            : view==="progress" ? <ProgressView state={state} setState={setState} section={progressSection}
+                                    onSectionChange={setProgressSection} review={review} reviewLoading={reviewLoading}
+                                    onReview={runReview} aiOn={aiOn} onRestore={restoreState} apiKey={apiKey}
+                                    initialExerciseId={logExerciseId}
+                                    onOpenHistory={id=>{setLogExerciseId(id);setProgressSection("history");}}
+                                    onInitialExerciseOpened={()=>setLogExerciseId(null)}/>
             : view==="coach"    ? <ChatView state={state} setState={setState} coach={coach} aiOn={aiOn}
                                     onGoSettings={()=>setView("settings")}/>
             : view==="learn"    ? <LearnView state={state} setState={setState} onHide={()=>{
                                       setState(s=>({...s,uiPrefs:{...DEFAULT_UI_PREFS,...(s.uiPrefs||{}),showLearnHub:false}}));
                                       setView("today");
                                     }}/>
+            : view==="goal"     ? <GoalView state={state} setState={setState} review={review}
+                                    reviewLoading={reviewLoading} onReview={runReview} aiOn={aiOn}/>
             : view==="log"      ? <LogView state={state} setState={setState} onRestore={restoreState} apiKey={apiKey}
                                     initialExerciseId={logExerciseId} onInitialExerciseOpened={()=>setLogExerciseId(null)}/>
             : <SettingsView state={state} setState={setState} apiKey={apiKey} setApiKey={setApiKey} apiStatus={apiStatus}
@@ -8331,11 +8760,12 @@ function App(){
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.surface,
         borderTop:`1px solid ${C.line}`,zIndex:70,paddingBottom:"env(safe-area-inset-bottom)"}}>
         <div style={{maxWidth:620,margin:"0 auto",display:"flex"}}>
-          {NAV.filter(n=>n.id!=="learn" || (state.uiPrefs?.showLearnHub??true)).map(n=>{
+          {NAV.map(n=>{
             const active = view===n.id;
             const badge = n.id==="today" && session && !debrief;
-            return (<button key={n.id} onClick={()=>{ setView(n.id); setDebrief(null); }} style={{
-              flex:1,border:"none",background:"transparent",cursor:"pointer",padding:"9px 2px 11px",
+            return (<button key={n.id} aria-label={n.label} aria-current={active?"page":undefined}
+              onClick={()=>{ setView(n.id); setDebrief(null); }} style={{
+              flex:1,minHeight:66,border:"none",background:"transparent",cursor:"pointer",padding:"8px 2px 9px",
               position:"relative",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
               <div style={{position:"absolute",top:0,left:"18%",right:"18%",height:2,borderRadius:"0 0 2px 2px",
                 background:active?C.red:"transparent"}}/>

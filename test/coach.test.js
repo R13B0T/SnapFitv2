@@ -24,6 +24,22 @@ function check(name, ok, detail){
   if(!ok) failures++;
 }
 
+async function buildTodaySession(page){
+  const start = page.getByRole("button", {name:/START CHECK-IN/});
+  if(await start.isVisible().catch(()=>false)){
+    await start.click();
+    await page.waitForTimeout(200);
+  }
+  await page.getByRole("button", {name:/BUILD TODAY'S SESSION/}).click();
+}
+
+async function activeExerciseCount(page){
+  return page.evaluate(()=>{
+    try{ return JSON.parse(localStorage.getItem("snapfit_v2_active")||"null")?.exercises?.length||0; }
+    catch{ return 0; }
+  });
+}
+
 const VENDOR = {
   "react.production.min.js": vendor("react.js"),
   "react-dom.production.min.js": vendor("react-dom.js"),
@@ -118,7 +134,7 @@ function mockGym(){
   const errors = [];
   // The browser logs every non-2xx fetch as a console error. Several tests below
   // deliberately fail the API, so those are expected — only count real app errors.
-  const EXPECTED = /Failed to load resource|net::ERR_FAILED|api\.anthropic\.com/i;
+  const EXPECTED = /Failed to load resource|net::ERR_FAILED|api\.anthropic\.com|\[BABEL\] Note: The code generator has deoptimised the styling/i;
   page.on("pageerror", e=>errors.push("pageerror: "+e.message));
   page.on("console", m=>{ if(m.type()==="error" && !EXPECTED.test(m.text())) errors.push(m.text()); });
 
@@ -334,7 +350,7 @@ function mockGym(){
   check("structured output requested", !!lastRequest?.output_config?.format?.schema);
   check("direct-browser header sent", true);
 
-  await page.getByText("BUILD TODAY'S SESSION").click();
+  await buildTodaySession(page);
   await page.waitForTimeout(2500);
   let t = await page.locator("body").innerText();
   check("AI session used", /🤖 coached/.test(t), t.slice(0,220));
@@ -344,7 +360,11 @@ function mockGym(){
   check("brief is requested in the schema", !!lastRequest?.output_config?.format?.schema?.properties?.brief);
   check("brief is required, not optional",
     (lastRequest?.output_config?.format?.schema?.required||[]).includes("brief"));
-  check("AI brief rendered", /Mock brief paragraph one/.test(t), t.slice(0,300));
+  check("AI brief starts folded", /TODAY'S BRIEF/.test(t) && !/Mock brief paragraph one/.test(t), t.slice(0,400));
+  await page.getByRole("button", {name:"Open today's brief", exact:true}).click();
+  await page.getByRole("button", {name:"Fold today's brief", exact:true}).waitFor();
+  t = await page.locator("body").innerText();
+  check("AI brief rendered", /Mock brief paragraph one/.test(t), t.slice(0,500));
   check("AI brief keeps its markdown structure", /What's required/.test(t) && /The standard/.test(t));
 
   const aiExtra = await page.evaluate(async()=>{
@@ -440,7 +460,7 @@ function mockGym(){
     /cable tower with a rope/i.test(scanned.note||""), scanned.note);
   check("dumbbell ceiling stored from the photo", scanned.dumbbellMax===20, `got ${scanned.dumbbellMax}`);
 
-  await page.getByText("BUILD TODAY'S SESSION").click();
+  await buildTodaySession(page);
   await page.waitForTimeout(2500);
   check("the away gym reached the AI request",
     /TRAINING AWAY FROM THEIR USUAL GYM/.test(lastRequest?.system?.[0]?.text||""),
@@ -455,16 +475,16 @@ function mockGym(){
   await page.getByText("TODAY", {exact:true}).last().click(); await page.waitForTimeout(700);
   check("back on the usual gym for the rest of the suite",
     /Your usual gym/.test(await page.locator("body").innerText()));
-  await page.getByText("BUILD TODAY'S SESSION").click();
+  await buildTodaySession(page);
   await page.waitForTimeout(2500);
   check("a home-gym session rebuilds after coming back",
-    await page.locator('button[aria-label$=" exercise details"]').count() >= 2);
+    await activeExerciseCount(page) >= 2);
 
   console.log("\n── AI FALLTHROUGH ───────────────────────────────");
   apiMode = "fail";
   await page.getByText("ABANDON").click(); await page.waitForTimeout(300);
   await page.getByText("Abandon", {exact:true}).click(); await page.waitForTimeout(600);
-  await page.getByText("BUILD TODAY'S SESSION").click();
+  await buildTodaySession(page);
   await page.waitForTimeout(2500);
   t = await page.locator("body").innerText();
   check("falls back to built-in plan", /built-in plan/.test(t), t.slice(0,220));
@@ -477,20 +497,20 @@ function mockGym(){
   check("the failed API result and useful detail are persisted",
     failedStatus?.ok===false && failedStatus?.kind==="http" && /upstream boom/.test(failedStatus?.message||""),
     JSON.stringify(failedStatus));
-  check("session still generated", await page.locator('button[aria-label$=" exercise details"]').count() >= 2);
+  check("session still generated", await activeExerciseCount(page) >= 2);
   check("no crash on API failure", errors.length===0, errors.slice(0,3).join(" | "));
 
   console.log("\n── AUTH FAILURE ─────────────────────────────────");
   apiMode = "auth";
   await page.getByText("ABANDON").click(); await page.waitForTimeout(300);
   await page.getByText("Abandon", {exact:true}).click(); await page.waitForTimeout(600);
-  await page.getByText("BUILD TODAY'S SESSION").click();
+  await buildTodaySession(page);
   await page.waitForTimeout(2200);
   t = await page.locator("body").innerText();
   check("bad key message is specific", /API key rejected/.test(t), t.slice(0,260));
   check("the header identifies a rejected key",
     await page.getByText("KEY REJECTED",{exact:true}).count()===1,t.slice(0,220));
-  check("still produces a session", await page.locator('button[aria-label$=" exercise details"]').count() >= 2);
+  check("still produces a session", await activeExerciseCount(page) >= 2);
 
   console.log("\n── NETWORK DROP MID-SESSION ─────────────────────");
   apiMode = "abort";

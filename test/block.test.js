@@ -248,8 +248,9 @@ const VENDOR={"react.production.min.js":"react.js","react-dom.production.min.js"
     const st=defaultState();
     const incline=platePrescription(47.2,plateLoadConfig(st,"21"));
     const leg=platePrescription(93,plateLoadConfig(st,"35"));
-    const unknown=platePrescription(40,plateLoadConfig(st,"36"));
-    return {incline,leg,unknown,stations:Object.keys(PLATE_LOADED_DEFAULTS).length,
+    const glute=platePrescription(40,plateLoadConfig(st,"36"));
+    return {incline,leg,glute,gluteVerified:PLATE_LOADED_DEFAULTS["36"].verified,
+      stations:Object.keys(PLATE_LOADED_DEFAULTS).length,
       catalogue:SEED_STATIONS.length};
   });
   check("the complete 50-station floor plan plus sandbags is seeded",machineLoads.catalogue===51,String(machineLoads.catalogue));
@@ -259,7 +260,10 @@ const VENDOR={"react.production.min.js":"react.js","react-dom.production.min.js"
   check("linear leg press includes its 53kg carriage and 20kg per side",
     machineLoads.leg.total===93 && machineLoads.leg.baseTotal===53 && machineLoads.leg.perSide===20,
     JSON.stringify(machineLoads.leg));
-  check("an unpublished starting resistance is never guessed",machineLoads.unknown===null,JSON.stringify(machineLoads));
+  check("the gym-confirmed Glute Drive base resistance is used without claiming a manufacturer verification",
+    machineLoads.glute?.baseTotal===20.4 && machineLoads.glute?.total===40.4
+      && machineLoads.gluteVerified===false,
+    JSON.stringify(machineLoads));
 
   console.log("\n── RAMP SETS & BUSY-EQUIPMENT SWAPS ────────────");
   const workingSets = await page.evaluate(()=>{
